@@ -30,7 +30,7 @@ const missing: Engine = {
 };
 const lying: Engine = {
   name: "lying",
-  prepare: () => async () => ({ ...(await working.prepare()(file)), sha256: "0".repeat(64) }),
+  prepare: () => async () => ({ ...(await working.prepare()({ path: file })), sha256: "0".repeat(64) }),
 };
 
 let store: GraphStore;
@@ -39,18 +39,18 @@ afterEach(() => store.close());
 
 describe("loadTarget", () => {
   it("loads with the engines that run and reports the others", async () => {
-    const outcomes = await loadTarget(store, file, [missing, working]);
+    const outcomes = await loadTarget(store, { path: file }, [missing, working]);
     expect(outcomes[0]).toEqual({ engine: "missing", skipped: "not installed; run scripts/setup.sh" });
     expect(outcomes[1]?.loaded?.functions).toBe(1);
   });
 
   it("refuses an engine's result for another file", async () => {
-    const outcomes = await loadTarget(store, file, [lying, working]);
+    const outcomes = await loadTarget(store, { path: file }, [lying, working]);
     expect(outcomes[0]?.skipped).toMatch(/another SHA-256/);
     expect(store.nodesOfKind("binary")).toHaveLength(1);
   });
 
   it("fails, naming every reason, when no engine can run", async () => {
-    await expect(loadTarget(store, file, [missing])).rejects.toThrow(NoEngineError);
+    await expect(loadTarget(store, { path: file }, [missing])).rejects.toThrow(NoEngineError);
   });
 });

@@ -3,6 +3,7 @@
 // in short text otherwise. Exit code 0 on success, 1 on a failure the output describes, 2 on a usage error.
 import { parseArgs } from "node:util";
 import { GraphStore } from "../graph/index.js";
+import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
@@ -11,7 +12,10 @@ import { CliError, fail, print, type Output } from "./output.js";
 
 const USAGE = `usage: atlas <command> [--graph <file>] [--json]
 
-  load <binary>                     analyse a binary with every available engine and add it to the graph
+  load <binary> [--arch <a> --base <0x..>]
+                                    analyse a binary with every available engine and add it to the graph;
+                                    --arch and --base for raw bytes with no header (a 3DS code.bin), where
+                                    <a> is one of ${ARCHITECTURES.join(", ")}
   get function <fn_id|0xaddress>    a function with its callers, callees, strings and hypotheses
   list callers <fn_id|0xaddress>    the functions calling it
   list callees <fn_id|0xaddress>    the functions it calls
@@ -31,6 +35,8 @@ async function main(argv: string[]): Promise<number> {
       options: {
         graph: { type: "string" },
         binary: { type: "string" },
+        arch: { type: "string" },
+        base: { type: "string" },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -52,7 +58,7 @@ async function main(argv: string[]): Promise<number> {
     let output: Output;
     switch (command) {
       case "load":
-        output = await runLoad(store, rest);
+        output = await runLoad(store, rest, values.arch, values.base);
         break;
       case "get":
         output = runGetFunction(store, rest, values.binary);

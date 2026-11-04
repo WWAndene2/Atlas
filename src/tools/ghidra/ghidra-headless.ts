@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { repositoryPath } from "../../graph/index.js";
-import type { EngineAnalysis } from "../engine-analysis.js";
+import type { Architecture, EngineAnalysis, EngineInput } from "../engine-analysis.js";
 import { toolsDir } from "../tools-dir.js";
 import { parseGhidraExport } from "./ghidra-export.js";
 
@@ -45,6 +45,32 @@ export function locateGhidra(env: NodeJS.ProcessEnv = process.env): string {
   return dir;
 }
 
+// Ghidra's language for each architecture Atlas names. Little-endian throughout: the targets in view are.
+const GHIDRA_LANGUAGE: Record<Architecture, string> = {
+  x86: "x86:LE:32:default",
+  x86_64: "x86:LE:64:default",
+  "arm-v5te": "ARM:LE:32:v5t",
+  "arm-v6k": "ARM:LE:32:v6",
+  "arm-v7": "ARM:LE:32:v7",
+  arm64: "AARCH64:LE:64:v8A",
+};
+
+function importArguments(input: EngineInput): string[] {
+  if (input.raw === undefined) {
+    // Keep the file's own addresses: Ghidra rebases position-independent ELF files to 0x100000 by default, which
+    // would make every address disagree with the symbol table and with other engines.
+    return ["-loader-imagebase", "0"];
+  }
+  return [
+    "-loader",
+    "BinaryLoader",
+    "-loader-baseAddr",
+    input.raw.base,
+    "-processor",
+    GHIDRA_LANGUAGE[input.raw.architecture],
+  ];
+}
+
 export interface GhidraRunOptions {
   /** From locateGhidra, which checks the version. */
   installDir: string;
@@ -52,7 +78,7 @@ export interface GhidraRunOptions {
   timeoutMs?: number;
 }
 
-export async function analyseWithGhidra(binaryPath: string, options: GhidraRunOptions): Promise<EngineAnalysis> {
+export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOptions): Promise<EngineAnalysis> {
   const work = await mkdtemp(join(tmpdir(), "atlas-ghidra-"));
   const output = join(work, "export.json");
   try {
@@ -62,11 +88,8 @@ export async function analyseWithGhidra(binaryPath: string, options: GhidraRunOp
         work,
         "atlas",
         "-import",
-        binaryPath,
-        // Keep the file's own addresses: Ghidra rebases position-independent ELF files to 0x100000 by default,
-        // which would make every address disagree with the symbol table and with other engines.
-        "-loader-imagebase",
-        "0",
+        input.path,
+        ...importArguments(input),
         "-scriptPath",
         scriptDir(),
         "-postScript",
@@ -76,7 +99,7 @@ export async function analyseWithGhidra(binaryPath: string, options: GhidraRunOp
       ],
       { timeout: options.timeoutMs ?? 30 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 },
     );
-    if (!existsSync(output)) throw new Error(`Ghidra wrote no export for ${binaryPath}`);
+    if (!existsSync(output)) throw new Error(`Ghidra wrote no export for ${input.path}`);
     return parseGhidraExport(await readFile(output, "utf8"));
   } finally {
     await rm(work, { recursive: true, force: true });

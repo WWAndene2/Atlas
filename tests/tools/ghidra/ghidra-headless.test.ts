@@ -72,7 +72,7 @@ describe("Ghidra on stripped Lua", () => {
     "finds the functions of the symbol build at their addresses",
     { timeout: 10 * 60 * 1000 },
     async () => {
-      const analysis = await analyseWithGhidra(join(lua, "lua.stripped"), { installDir: locateGhidra() });
+      const analysis = await analyseWithGhidra({ path: join(lua, "lua.stripped") }, { installDir: locateGhidra() });
       const truth = new Set(
         execFileSync("nm", ["--defined-only", join(lua, "lua.symbols")], { encoding: "utf8" })
           .split("\n")

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { GraphStore } from "../graph/index.js";
+import type { EngineInput } from "../tools/engine-analysis.js";
 import { ENGINES, type Engine } from "./engines.js";
 import { loadAnalysis, type LoadResult } from "./load-binary.js";
 
@@ -21,20 +22,20 @@ export class NoEngineError extends Error {
 
 export async function loadTarget(
   store: GraphStore,
-  binaryPath: string,
+  input: EngineInput,
   engines: readonly Engine[] = ENGINES,
 ): Promise<EngineOutcome[]> {
   const sha256 = createHash("sha256")
-    .update(await readFile(binaryPath))
+    .update(await readFile(input.path))
     .digest("hex");
   const outcomes: EngineOutcome[] = [];
   for (const engine of engines) {
     try {
       const analyse = engine.prepare();
-      const analysis = await analyse(binaryPath);
+      const analysis = await analyse(input);
       // An engine reporting another file's hash would attach its facts to the wrong binary.
       if (analysis.sha256 !== sha256) throw new Error(`${engine.name} analysed a file with another SHA-256`);
-      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, binaryPath, analysis) });
+      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, input.path, analysis) });
     } catch (error) {
       outcomes.push({ engine: engine.name, skipped: (error as Error).message });
     }

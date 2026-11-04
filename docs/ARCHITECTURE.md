@@ -74,7 +74,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   Version 12.1.4 on Java 21, found through `GHIDRA_INSTALL_DIR`. Each run imports the binary into a temporary
   project at its own addresses (`-loader-imagebase 0`; Ghidra would otherwise rebase position-independent files),
   and Atlas's script `scripts/AtlasExport.java` writes functions, calls and strings as JSON, which the adapter
-  validates before use.
+  validates before use. A raw image with no header (a 3DS `code.bin`, a ROM) is loaded with the CPU and base address
+  the operator gives (`atlas load <file> --arch arm-v6k --base 0x100000`); the architecture names are Atlas's own
+  (`src/tools/engine-analysis.ts`), mapped to each engine's identifiers in its adapter.
 - **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).

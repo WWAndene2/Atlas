@@ -94,6 +94,15 @@ describe("atlas CLI", () => {
     expect(r.stdout).toBe("{");
   });
 
+  it("checks the raw-image options before loading", () => {
+    expect(atlas("load", cli, "--arch", "arm-v6k")).toMatchObject({ code: 2, out: { error: { code: "usage" } } });
+    expect(atlas("load", cli, "--arch", "z80", "--base", "0x0")).toMatchObject({
+      code: 2,
+      out: { error: { message: expect.stringContaining("arm-v6k") } },
+    });
+    expect(atlas("load", cli, "--arch", "arm-v6k", "--base", "100000")).toMatchObject({ code: 2 });
+  });
+
   it("reports why no engine could load a binary", () => {
     const { code, out } = atlas("load", cli);
     expect(code).toBe(1);

@@ -95,6 +95,18 @@ else
   lack "Lua fixture" "install curl, make and a C compiler (apt install build-essential), then run this again"
 fi
 
+step "ARM ground-truth fixture (3DS-like raw image)"
+if ! have arm-none-eabi-gcc && have apt-get; then
+  as_root apt-get install -y -qq gcc-arm-none-eabi libnewlib-arm-none-eabi >/dev/null 2>&1 ||
+    { as_root apt-get update -qq >/dev/null 2>&1 &&
+      as_root apt-get install -y -qq gcc-arm-none-eabi libnewlib-arm-none-eabi >/dev/null 2>&1; } || true
+fi
+if "$repo/tests/fixtures/lua-arm/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-arm/build"
+else
+  lack "Lua ARM fixture" "apt install gcc-arm-none-eabi libnewlib-arm-none-eabi, then run this again"
+fi
+
 step "atlas command"
 launcher_dir="$HOME/.local/bin"
 mkdir -p "$launcher_dir"
