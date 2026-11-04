@@ -27,7 +27,9 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     Ghidra's C for the binary's functions (all without --function), added
                                     as rewrite hypotheses; load the file first
   propose rewrite <fn|0x> --source <file.c> --name <function> [--prelude ghidra]
-                                    an agent's C for a function
+                  [--last <fn|0x> --last-name <function>]
+                                    an agent's C for a function, or with --last for the run of neighbouring
+                                    functions up to that one (when they jump to each other)
   verify <hyp_id|all> --cc <compiler> [--cflags="<flags>"]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details
@@ -50,6 +52,8 @@ async function main(argv: string[]): Promise<number> {
         source: { type: "string" },
         name: { type: "string" },
         prelude: { type: "string" },
+        last: { type: "string" },
+        "last-name": { type: "string" },
         cc: { type: "string" },
         cflags: { type: "string" },
         base: { type: "string" },
@@ -93,6 +97,8 @@ async function main(argv: string[]): Promise<number> {
           ...(values.name !== undefined ? { name: values.name } : {}),
           ...(values.prelude !== undefined ? { prelude: values.prelude } : {}),
           ...(values.binary !== undefined ? { binary: values.binary } : {}),
+          ...(values.last !== undefined ? { last: values.last } : {}),
+          ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
         });
         break;
       case "verify":

@@ -55,7 +55,9 @@ There are two kinds of work:
    most often loses, measured on Lua: struct types and field offsets (an `undefined8` array lets the compiler merge
    stores; check alignment), `noreturn` on calls that never come back, real prototypes (so calls and tail jumps come
    out the same), and `static` for functions without `endbr64` or similar entry markers (keep one alive with a
-   non-inlined caller in the same file).
+   non-inlined caller in the same file). When a function jumps to a neighbour of the same file (a failure at a jump,
+   or a short jump in the original), propose the run instead: the source defines both, in original order, and
+   `--last <fn> --last-name <name>` names the run's last function.
 
 ---
 

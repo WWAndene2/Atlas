@@ -172,8 +172,11 @@ otherwise the failure (compile error, or how many bytes differ and where) is rec
 unchanged. Object files are ELF (read with readelf, any architecture) or COFF (Windows toolchains, read by
 `object-file.ts`, which also strips the alignment padding COFF sections carry). Validated with Lua's real source
 against its builds: x86-64 Linux 152 of 154, ARMv6K 344 of 351, AArch64 Android 385 of 395, x86-64 Windows 106 of
-107 (the one: a C library inline, not Lua's). The known limit: a tail jump to a function of the same file, a short
-jump in the original, is a relocation when compiled alone. `atlas decompile` adds Ghidra's C for each function as a rewrite with
+107 (the one: a C library inline, not Lua's). A function that jumps to a neighbour of the same source file (a short
+jump the assembler resolved in the original, a relocation when compiled alone) is checked in a **run**: the rewrite
+names its `last` function, the source defines the functions from the first to the last in original order, it is
+compiled without `-ffunction-sections`, and the run is compared with the graph's code from the first entry to the
+end of the last function. Validated: each of Lua's 30 source files, compiled whole, reproduces its run byte for byte. `atlas decompile` adds Ghidra's C for each function as a rewrite with
 `prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
 
 ### Dynamic data

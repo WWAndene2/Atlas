@@ -8,6 +8,21 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+export interface ObjectSymbol {
+  name: string;
+  /** Name of the section the symbol is defined in. */
+  section: string;
+  /** Offset within that section. */
+  value: number;
+  /** Size in bytes, when the format records it (ELF does, COFF does not). */
+  size?: number;
+}
+
+export interface ObjectFile {
+  sections: ObjectSection[];
+  symbols: ObjectSymbol[];
+}
+
 export interface ObjectSection {
   name: string;
   bytes: Uint8Array;
@@ -22,8 +37,9 @@ function elfRelocationWidth(type: string): number {
   return 4;
 }
 
-async function readElf(path: string, bytes: Uint8Array): Promise<ObjectSection[]> {
+async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
   const { stdout: sectionList } = await run("readelf", ["-SW", path]);
+  const { stdout: symbolList } = await run("readelf", ["-sW", path]);
   const { stdout: relocationList } = await run("readelf", ["-rW", path]);
   const holes = new Map<string, { offset: number; width: number }[]>();
   let current: string | undefined;
@@ -41,12 +57,24 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectSection[]
     }
   }
   const sections: ObjectSection[] = [];
-  for (const m of sectionList.matchAll(/\[\s*\d+\]\s+(\S+)\s+(\S+)\s+[0-9a-f]+\s+([0-9a-f]+)\s+([0-9a-f]+)/g)) {
-    const [name, type, offset, size] = [m[1] ?? "", m[2] ?? "", parseInt(m[3] ?? "0", 16), parseInt(m[4] ?? "0", 16)];
+  const sectionNames = new Map<number, string>();
+  for (const m of sectionList.matchAll(/\[\s*(\d+)\]\s+(\S+)\s+(\S+)\s+[0-9a-f]+\s+([0-9a-f]+)\s+([0-9a-f]+)/g)) {
+    const [index, name, type] = [Number(m[1]), m[2] ?? "", m[3] ?? ""];
+    const [offset, size] = [parseInt(m[4] ?? "0", 16), parseInt(m[5] ?? "0", 16)];
+    sectionNames.set(index, name);
     if (type !== "PROGBITS") continue;
     sections.push({ name, bytes: bytes.subarray(offset, offset + size), relocations: holes.get(name) ?? [] });
   }
-  return sections;
+  const symbols: ObjectSymbol[] = [];
+  for (const line of symbolList.split("\n")) {
+    // Num: Value Size Type Bind Vis Ndx Name
+    const f = line.trim().split(/\s+/);
+    if (f.length < 8 || f[3] !== "FUNC" || !/^\d+$/.test(f[6] ?? "")) continue;
+    const section = sectionNames.get(Number(f[6]));
+    if (section === undefined) continue;
+    symbols.push({ name: f[7] ?? "", section, value: parseInt(f[1] ?? "0", 16), size: Number(f[2]) });
+  }
+  return { sections, symbols };
 }
 
 // COFF relocation widths by machine and type (PE/COFF specification, "Type Indicators").
@@ -57,14 +85,14 @@ function coffRelocationWidth(machine: number, type: number): number {
   return 4;
 }
 
-function readCoff(bytes: Uint8Array): ObjectSection[] {
+function readCoff(bytes: Uint8Array): ObjectFile {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const machine = view.getUint16(0, true);
   const count = view.getUint16(2, true);
-  const symbols = view.getUint32(8, true);
+  const symbolTable = view.getUint32(8, true);
   const symbolCount = view.getUint32(12, true);
   const optional = view.getUint16(16, true);
-  const strings = symbols + symbolCount * 18; // the string table follows the symbol table
+  const strings = symbolTable + symbolCount * 18; // the string table follows the symbol table
   const sections: ObjectSection[] = [];
   for (let i = 0; i < count; i++) {
     const at = 20 + optional + i * 40;
@@ -99,10 +127,33 @@ function readCoff(bytes: Uint8Array): ObjectSection[] {
     }
     sections.push({ name, bytes: content, relocations });
   }
-  return sections;
+  // Symbol table: 18-byte records; a name of more than 8 bytes is a string-table offset after four zero bytes.
+  // Function symbols have type 0x20; section numbers count from 1. COFF records no size: a function ends where the
+  // next symbol of its section starts (see functionExtent).
+  const symbols: ObjectSymbol[] = [];
+  for (let i = 0; i < symbolCount; i++) {
+    const at = symbolTable + i * 18;
+    const auxiliary = bytes[at + 17] ?? 0;
+    const sectionNumber = view.getInt16(at + 12, true);
+    const type = view.getUint16(at + 14, true);
+    if (sectionNumber > 0 && type === 0x20) {
+      let name: string;
+      if (view.getUint32(at, true) === 0) {
+        const start = strings + view.getUint32(at + 4, true);
+        const end = bytes.indexOf(0, start);
+        name = new TextDecoder("latin1").decode(bytes.subarray(start, end < 0 ? undefined : end));
+      } else {
+        name = new TextDecoder("latin1").decode(bytes.subarray(at, at + 8)).replace(/\0.*$/, "");
+      }
+      const section = sections[sectionNumber - 1];
+      if (section !== undefined) symbols.push({ name, section: section.name, value: view.getUint32(at + 8, true) });
+    }
+    i += auxiliary;
+  }
+  return { sections, symbols };
 }
 
-export async function readObjectFile(path: string): Promise<ObjectSection[]> {
+export async function readObjectFile(path: string): Promise<ObjectFile> {
   const bytes = new Uint8Array(await readFile(path));
   if (bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return readElf(path, bytes);
   const machine = bytes.length >= 2 ? (bytes[0] as number) | ((bytes[1] as number) << 8) : 0;
@@ -112,8 +163,36 @@ export async function readObjectFile(path: string): Promise<ObjectSection[]> {
 
 /** The section holding one function compiled with -ffunction-sections: .text.<name> (ELF) or .text$<name> (COFF),
  * also with a placement kind before the name (.text.startup.main, .text.unlikely.f). */
-export function functionSection(sections: ObjectSection[], name: string): ObjectSection | undefined {
+export function functionSection({ sections }: ObjectFile, name: string): ObjectSection | undefined {
   const escaped = name.replace(/[$]/g, "\\$");
   const pattern = new RegExp(`^\\.text[.$](?:\\w+[.$])?${escaped}$`);
   return sections.find((s) => pattern.test(s.name));
+}
+
+/**
+ * The bytes from the start of function `first` to the end of function `last`, both defined in one section (a unit
+ * compiled without -ffunction-sections), with the relocations that fall inside, offsets made relative to the start.
+ */
+export function functionRun(
+  object: ObjectFile,
+  first: string,
+  last: string,
+): { bytes: Uint8Array; relocations: { offset: number; width: number }[] } | undefined {
+  const start = object.symbols.find((s) => s.name === first);
+  const end = object.symbols.find((s) => s.name === last);
+  if (start === undefined || end === undefined || start.section !== end.section || end.value < start.value)
+    return undefined;
+  const section = object.sections.find((s) => s.name === start.section);
+  if (section === undefined) return undefined;
+  // ELF gives the size; in COFF the last function ends at the next symbol of the section, or the section's end.
+  const following = object.symbols
+    .filter((s) => s.section === end.section && s.value > end.value)
+    .reduce((min, s) => Math.min(min, s.value), section.bytes.length);
+  const stop = end.size !== undefined ? end.value + end.size : following;
+  return {
+    bytes: section.bytes.subarray(start.value, stop),
+    relocations: section.relocations
+      .filter((r) => r.offset >= start.value && r.offset < stop)
+      .map((r) => ({ offset: r.offset - start.value, width: r.width })),
+  };
 }

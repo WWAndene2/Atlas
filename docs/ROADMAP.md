@@ -139,8 +139,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   prototypes and `static` (now in `AGENTS.md`, 1.7). The check now
   works on every platform in view (ELF and COFF objects), validated with Lua's real source on each (97 to 99%), and
   the baseline of Ghidra's C as written: Linux x86-64 19 of 709, Windows x86-64 67 of 819, Android AArch64 51 of 686,
-  raw ARMv6K 61 of 872, each checked in about 20 s. Next: the agent loop over a whole binary, larger functions, and
-  the share verified and the time it takes.
+  raw ARMv6K 61 of 872, each checked in about 20 s. Runs of neighbouring functions remove the
+  same-file jump limit (all 30 Lua source files reproduce whole). Next: the agent loop over a whole binary, larger
+  functions, and the share verified and the time it takes.
 
 ### M4 — Types and traces · 2–3 weeks
 

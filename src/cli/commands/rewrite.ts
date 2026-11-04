@@ -47,7 +47,7 @@ export async function runDecompile(
 export function runProposeRewrite(
   store: GraphStore,
   args: string[],
-  options: { source?: string; name?: string; prelude?: string; binary?: string },
+  options: { source?: string; name?: string; prelude?: string; binary?: string; last?: string; lastName?: string },
 ): Output {
   const [what, ref, ...extra] = args;
   if (what !== "rewrite" || ref === undefined || extra.length > 0 || !options.source || !options.name) {
@@ -60,6 +60,16 @@ export function runProposeRewrite(
     throw new CliError("usage", "--prelude takes only ghidra");
   if (!existsSync(options.source)) throw new CliError("not_found", `no file ${options.source}`);
   const fn = resolveFunction(store, ref, options.binary);
+  if ((options.last === undefined) !== (options.lastName === undefined)) {
+    throw new CliError(
+      "usage",
+      "--last and --last-name go together: the run's last function and its name in the source",
+    );
+  }
+  const last =
+    options.last !== undefined && options.lastName !== undefined
+      ? { node: resolveFunction(store, options.last, options.binary).id, name: options.lastName }
+      : undefined;
   const hypothesis = proposeRewrite(
     store,
     fn.id,
@@ -68,6 +78,7 @@ export function runProposeRewrite(
       source: readFileSync(options.source, "utf8"),
       name: options.name,
       ...(options.prelude === "ghidra" ? { prelude: "ghidra" as const } : {}),
+      ...(last !== undefined ? { last } : {}),
     },
     "agent",
   );

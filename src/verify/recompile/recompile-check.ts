@@ -10,13 +10,15 @@
 // Validated on Lua (x86-64, GCC 13.3, -O2): the real source of every function whose name survives in the stripped
 // binary, compiled and checked, passes for 152 of 154. Known limit, the other two: a tail jump to a function of the
 // same source file is resolved by the assembler in the original (a 2-byte short jump) but is a relocation when the
-// function is compiled alone (a 5-byte jump), so such a function cannot pass unless its callee is compiled with it.
+// function is compiled alone (a 5-byte jump). Hence the group form: with `last`, the source defines a run of
+// consecutive functions in their original order, compiled without -ffunction-sections so the assembler lays them out
+// and resolves the jumps between them as in the original, and the run is compared as one block.
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { functionSection, readObjectFile } from "./object-file.js";
+import { functionRun, functionSection, readObjectFile } from "./object-file.js";
 
 const run = promisify(execFile);
 
@@ -29,11 +31,13 @@ export interface Toolchain {
 export interface RecompileRequest {
   /** A translation unit defining the function (with whatever declarations it needs). */
   source: string;
-  /** Name of the function in that source. */
+  /** Name of the function in that source (the first of the run, with `last`). */
   name: string;
-  /** The file's bytes from the function's entry up to the next function: the candidate must match a prefix of them. */
+  /** With a run of neighbouring functions: the name of the run's last function. */
+  last?: string;
+  /** The file's bytes from the function's entry (the run's first) on: the candidate must match a prefix of them. */
   original: Uint8Array;
-  /** The engine's view of the function's length: the candidate must be at least this long. */
+  /** The engine's view of the length (to the end of the run's last function): the candidate covers at least this. */
   minimumSize: number;
   toolchain: Toolchain;
 }
@@ -58,18 +62,25 @@ export async function recompileCheck(request: RecompileRequest): Promise<Recompi
     const object = join(work, "unit.o");
     await writeFile(source, request.source);
     try {
-      // One section per function, so the function's code is found by name and nothing else is mixed in.
-      await run(request.toolchain.cc, [...request.toolchain.flags, "-ffunction-sections", "-c", source, "-o", object]);
+      // Alone: one section per function, so its code is found by name and nothing else is mixed in. As a run: one
+      // section for all, laid out by the assembler as in the original.
+      const sectioning = request.last === undefined ? ["-ffunction-sections"] : [];
+      await run(request.toolchain.cc, [...request.toolchain.flags, ...sectioning, "-c", source, "-o", object]);
     } catch (error) {
       const stderr = (error as { stderr?: string }).stderr ?? (error as Error).message;
       return { result: "fail", reason: "compile_error", details: stderr.slice(0, 4000) };
     }
-    const section = functionSection(await readObjectFile(object), request.name);
-    if (section === undefined) {
-      return { result: "fail", reason: "not_found", details: `no section for ${request.name} in the object` };
+    const objectFile = await readObjectFile(object);
+    const code =
+      request.last === undefined
+        ? functionSection(objectFile, request.name)
+        : functionRun(objectFile, request.name, request.last);
+    if (code === undefined) {
+      const what = request.last === undefined ? request.name : `${request.name} to ${request.last} in one section`;
+      return { result: "fail", reason: "not_found", details: `no ${what} in the object` };
     }
-    const compiled = section.bytes;
-    const holes = section.relocations;
+    const compiled = code.bytes;
+    const holes = code.relocations;
 
     // The candidate must cover the function as the engine sees it and fit before the next function; then every
     // byte not under a relocation must equal the original's.

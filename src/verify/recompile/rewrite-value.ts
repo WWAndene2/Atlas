@@ -8,6 +8,11 @@ export interface RewriteValue {
   name: string;
   /** "ghidra": the source uses Ghidra's built-in types (undefined8...), and ghidra-types.h is included before it. */
   prelude?: "ghidra";
+  /**
+   * A run of neighbouring functions: the source defines every function from this hypothesis's function up to `last`,
+   * in their original order, and they are checked as one block (needed when they jump to each other).
+   */
+  last?: { node: string; name: string };
 }
 
 export function isRewriteValue(value: unknown): value is RewriteValue {
@@ -19,6 +24,12 @@ export function isRewriteValue(value: unknown): value is RewriteValue {
     typeof v.source === "string" &&
     typeof v.name === "string" &&
     /^[A-Za-z_]\w*$/.test(v.name) &&
-    (v.prelude === undefined || v.prelude === "ghidra")
+    (v.prelude === undefined || v.prelude === "ghidra") &&
+    (v.last === undefined ||
+      (typeof v.last === "object" &&
+        v.last !== null &&
+        typeof v.last.node === "string" &&
+        typeof v.last.name === "string" &&
+        /^[A-Za-z_]\w*$/.test(v.last.name)))
   );
 }
