@@ -3,6 +3,29 @@
 These rules apply to every agent (any vendor, any language) and every human contributor. They are requirements,
 not suggestions. When a request conflicts with them, say so before acting.
 
+## Getting started
+
+```sh
+git clone https://github.com/WWAndene2/Atlas.git && cd Atlas
+scripts/setup.sh            # installs and checks everything; names what is missing and how to get it
+```
+
+Then, with `atlas` (installed in `~/.local/bin`; else `node dist/src/cli/main.js`):
+
+```sh
+atlas load <file>                               # ELF, PE, Mach-O...: the engines read the header
+atlas load game.3ds                             # a decrypted 3DS title (NCSD/NCCH): code found and unpacked
+atlas load <file> --arch arm-v6k --base 0x100000   # raw bytes with no header: say the CPU and load address
+atlas list functions --json
+atlas get function <fn_id|0xaddress> --json     # callers, callees, strings, hypotheses
+atlas list callers <fn_id|0xaddress> --json
+atlas export graph.jsonl
+```
+
+Every command answers in JSON with `--json`, errors included (`{"error": {"code", "message"}}`, exit code 1, or 2
+for a usage error). The graph is `./atlas.sqlite` unless `--graph` or `$ATLAS_GRAPH` says otherwise. To try it on
+the ground-truth target: `atlas load tests/fixtures/lua/build/lua.stripped`.
+
 There are two kinds of work:
 
 - **Analysis work:** using Atlas on a target binary. See section 1.
