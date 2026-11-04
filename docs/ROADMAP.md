@@ -136,8 +136,11 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   x86-64 Lua with GCC -O2: 19 of 709 functions verified, 439 compile but differ, 251 do not compile. First agent trial
   (an AI working only through the CLI, from Ghidra's C and the recorded failure): 6 of 6 randomly sampled failing
   functions of 22 to 59 bytes verified, in 8 attempts; the fixes were struct types and offsets, `noreturn`,
-  prototypes and `static` (now in `AGENTS.md`, 1.7). Next: the whole binary, larger functions, the share of Lua
-  verified and the time it takes; then ARM, where the 3DS test lies.
+  prototypes and `static` (now in `AGENTS.md`, 1.7). The check now
+  works on every platform in view (ELF and COFF objects), validated with Lua's real source on each (97 to 99%), and
+  the baseline of Ghidra's C as written: Linux x86-64 19 of 709, Windows x86-64 67 of 819, Android AArch64 51 of 686,
+  raw ARMv6K 61 of 872, each checked in about 20 s. Next: the agent loop over a whole binary, larger functions, and
+  the share verified and the time it takes.
 
 ### M4 — Types and traces · 2–3 weeks
 

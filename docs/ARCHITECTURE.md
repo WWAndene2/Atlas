@@ -169,9 +169,11 @@ In place today, the **recompile check** (`src/verify/recompile/`): a rewrite hyp
 machine code with the function's `code` in the graph (the file's bytes from its entry to the next function), masking
 the bytes relocations fill at link time. Every byte outside them must match: then the hypothesis is `verified`;
 otherwise the failure (compile error, or how many bytes differ and where) is recorded for the agent, its confidence
-unchanged. Validated on Lua: the real source of 152 of the 154 functions whose names survive in the stripped binary
-passes; the other two hit the known limit (a tail jump to a function of the same file, a short jump in the original,
-is a relocation when compiled alone). `atlas decompile` adds Ghidra's C for each function as a rewrite with
+unchanged. Object files are ELF (read with readelf, any architecture) or COFF (Windows toolchains, read by
+`object-file.ts`, which also strips the alignment padding COFF sections carry). Validated with Lua's real source
+against its builds: x86-64 Linux 152 of 154, ARMv6K 344 of 351, AArch64 Android 385 of 395, x86-64 Windows 106 of
+107 (the one: a C library inline, not Lua's). The known limit: a tail jump to a function of the same file, a short
+jump in the original, is a relocation when compiled alone. `atlas decompile` adds Ghidra's C for each function as a rewrite with
 `prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
 
 ### Dynamic data

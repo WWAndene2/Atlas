@@ -4,18 +4,19 @@
 //
 // The compiler produces an object file, so call targets and data addresses are not known yet: those bytes are holes
 // that relocations fill at link time. The check masks every byte a relocation covers, in both the candidate and the
-// original, and compares the rest. Sections and relocations are read with readelf, which reads ELF objects of any
-// architecture, so one checker serves x86, ARM and AArch64.
+// original, and compares the rest. Object files are ELF or COFF (object-file.ts), so one checker serves Linux,
+// Android, consoles and Windows toolchains alike.
 //
 // Validated on Lua (x86-64, GCC 13.3, -O2): the real source of every function whose name survives in the stripped
 // binary, compiled and checked, passes for 152 of 154. Known limit, the other two: a tail jump to a function of the
 // same source file is resolved by the assembler in the original (a 2-byte short jump) but is a relocation when the
 // function is compiled alone (a 5-byte jump), so such a function cannot pass unless its callee is compiled with it.
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { functionSection, readObjectFile } from "./object-file.js";
 
 const run = promisify(execFile);
 
@@ -50,50 +51,6 @@ export type RecompileResult =
       differing: number;
     };
 
-// Bytes a relocation covers, by relocation type name. Types not listed default to 4 bytes, the common case.
-function relocationWidth(type: string): number {
-  if (/_64$|ABS64|R_AARCH64_ABS64|GLOB_DAT|JUMP_SLOT/.test(type)) return 8;
-  if (/_16$|ABS16/.test(type)) return 2;
-  return 4;
-}
-
-interface Section {
-  index: number;
-  name: string;
-  offset: number;
-  size: number;
-}
-
-function sections(readelf: string): Section[] {
-  const out: Section[] = [];
-  for (const m of readelf.matchAll(/\[\s*(\d+)\]\s+(\S+)\s+\S+\s+[0-9a-f]+\s+([0-9a-f]+)\s+([0-9a-f]+)/g)) {
-    out.push({
-      index: Number(m[1]),
-      name: m[2] ?? "",
-      offset: parseInt(m[3] ?? "0", 16),
-      size: parseInt(m[4] ?? "0", 16),
-    });
-  }
-  return out;
-}
-
-/** Offsets (within the section) of the relocations that apply to `section`, with their widths. */
-function relocations(readelf: string, section: string): { offset: number; width: number }[] {
-  const out: { offset: number; width: number }[] = [];
-  let inside = false;
-  for (const line of readelf.split("\n")) {
-    const header = /^Relocation section '\.rela?(\S+)'/.exec(line);
-    if (header) {
-      inside = header[1] === section;
-      continue;
-    }
-    if (!inside) continue;
-    const m = /^([0-9a-f]+)\s+[0-9a-f]+\s+(R_\S+)/.exec(line.trim());
-    if (m) out.push({ offset: parseInt(m[1] ?? "0", 16), width: relocationWidth(m[2] ?? "") });
-  }
-  return out;
-}
-
 export async function recompileCheck(request: RecompileRequest): Promise<RecompileResult> {
   const work = await mkdtemp(join(tmpdir(), "atlas-recompile-"));
   try {
@@ -107,17 +64,12 @@ export async function recompileCheck(request: RecompileRequest): Promise<Recompi
       const stderr = (error as { stderr?: string }).stderr ?? (error as Error).message;
       return { result: "fail", reason: "compile_error", details: stderr.slice(0, 4000) };
     }
-    const { stdout: sectionList } = await run("readelf", ["-SW", object]);
-    // GCC names the section .text.<name>, or .text.<kind>.<name> for code it places apart (startup, unlikely, hot).
-    const section = sections(sectionList).find(
-      (s) => s.name === `.text.${request.name}` || new RegExp(`^\\.text\\.\\w+\\.${request.name}$`).test(s.name),
-    );
+    const section = functionSection(await readObjectFile(object), request.name);
     if (section === undefined) {
-      return { result: "fail", reason: "not_found", details: `no .text.${request.name} in the object` };
+      return { result: "fail", reason: "not_found", details: `no section for ${request.name} in the object` };
     }
-    const compiled = new Uint8Array((await readFile(object)).subarray(section.offset, section.offset + section.size));
-    const { stdout: relocationList } = await run("readelf", ["-rW", object]);
-    const holes = relocations(relocationList, section.name);
+    const compiled = section.bytes;
+    const holes = section.relocations;
 
     // The candidate must cover the function as the engine sees it and fit before the next function; then every
     // byte not under a relocation must equal the original's.
