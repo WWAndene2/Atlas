@@ -63,7 +63,9 @@ verification loop, orchestration of many agents, clustering into systems, trace 
 
 - Turns a goal ("understand the rendering") into tasks on graph nodes, by priority (hot code from traces first,
   the goal's system first).
-- Runs agents as model API calls in parallel, not as chat sessions. Each task gets its context from the graph:
+- Until it exists (roadmap M6), the agent is the operator's own AI, reaching Atlas by the CLI or MCP
+  (`docs/ROADMAP.md`, How an AI uses Atlas). Then it runs agents as model API calls in parallel, not as chat
+  sessions. Each task gets its context from the graph:
   the node, its neighbours, observed values, current hypotheses.
 - Enforces a compute budget per project and per task.
 
