@@ -83,10 +83,11 @@ describe("Ghidra on stripped Lua", () => {
       const found = analysis.functions.filter((f) => !f.thunk).map((f) => f.address);
       const hits = found.filter((a) => truth.has(a)).length;
       // Measured on 4 November 2026 with Ghidra 12.1.4 and GCC 13.3: 708 of 711 found, 1 extra (recall 0.996,
-      // precision 0.999), and 2,872 distinct caller and callee pairs. The bounds leave room for another compiler's output, not for a regression in the adapter.
+      // precision 0.999), and 2,775 distinct caller and callee pairs (2,872 until imports in Ghidra's synthetic EXTERNAL
+      // block stopped counting as functions: the 97 pairs from import stubs to them were not calls between code). The bounds leave room for another compiler's output, not for a regression in the adapter.
       expect(hits / truth.size).toBeGreaterThan(0.98);
       expect(hits / found.length).toBeGreaterThan(0.98);
-      expect(analysis.calls.length).toBeGreaterThan(2800);
+      expect(analysis.calls.length).toBeGreaterThan(2700);
       const banner = analysis.strings.find((s) => s.value.includes("Lua 5.4"));
       expect(banner?.readers.length).toBeGreaterThan(0);
     },

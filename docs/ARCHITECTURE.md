@@ -92,10 +92,23 @@ Container formats whose code no engine reads directly are opened by Atlas's own 
   because decrypting would bypass the console's protection (AGENTS.md 1.7). Written from the community
   documentation (3dbrew) and checked against containers built to that documentation, not yet against a real dump.
 
+- **ZIP-based packages** (`src/tools/zip/`): Android `.apk`/`.aab`, iOS `.ipa`, `.jar`, `.zip`. Every member
+  that is an executable (`src/tools/binary-kind.ts`: ELF, PE, Mach-O, DEX, by content) is loaded as its own binary,
+  labelled `<package>:<member path>`; a member's path never becomes a path on disk.
+
+Plain executables of any platform the engines read (Windows PE, Linux and Android ELF, macOS and iOS Mach-O, DEX)
+go to the engines as they are. A new container format is one reader in `src/tools/<format>/` and one opener in
+`resolve-target.ts`.
+
+The Ghidra export script drops two artefacts of Ghidra's analysis, measured on the fixtures: alignment padding
+(`nop`, `int3`) after calls that never return, which Ghidra made functions (104 of 1,098 on AArch64), and imports
+of dynamically linked files, which Ghidra places in a synthetic `EXTERNAL` block outside the file's bytes.
+
 Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
 them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
 graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
-(`fn_<same 16 digits>_<address>`), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
+(`fn_<same 16 digits>_<address>`, with `thunk: true` on stubs such as import entries, which agents need not name or
+rewrite), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
 function using it, all backed by one evidence record
 (source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
 engines found carries both records.

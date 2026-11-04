@@ -68,6 +68,7 @@ export function loadAnalysis(
         address: f.address,
         size: f.size,
         label: f.label,
+        ...(f.thunk ? { thunk: true } : {}),
       };
       store.putNode(node);
     }

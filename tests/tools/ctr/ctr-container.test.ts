@@ -43,7 +43,9 @@ describe("readCtrCode", () => {
   });
 
   it("refuses encrypted content and says why", () => {
-    expect(() => readCtrCode(buildNcsd(buildNcch({ ...options, encrypted: true })))).toThrow(/decrypted dumps/);
+    expect(() => readCtrCode(buildNcsd(buildNcch({ ...options, encrypted: true })))).toThrow(
+      /decrypted on your own console/,
+    );
   });
 
   it("refuses what is not a 3DS container", () => {

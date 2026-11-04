@@ -101,6 +101,10 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   raw ARMv6K image (`src/tools/ctr/`); encrypted content is refused. Checked end to end on the ARM Lua image packed
   as a card image with compressed code (885 functions, 28 s); not yet on a real dump, the first thing to check when
   one is available.
+- **PC and mobile (5d):** packages opened into their executables (`src/tools/zip/`), and fixtures for a Windows
+  program and an Android package (`tests/fixtures/lua-platforms/`). Measured with Ghidra 12.1.4, recall /
+  precision: Linux x86-64 ELF 0.997 / 0.999, Windows PE 0.942 / 0.998, Android AArch64 `.so` in an `.apk` 1.000 /
+  0.999 (0.626 before the export script dropped padding and synthetic imports), raw ARMv6K 0.81 / 0.998.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
   `tests/fixtures/lua/`. The symbols are the answer key for every later score. Done: `build.sh` compiles Lua
   5.4.7 (pinned, SHA-256 checked) once and strips a copy, so both files share their code byte for byte (checked

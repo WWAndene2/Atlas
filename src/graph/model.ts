@@ -12,6 +12,8 @@ export interface GraphNode {
   binary?: string;
   address?: string;
   size?: number;
+  /** On a function: a stub that only jumps elsewhere. */
+  thunk?: boolean;
   label?: string;
 }
 

@@ -22,6 +22,10 @@
     },
     "address": { "type": "string", "pattern": "^0x[0-9a-f]+$", "description": "Start address, lowercase hex." },
     "size": { "type": "integer", "minimum": 0, "description": "Size in bytes, when the node occupies memory." },
+    "thunk": {
+      "type": "boolean",
+      "description": "On a function: a stub that only jumps elsewhere (an import's PLT entry, for example), not source code of its own. Absent means not known to be one."
+    },
     "label": {
       "type": "string",
       "description": "Raw label from the tools (e.g. sub_401000), not a hypothesis. On a string node, the string's contents."

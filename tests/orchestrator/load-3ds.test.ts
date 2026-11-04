@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GraphStore } from "../../src/graph/index.js";
 import { loadTarget } from "../../src/orchestrator/load-target.js";
-import { resolveTarget } from "../../src/orchestrator/resolve-target.js";
+import { resolveTarget, type ResolvedBinary } from "../../src/orchestrator/resolve-target.js";
 import { locateGhidra } from "../../src/tools/ghidra/index.js";
 import { buildNcch, buildNcsd } from "../tools/ctr/ctr-builder.js";
 
@@ -47,7 +47,13 @@ describe("loading a 3DS title", () => {
     const store = new GraphStore(":memory:");
     const target = await resolveTarget(path);
     try {
-      const [outcome] = await loadTarget(store, target.input, undefined, target.label);
+      const [binary] = target.binaries;
+      const [outcome] = await loadTarget(
+        store,
+        (binary as ResolvedBinary).input,
+        undefined,
+        (binary as ResolvedBinary).label,
+      );
       // Same image as the raw ARM test (whose bounds are measured): the container must not change what is found.
       expect(outcome?.loaded?.functions).toBeGreaterThan(850);
       expect(store.nodesOfKind("binary")[0]?.label).toBe("lua.3ds:code.bin");

@@ -38,14 +38,19 @@ public class AtlasExport extends GhidraScript {
     FunctionIterator functions = currentProgram.getFunctionManager().getFunctions(true);
     while (functions.hasNext() && !monitor.isCancelled()) {
       Function f = functions.next();
+      // Alignment padding after a call that never returns (nop, int3) is taken for code by Ghidra's analysis and
+      // made a function; measured on AArch64 Lua: 104 of 1098 functions were such padding. Not a function.
+      if (!f.isExternal() && isPadding(f)) continue;
       if (!firstFunction) out.append(',');
       firstFunction = false;
       out.append("{\"address\":").append(json(hex(f.getEntryPoint())));
       out.append(",\"size\":").append(f.getBody().getNumAddresses());
       out.append(",\"label\":").append(json(f.getName()));
       out.append(",\"thunk\":").append(f.isThunk());
-      out.append(",\"external\":").append(f.isExternal()).append('}');
-      if (f.isExternal()) continue;
+      // Imports of a dynamically linked file sit in a synthetic EXTERNAL block, outside the file's bytes.
+      boolean external = f.isExternal() || isInExternalBlock(f.getEntryPoint());
+      out.append(",\"external\":").append(external).append('}');
+      if (external) continue;
       // Call sites: every call reference from inside this function's body to the entry of a function.
       ReferenceIterator refs = currentProgram.getReferenceManager().getReferenceIterator(f.getBody().getMinAddress());
       while (refs.hasNext()) {
@@ -98,6 +103,22 @@ public class AtlasExport extends GhidraScript {
     try (Writer w = new OutputStreamWriter(new FileOutputStream(args[0]), StandardCharsets.UTF_8)) {
       w.write(out.toString());
     }
+  }
+
+  private boolean isInExternalBlock(Address a) {
+    var block = currentProgram.getMemory().getBlock(a);
+    return block == null || block.getName().equals("EXTERNAL");
+  }
+
+  private boolean isPadding(Function f) {
+    var instructions = currentProgram.getListing().getInstructions(f.getBody(), true);
+    boolean any = false;
+    while (instructions.hasNext()) {
+      String m = instructions.next().getMnemonicString().toLowerCase();
+      if (!m.equals("nop") && !m.equals("int3")) return false;
+      any = true;
+    }
+    return any;
   }
 
   private static String hex(Address a) {

@@ -13,7 +13,7 @@ function analysis(name: string, calls: EngineAnalysis["calls"]): EngineAnalysis 
     functions: [
       { address: "0x1000", size: 16, label: "FUN_00001000", thunk: false },
       { address: "0x1010", size: 8, label: "FUN_00001010", thunk: false },
-      { address: "0x1020", size: 8, label: "FUN_00001020", thunk: false },
+      { address: "0x1020", size: 8, label: "puts", thunk: true },
     ],
     calls,
     strings: [{ address: "0x3000", value: "hello", readers: ["0x1000"] }],
@@ -33,6 +33,8 @@ describe("loadAnalysis", () => {
     expect(store.edgesTo(stringId(sha256, "0x3000"), "reads")[0]?.from).toBe(functionId(sha256, "0x1000"));
     expect(store.getNode(result.binary)).toMatchObject({ kind: "binary", label: "lua.stripped" });
     expect(store.getNode(functionId(sha256, "0x1010"))).toMatchObject({ kind: "function", address: "0x1010", size: 8 });
+    expect(store.getNode(functionId(sha256, "0x1010"))?.thunk).toBeUndefined();
+    expect(store.getNode(functionId(sha256, "0x1020"))?.thunk).toBe(true);
     const [edge] = store.edgesFrom(functionId(sha256, "0x1000"), "calls");
     expect(edge?.evidence).toEqual([result.evidence]);
     expect(store.getEvidence(result.evidence)).toMatchObject({

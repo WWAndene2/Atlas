@@ -74,7 +74,8 @@ function readNcch(ncch: Uint8Array, container: CtrCode["container"]): CtrCode {
   const flags = ncch.subarray(0x188, 0x190);
   if (((flags[7] as number) & NO_CRYPTO) === 0) {
     throw new CtrFormatError(
-      "the NCCH is encrypted. Atlas reads only decrypted dumps of titles you own; decrypting is out of its scope",
+      "the NCCH is encrypted. Dump the title decrypted on your own console (for example GodMode9's decrypt option on " +
+        "your cartridge or installed title), then load that file; Atlas does not remove console encryption itself",
     );
   }
   const unit = 0x200 << (flags[6] as number);

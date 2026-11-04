@@ -107,6 +107,18 @@ else
   lack "Lua ARM fixture" "apt install gcc-arm-none-eabi libnewlib-arm-none-eabi, then run this again"
 fi
 
+step "PC and mobile ground-truth fixtures (Windows program, Android package)"
+if ! { have x86_64-w64-mingw32-gcc && have aarch64-linux-gnu-gcc && have zip; } && have apt-get; then
+  as_root apt-get install -y -qq zip gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu >/dev/null 2>&1 ||
+    { as_root apt-get update -qq >/dev/null 2>&1 &&
+      as_root apt-get install -y -qq zip gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu >/dev/null 2>&1; } || true
+fi
+if "$repo/tests/fixtures/lua-platforms/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-platforms/build"
+else
+  lack "Lua platform fixtures" "apt install zip gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu, then run this again"
+fi
+
 step "atlas command"
 launcher_dir="$HOME/.local/bin"
 mkdir -p "$launcher_dir"
