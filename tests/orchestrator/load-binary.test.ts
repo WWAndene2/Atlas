@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GraphStore } from "../../src/graph/index.js";
-import { binaryId, functionId, loadAnalysis } from "../../src/orchestrator/load-binary.js";
+import { binaryId, functionId, loadAnalysis, stringId } from "../../src/orchestrator/load-binary.js";
 import type { EngineAnalysis } from "../../src/tools/engine-analysis.js";
 
 const sha256 = "d".repeat(64);
@@ -16,7 +16,7 @@ function analysis(name: string, calls: EngineAnalysis["calls"]): EngineAnalysis 
       { address: "0x1020", size: 8, label: "FUN_00001020", thunk: false },
     ],
     calls,
-    strings: [],
+    strings: [{ address: "0x3000", value: "hello", readers: ["0x1000"] }],
     limitations: ["test data"],
   };
 }
@@ -28,7 +28,9 @@ afterEach(() => store.close());
 describe("loadAnalysis", () => {
   it("writes the binary, its functions and calls, backed by engine evidence", () => {
     const result = loadAnalysis(store, "/x/lua.stripped", analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]), now);
-    expect(result).toMatchObject({ binary: binaryId(sha256), functions: 3, calls: 1 });
+    expect(result).toMatchObject({ binary: binaryId(sha256), functions: 3, calls: 1, strings: 1 });
+    expect(store.getNode(stringId(sha256, "0x3000"))).toMatchObject({ kind: "string", label: "hello" });
+    expect(store.edgesTo(stringId(sha256, "0x3000"), "reads")[0]?.from).toBe(functionId(sha256, "0x1000"));
     expect(store.getNode(result.binary)).toMatchObject({ kind: "binary", label: "lua.stripped" });
     expect(store.getNode(functionId(sha256, "0x1010"))).toMatchObject({ kind: "function", address: "0x1010", size: 8 });
     const [edge] = store.edgesFrom(functionId(sha256, "0x1000"), "calls");

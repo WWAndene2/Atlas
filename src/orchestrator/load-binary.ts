@@ -1,9 +1,8 @@
 // Fills the graph with one engine's analysis of one binary: a binary node, a function node per function, a calls
-// edge per caller and callee pair, all backed by one evidence record naming the engine and its version.
+// edge per caller and callee pair, a string node per string with a reads edge from each function using it, all backed by one evidence record naming the engine and its version.
 //
 // Loading again, with the same or another engine, adds evidence to what is already there instead of replacing it,
 // so a fact two engines agree on ends up carrying both records (the cross-check of roadmap M1 builds on this).
-// Strings are not written: the graph has no node kind for them yet.
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { Evidence, GraphEdge, GraphNode, GraphStore } from "../graph/index.js";
@@ -14,6 +13,7 @@ export interface LoadResult {
   evidence: string;
   functions: number;
   calls: number;
+  strings: number;
 }
 
 export function binaryId(sha256: string): string {
@@ -22,6 +22,10 @@ export function binaryId(sha256: string): string {
 
 export function functionId(sha256: string, address: string): string {
   return `fn_${sha256.slice(0, 16)}_${address.slice(2)}`;
+}
+
+export function stringId(sha256: string, address: string): string {
+  return `str_${sha256.slice(0, 16)}_${address.slice(2)}`;
 }
 
 function union(existing: string[] | undefined, added: string): string[] {
@@ -43,7 +47,7 @@ export function loadAnalysis(
     id: evidenceId,
     source: "engine",
     tool: { name: tool.name, version: tool.version },
-    summary: `${tool.name} ${tool.version}: ${analysis.functions.length} functions and ${analysis.calls.length} calls in ${basename(binaryPath)} (sha256 ${sha256})`,
+    summary: `${tool.name} ${tool.version}: ${analysis.functions.length} functions, ${analysis.calls.length} calls and ${analysis.strings.length} strings in ${basename(binaryPath)} (sha256 ${sha256})`,
     limitations: analysis.limitations,
     created_at: now.toISOString(),
   };
@@ -81,7 +85,30 @@ export function loadAnalysis(
       };
       store.putEdge(edge);
     }
+    for (const str of analysis.strings) {
+      const id = stringId(sha256, str.address);
+      if (store.getNode(id) === undefined) {
+        store.putNode({ schema_version: 1, id, kind: "string", binary, address: str.address, label: str.value });
+      }
+      for (const reader of str.readers) {
+        const from = functionId(sha256, reader);
+        const existing = store.edgesFrom(from, "reads").find((e) => e.to === id);
+        store.putEdge({
+          schema_version: 1,
+          from,
+          to: id,
+          kind: "reads",
+          evidence: union(existing?.evidence, evidenceId),
+        });
+      }
+    }
   });
 
-  return { binary, evidence: evidenceId, functions: analysis.functions.length, calls: analysis.calls.length };
+  return {
+    binary,
+    evidence: evidenceId,
+    functions: analysis.functions.length,
+    calls: analysis.calls.length,
+    strings: analysis.strings.length,
+  };
 }

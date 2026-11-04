@@ -1,4 +1,4 @@
-// Ghidra headless post-script: writes the analysed program's functions, calls and strings as one JSON document to
+// Ghidra headless post-script: writes the analysed program's functions, calls and strings (with the functions reading each) as one JSON document to
 // the path given as the script's first argument. Read by ghidra-output.ts, which validates it; keep both in step.
 //
 // Addresses are written as Ghidra holds them. Atlas loads with -loader-imagebase 0 so a position-independent ELF
@@ -77,7 +77,21 @@ public class AtlasExport extends GhidraScript {
       if (!firstString) out.append(',');
       firstString = false;
       out.append("{\"address\":").append(json(hex(d.getAddress())));
-      out.append(",\"value\":").append(json((String) value)).append('}');
+      out.append(",\"value\":").append(json((String) value));
+      // Functions whose code refers to the string, each listed once.
+      out.append(",\"readers\":[");
+      java.util.TreeSet<Long> readers = new java.util.TreeSet<>();
+      for (Reference r : getReferencesTo(d.getAddress())) {
+        Function reader = getFunctionContaining(r.getFromAddress());
+        if (reader != null && !reader.isExternal()) readers.add(reader.getEntryPoint().getOffset());
+      }
+      boolean firstReader = true;
+      for (Long reader : readers) {
+        if (!firstReader) out.append(',');
+        firstReader = false;
+        out.append(json("0x" + Long.toHexString(reader)));
+      }
+      out.append("]}");
     }
     out.append("]}\n");
 

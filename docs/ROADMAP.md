@@ -147,8 +147,6 @@ Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter a
 
 ## Open decisions
 
-- Where strings go in the graph: engines return them (M1), but no node kind holds them. A `string` node kind is a
-  schema change; to decide before the cross-check uses strings.
 - Model API access and budget for M6: which providers, which keys, what monthly cap. Not needed before.
 - `node:sqlite` is still flagged experimental in Node 22 (it prints a warning). Kept because it needs no native
   build; to revisit if its API changes.

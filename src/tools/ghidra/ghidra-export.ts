@@ -84,7 +84,16 @@ export function parseGhidraExport(text: string): EngineAnalysis {
   const strings: EngineString[] = array(root.strings, "strings").map((item, i) => {
     const where = `strings[${i}]`;
     const s = object(item, where);
-    return { address: string(s, "address", where, HEX), value: string(s, "value", where) };
+    const readers = array(s.readers, `${where}.readers`).map((reader, j) => {
+      if (typeof reader !== "string" || !HEX.test(reader))
+        throw new GhidraExportError(`${where}.readers[${j}] is invalid`);
+      return reader;
+    });
+    return {
+      address: string(s, "address", where, HEX),
+      value: string(s, "value", where),
+      readers: readers.filter((reader) => internal.has(reader)),
+    };
   });
 
   return {

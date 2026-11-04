@@ -84,17 +84,18 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
 Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
 them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
 graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
-(`fn_<same 16 digits>_<address>`), a `calls` edge per caller and callee pair, all backed by one evidence record
+(`fn_<same 16 digits>_<address>`), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
+function using it, all backed by one evidence record
 (source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
-engines found carries both records. Strings are returned but not yet stored: the graph has no node kind for them.
+engines found carries both records.
 
 What no engine does, and Atlas adds: a durable graph, the hypothesis verification loop, orchestration of many
 agents, clustering into systems, trace projection, knowledge carried over between binaries.
 
 ### Knowledge graph
 
-- **Nodes:** `binary`, `function`, `type`, `global`, `system`, `format`, `shader`, `resource`, `unknown`.
-- **Edges:** `calls`, `reads`, `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
+- **Nodes:** `binary`, `function`, `type`, `global`, `string` (its contents in `label`), `system`, `format`, `shader`, `resource`, `unknown`.
+- **Edges:** `calls`, `reads` (a function reading a global or a string), `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
 - **Facts on nodes** (name, signature, type, summary) are hypotheses (`schema/hypothesis.schema.json`), each
   with evidence and confidence. Conflicting hypotheses coexist until verification settles them.
 - **Evidence** (`schema/evidence.schema.json`) names its source. Facts from an engine Atlas runs through its own

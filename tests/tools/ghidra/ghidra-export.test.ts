@@ -21,7 +21,7 @@ function document(overrides: Record<string, unknown> = {}): string {
       { from: "0x1000", to: "0x1010", site: "0x1008" },
       { from: "0x1010", to: "0x2", site: "0x1010" },
     ],
-    strings: [{ address: "0x3000", value: "hello\n" }],
+    strings: [{ address: "0x3000", value: "hello\n", readers: ["0x1000", "0x2"] }],
     ...overrides,
   });
 }
@@ -34,7 +34,7 @@ describe("parseGhidraExport", () => {
     expect(analysis.functions.map((f) => f.address)).toEqual(["0x1000", "0x1010"]);
     expect(analysis.functions[1]?.thunk).toBe(true);
     expect(analysis.calls).toEqual([{ from: "0x1000", to: "0x1010" }]);
-    expect(analysis.strings).toEqual([{ address: "0x3000", value: "hello\n" }]);
+    expect(analysis.strings).toEqual([{ address: "0x3000", value: "hello\n", readers: ["0x1000"] }]);
     expect(analysis.limitations.length).toBeGreaterThan(0);
   });
 
@@ -50,6 +50,8 @@ describe("parseGhidraExport", () => {
         document({ functions: [{ address: "4096", size: 1, label: "f", thunk: false, external: false }] }),
       ),
     ).toThrow(GhidraExportError);
-    expect(() => parseGhidraExport(document({ strings: [{ address: "0x1", value: 3 }] }))).toThrow(GhidraExportError);
+    expect(() => parseGhidraExport(document({ strings: [{ address: "0x1", value: 3, readers: [] }] }))).toThrow(
+      GhidraExportError,
+    );
   });
 });

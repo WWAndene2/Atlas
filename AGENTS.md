@@ -95,7 +95,7 @@ A change is done when all of these hold:
 - Follow the language's standard style guide, enforced by its formatter and linter. Use no personal variant.
 - One concept, one name, everywhere: in code, schemas, CLI, MCP tools and docs. The graph terms are fixed:
   `node`, `edge`, `hypothesis`, `evidence`, `confidence`, `unknown`, `system`.
-- IDs are prefixed by kind: `bin_`, `fn_`, `ty_`, `gl_`, `sys_`, `fmt_`, `sh_`, `res_`, `unk_` for nodes, `hyp_` for
+- IDs are prefixed by kind: `bin_`, `fn_`, `ty_`, `gl_`, `str_`, `sys_`, `fmt_`, `sh_`, `res_`, `unk_` for nodes, `hyp_` for
   hypotheses, `evd_` for Atlas's own evidence. REA's evidence IDs keep their own `ev_` prefix.
 - MCP tools and CLI commands share one verb-noun vocabulary: `get_function` / `atlas get function`.
 - Files are named after what they contain. Tests are named after the file under test.

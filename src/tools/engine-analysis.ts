@@ -21,6 +21,8 @@ export interface EngineCall {
 export interface EngineString {
   address: string;
   value: string;
+  /** Entry addresses of the functions whose code refers to the string, all in functions. */
+  readers: string[];
 }
 
 export interface EngineAnalysis {

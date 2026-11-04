@@ -3,7 +3,7 @@
 export const SCHEMA_VERSION = 1 as const;
 
 export type NodeKind =
-  "binary" | "function" | "type" | "global" | "system" | "format" | "shader" | "resource" | "unknown";
+  "binary" | "function" | "type" | "global" | "string" | "system" | "format" | "shader" | "resource" | "unknown";
 
 export interface GraphNode {
   schema_version: typeof SCHEMA_VERSION;
@@ -64,6 +64,7 @@ export const NODE_ID_PREFIX: Record<NodeKind, string> = {
   function: "fn_",
   type: "ty_",
   global: "gl_",
+  string: "str_",
   system: "sys_",
   format: "fmt_",
   shader: "sh_",

@@ -62,6 +62,7 @@ describe.runIf(runnable)("Ghidra on stripped Lua", () => {
     expect(hits / truth.size).toBeGreaterThan(0.98);
     expect(hits / found.length).toBeGreaterThan(0.98);
     expect(analysis.calls.length).toBeGreaterThan(2800);
-    expect(analysis.strings.some((s) => s.value.includes("Lua 5.4"))).toBe(true);
+    const banner = analysis.strings.find((s) => s.value.includes("Lua 5.4"));
+    expect(banner?.readers.length).toBeGreaterThan(0);
   });
 });
