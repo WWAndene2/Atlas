@@ -6,7 +6,9 @@ not suggestions. When a request conflicts with them, say so before acting.
 There are two kinds of work:
 
 - **Analysis work:** using Atlas on a target binary. See section 1.
-- **Engineering work:** changing Atlas itself. See sections 2 to 8.
+- **Engineering work:** changing Atlas itself. See sections 2 to 8. Start by reading `docs/ARCHITECTURE.md` (the
+  design and why), `docs/ROADMAP.md` (the milestones, which one is in progress and its order of work) and
+  `docs/DEPENDENCY_REVIEWS.md` (the conditions on each reviewed dependency).
 
 ---
 
@@ -129,7 +131,9 @@ A finding or decision that must outlive the task has exactly one home:
 Never commit scratch or status files (`NOTES.md`, `TODO.md`, `progress.md`, `summary.md`, ...). Do not write the
 same fact in two homes.
 
-`docs/ARCHITECTURE.md` describes the system as it is. Update it in the same change that alters the system.
+`docs/ARCHITECTURE.md` describes the system as it is, `docs/ROADMAP.md` what comes next and in which order. Update
+them in the same change that alters the system or finishes a step. A dependency that runs code beyond a plain library
+gets an entry in `docs/DEPENDENCY_REVIEWS.md` before it is added, and again before each version bump.
 
 ---
 

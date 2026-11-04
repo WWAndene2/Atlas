@@ -62,15 +62,18 @@ pinned, with its licence checked when added (AGENTS.md section 8).
   export and import.
 - **Done when:** CI green; a graph is written, read, exported and re-imported identically. Met: 14 tests.
 
-### M1 — Clone, set up, load a binary with two engines · 2–3 weeks
+### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-- **Security review of REA first**, on the version to pin: what it installs and runs, what it sends over the network.
-  If it fails, M1 goes on with Ghidra alone and REA waits.
+Order of work: (1) REA review, done; (2) Lua fixture; (3) Ghidra adapter and loader; (4) CLI; (5) setup script;
+(6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
+
+- **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
+  conditions, so Ghidra's adapter comes first.
 - `scripts/setup.sh`: installs Atlas, REA and Ghidra (with its Java) in one command, checks each, and names what is
   missing and how to get it. Idempotent: a second run changes nothing.
 - Two engine adapters, each listing functions, calls and strings with evidence:
-  - `src/tools/rea/`: REA (its formats, its evidence records);
-  - `src/tools/ghidra/`: Ghidra headless, driven directly, with no REA in between.
+  - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone;
+  - `src/tools/rea/`: REA 6.8.0 (its formats, its evidence records), installed as its review requires.
 - Loader that fills the graph from both and cross-checks them: agreement gives a fact two pieces of evidence,
   disagreement gives an unknown.
 - CLI with `--json` output (`src/cli/`): `atlas load`, `atlas get function`, `atlas list callers`, `atlas export`.

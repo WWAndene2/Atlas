@@ -8,6 +8,35 @@ in [`ROADMAP.md`](ROADMAP.md). Estimates below are guesses, not measurements.
 Cut the reverse engineering of a large program from years to weeks by splitting the work into many small,
 checkable hypotheses that AI agents produce in parallel and a verification loop accepts or rejects.
 
+## The problem: what current tools and methods miss
+
+Worked through on a hypothetical large modern game (hundreds of thousands of functions, its own engine with a long
+lineage), the case Atlas is designed for.
+
+| Stage                      | Tools today                                           | Weaknesses                                                                                                                                                               |
+| -------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Disassembly, decompilation | IDA Pro + Hex-Rays, Ghidra, Binary Ninja              | Pseudocode unreadable without names and types; one function at a time, no global view; indirect calls (C++ virtual methods) poorly resolved, so the call graph has holes |
+| Types and structures       | Hand reconstruction, RTTI readers, headers            | The slowest work: guessed field by field, and errors spread silently                                                                                                     |
+| Library recognition        | FLIRT, Ghidra FunctionID, BinDiff                     | Exact signatures: fail when the compiler, version or options differ; nothing for custom code                                                                             |
+| Dynamic analysis           | x64dbg, WinDbg, Frida, Cheat Engine, ReClass          | Manual, breakpoint by breakpoint; what is learned stays in the analyst's head                                                                                            |
+| Graphics                   | RenderDoc, PIX, Nsight                                | Excellent on one frame, but no link from a draw call back to the code that issued it                                                                                     |
+| File formats               | 010 Editor, Kaitai Struct, community tools            | One format at a time, by hand; formats change between versions                                                                                                           |
+| Matching decompilation     | decomp.me, objdiff, m2c                               | Needs the exact compiler; impractical with LTO and PGO                                                                                                                   |
+| AI                         | Chat assistants, LLM4Decompile, disassembler plug-ins | One function at a time, no project context, no checking: hallucinated names and types                                                                                    |
+
+Flawed methods behind those gaps, each answered by a principle below:
+
+1. **Bottom-up by default:** starting from functions drowns in their number. Answer: principle 3.
+2. **Static and dynamic kept apart:** the debugger knows the values, the decompiler the structure, nothing joins
+   them. Answer: principle 4.
+3. **Knowledge not shared or structured:** names and types scattered across one analyst's database, scripts and
+   forums. Answer: the knowledge graph.
+4. **No proof of correctness:** a name or a type is an unchecked guess, and nobody knows how much of a database is
+   wrong. Answer: principle 2 and the verification loop.
+5. **AI used as a chat, not as a system:** a function pasted in, an answer believed. Answer: agents fed by the graph,
+   checked by the loop.
+6. **Engine lineage ignored:** documented earlier versions are not carried over. Answer: principle 5.
+
 ## Principles
 
 1. **Agent- and language-agnostic.** Atlas exposes one contract (MCP tools + CLI JSON + JSON Schemas). Any agent,
@@ -32,18 +61,24 @@ checkable hypotheses that AI agents produce in parallel and a verification loop 
     budgets, agents      schema/*.schema.json)       differential tests,
     over model APIs)                                 type checks on traces)
          │                     ▲                          │
-         └──────────► Tools layer: REA (MCP) ◄────────────┘
-                      Ghidra, IDA, Rizin, JEB, Frida, parsers, captures
+         └──────────► Tools layer: one adapter per engine ◄─┘
+                      Ghidra, REA, later Rizin, angr, IDA, Frida
 ```
 
-### Tools layer: REA
+### Tools layer: several engines, cross-checked
 
-[REA](https://github.com/morluto/rea) (MIT) already gives one MCP interface over Ghidra, IDA, Hopper, JEB, Rizin
-and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and unknowns),
-an unknowns ledger and function comparison. Atlas calls it; it does not reimplement it.
+Each analysis engine is one adapter in `src/tools/<tool>/`; nothing else calls a tool directly. Engines are
+cross-checked: a fact two engines agree on carries both pieces of evidence, a disagreement becomes an unknown.
 
-What REA does not do, and Atlas adds: a durable graph (REA's evidence lives per connection), the hypothesis
-verification loop, orchestration of many agents, clustering into systems, trace projection.
+- **Ghidra headless** (`src/tools/ghidra/`), driven directly: the first engine, so Atlas depends on no wrapper.
+- **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
+  JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
+  unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
+- Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
+  ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
+
+What no engine does, and Atlas adds: a durable graph, the hypothesis verification loop, orchestration of many
+agents, clustering into systems, trace projection, knowledge carried over between binaries.
 
 ### Knowledge graph
 
@@ -88,8 +123,46 @@ Pass raises confidence; fail goes back to the agent with the failure, up to a re
 
 ### Dynamic data
 
-- Execution traces (functions called, arguments, memory touched) from Frida or an emulator.
-- GPU captures linked to code: each draw call traced to the function that issued it.
+- Execution traces (functions called, arguments, memory touched) from Frida or an emulator, projected onto the
+  graph. Observed values give types (a field always a float in [0, 1] is likely a ratio), the real targets of
+  indirect calls, and which code is hot or dead.
+- GPU captures linked to code: each draw call traced to the function that issued it, so "this pass costs 4 ms"
+  becomes "this function of the shadows system".
+
+### Systems (top-down)
+
+Functions are clustered into systems (rendering, physics, AI, audio, streaming, network, scripting) by call graph,
+shared data, the strings and resources they touch, and when they run. The operator starts from a map of tens of
+systems, not hundreds of thousands of functions, and goes down only where the goal needs it.
+
+### Knowledge carried over
+
+Fuzzy matching (code embeddings, not exact signatures) between the target and documented binaries: earlier
+versions of the same engine, open-source libraries, middleware SDKs. Each match imports names and types as
+hypotheses for the verification loop to confirm or reject. On an engine with a long lineage, much of the code
+arrives partly named.
+
+### File formats
+
+The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
+description; the parser generated from it must read every file of that kind in the target.
+
+### Question interface
+
+The operator asks questions ("where is traffic density computed?", "what costs most in night rendering?"), and Atlas
+answers with graph nodes, their confidence and their evidence, not with a disassembly listing.
+
+## Expected gains
+
+Guesses for a large target once Atlas is built, to be replaced by measurements (roadmap M2 onward):
+
+| Task                           | Today, large team | With Atlas                       |
+| ------------------------------ | ----------------- | -------------------------------- |
+| Map the systems                | Months            | Days                             |
+| Name and type most of the code | Years             | Weeks                            |
+| Understand one targeted system | Months            | Days to weeks                    |
+| Checked rewrite of one system  | Months to years   | Weeks                            |
+| Full checked rewrite           | Not realistic     | Very long, possible in principle |
 
 ## Limits
 
@@ -97,15 +170,10 @@ Pass raises confidence; fail goes back to the agent with the failure, up to a re
   traces' coverage.
 - Heavy optimisation (LTO, PGO, inlining) blurs function boundaries and weakens matching.
 - Compute cost grows with the number of functions times agent passes.
+- Compiled code of a third-party program cannot be redistributed: only tools and graphs built by each operator.
 - Understanding intent stays partly human; summaries help, they do not replace review.
 - Getting at protected code (encryption, anti-tamper) is out of scope.
 
-## First milestone
+## Development order
 
-One small open-source binary (built from known sources, so results can be scored against the truth):
-
-1. Load it through REA, build the graph of functions and calls.
-2. One namer agent and one typer agent over the graph, through the MCP server.
-3. Verification of names against the real symbols (the scoring oracle), and of rewritten functions by
-   recompile + differential test.
-4. Measure: fraction of functions correctly named and verified, cost per function.
+The milestones, what each delivers and how it is judged done: [`ROADMAP.md`](ROADMAP.md).
