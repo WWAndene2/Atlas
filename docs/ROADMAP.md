@@ -64,22 +64,51 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 ### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-Order of work: (1) REA review, done; (2) Lua fixture; (3) Ghidra adapter and loader; (4) CLI; (5) setup script;
-(6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
+Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done;
+(5) setup script, done; (5b) raw images and the ARM fixture, done; (7) getting started in `AGENTS.md` and the
+fresh-session test, done (a clean clone sets up in 50 s and loads Lua with the documented commands; not yet run by
+another AI vendor); (6) the second engine and cross-check, moved after M3.
+
+Why the change (4 November 2026): the acceptance test is a game reverse engineered and recompiled in days, judged
+on time. A second engine raises confidence, not speed; the path to that test runs through raw console images (5b),
+naming (M2) and verified rewriting (M3). Measured meanwhile: REA 6.8.0 analyses native Linux binaries only through
+Ghidra, so it cannot cross-check Ghidra; the second engine is Rizin directly (0.9.1, independent code base), to be
+built from its pinned source since its release publishes no checksum, with REA kept for the targets Ghidra and
+Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
   conditions, so Ghidra's adapter comes first.
 - `scripts/setup.sh`: installs Atlas, REA and Ghidra (with its Java) in one command, checks each, and names what is
-  missing and how to get it. Idempotent: a second run changes nothing.
+  missing and how to get it. Idempotent: a second run changes nothing. Done: also builds the Lua fixture and
+  installs an `atlas` command; engines go in `~/.local/share/atlas/tools`, where Atlas finds them unconfigured.
+  CI runs it, so the Ghidra tests run there.
 - Two engine adapters, each listing functions, calls and strings with evidence:
-  - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone;
+  - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone. Done with Ghidra
+    12.1.4: on stripped Lua it finds 708 of the 711 functions (one extra), checked by test where Ghidra is
+    installed;
   - `src/tools/rea/`: REA 6.8.0 (its formats, its evidence records), installed as its review requires.
 - Loader that fills the graph from both and cross-checks them: agreement gives a fact two pieces of evidence,
   disagreement gives an unknown.
 - CLI with `--json` output (`src/cli/`): `atlas load`, `atlas get function`, `atlas list callers`, `atlas export`.
+  Done, with `atlas list callees` and `atlas list functions`; built to `dist/` (`npm run build`).
 - "Getting started" at the top of `AGENTS.md`: clone, set up, first commands.
+- **Raw images (5b):** `atlas load --arch --base` for bytes with no header. ARM fixture `tests/fixtures/lua-arm/`:
+  Lua for the 3DS's CPU (ARMv6K, hard float) with GCC and newlib, as a raw image at 0x100000. Ghidra on it: recall
+  0.82, precision 0.999. Most misses are library code nothing calls and functions reached only through pointers in
+  data; a naive pointer-seeding pass gave +0.01 recall for -0.13 precision and was dropped. A better finder
+  (prologue patterns, validated seeds) is a candidate for Atlas's own tool, scored on this fixture.
+- **3DS titles (5c):** `atlas load game.3ds` opens a decrypted NCSD/NCCH, decompresses the code and loads it as a
+  raw ARMv6K image (`src/tools/ctr/`); encrypted content is refused. Checked end to end on the ARM Lua image packed
+  as a card image with compressed code (885 functions, 28 s); not yet on a real dump, the first thing to check when
+  one is available.
+- **PC and mobile (5d):** packages opened into their executables (`src/tools/zip/`), and fixtures for a Windows
+  program and an Android package (`tests/fixtures/lua-platforms/`). Measured with Ghidra 12.1.4, recall /
+  precision: Linux x86-64 ELF 0.997 / 0.999, Windows PE 0.942 / 0.998, Android AArch64 `.so` in an `.apk` 1.000 /
+  0.999 (0.626 before the export script dropped padding and synthetic imports), raw ARMv6K 0.81 / 0.998.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
-  `tests/fixtures/lua/`. The symbols are the answer key for every later score.
+  `tests/fixtures/lua/`. The symbols are the answer key for every later score. Done: `build.sh` compiles Lua
+  5.4.7 (pinned, SHA-256 checked) once and strips a copy, so both files share their code byte for byte (checked
+  by test; CI builds it and requires it).
 - **Done when:**
   - on the stripped build, the graph's functions and calls are scored against the symbol build for each engine and
     for their combination, checked by test;

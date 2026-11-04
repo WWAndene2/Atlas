@@ -1,3 +1,6 @@
 node_modules/
 dist/
 *.sqlite
+tests/fixtures/lua/build/
+tests/fixtures/lua-arm/build/
+tests/fixtures/lua-platforms/build/

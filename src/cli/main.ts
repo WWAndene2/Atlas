@@ -1,0 +1,90 @@
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+// Atlas's command line. Every command answers in JSON with --json (the form agents read, AGENTS.md section 1) and
+// in short text otherwise. Exit code 0 on success, 1 on a failure the output describes, 2 on a usage error.
+import { parseArgs } from "node:util";
+import { GraphStore } from "../graph/index.js";
+import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runExport } from "./commands/export.js";
+import { runGetFunction } from "./commands/get-function.js";
+import { runList } from "./commands/list.js";
+import { runLoad } from "./commands/load.js";
+import { CliError, fail, print, type Output } from "./output.js";
+
+const USAGE = `usage: atlas <command> [--graph <file>] [--json]
+
+  load <binary> [--arch <a> --base <0x..>]
+                                    analyse a binary with every available engine and add it to the graph;
+                                    --arch and --base for raw bytes with no header (a 3DS code.bin), where
+                                    <a> is one of ${ARCHITECTURES.join(", ")}
+  get function <fn_id|0xaddress>    a function with its callers, callees, strings and hypotheses
+  list callers <fn_id|0xaddress>    the functions calling it
+  list callees <fn_id|0xaddress>    the functions it calls
+  list functions                    every function in the graph
+  export [<file.jsonl>]             the graph as JSONL (stdout without a file)
+
+  --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)
+  --binary <bin_>  with an address, the binary it belongs to when the graph holds several
+  --json           machine-readable output`;
+
+async function main(argv: string[]): Promise<number> {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: {
+        graph: { type: "string" },
+        binary: { type: "string" },
+        arch: { type: "string" },
+        base: { type: "string" },
+        json: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+      },
+    });
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n${USAGE}\n`);
+    return 2;
+  }
+  const { values, positionals } = parsed;
+  const json = values.json === true;
+  const [command, ...rest] = positionals;
+  if (values.help === true || command === undefined) {
+    process.stdout.write(`${USAGE}\n`);
+    return command === undefined && values.help !== true ? 2 : 0;
+  }
+
+  const store = new GraphStore(values.graph ?? process.env.ATLAS_GRAPH ?? "atlas.sqlite");
+  try {
+    let output: Output;
+    switch (command) {
+      case "load":
+        output = await runLoad(store, rest, values.arch, values.base);
+        break;
+      case "get":
+        output = runGetFunction(store, rest, values.binary);
+        break;
+      case "list":
+        output = runList(store, rest, values.binary);
+        break;
+      case "export":
+        output = runExport(store, rest);
+        break;
+      default:
+        throw new CliError("usage", `unknown command ${command}\n${USAGE}`);
+    }
+    print(output, json);
+    return 0;
+  } catch (error) {
+    return fail(error, json);
+  } finally {
+    store.close();
+  }
+}
+
+// A reader that stops early (atlas list functions | head) closes the pipe: that is not an error of Atlas.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(process.exitCode ?? 0);
+  throw error;
+});
+
+process.exitCode = await main(process.argv.slice(2));

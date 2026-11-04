@@ -9,10 +9,12 @@
     "schema_version": { "const": 1 },
     "id": {
       "type": "string",
-      "pattern": "^(bin|fn|ty|gl|sys|fmt|sh|res|unk)_[0-9a-z_.-]{1,128}$",
-      "description": "Prefixed by kind: bin_, fn_, ty_, gl_, sys_, fmt_, sh_, res_, unk_."
+      "pattern": "^(bin|fn|ty|gl|str|sys|fmt|sh|res|unk)_[0-9a-z_.-]{1,128}$",
+      "description": "Prefixed by kind: bin_, fn_, ty_, gl_, str_, sys_, fmt_, sh_, res_, unk_."
     },
-    "kind": { "enum": ["binary", "function", "type", "global", "system", "format", "shader", "resource", "unknown"] },
+    "kind": {
+      "enum": ["binary", "function", "type", "global", "string", "system", "format", "shader", "resource", "unknown"]
+    },
     "binary": {
       "type": "string",
       "pattern": "^bin_",
@@ -20,7 +22,14 @@
     },
     "address": { "type": "string", "pattern": "^0x[0-9a-f]+$", "description": "Start address, lowercase hex." },
     "size": { "type": "integer", "minimum": 0, "description": "Size in bytes, when the node occupies memory." },
-    "label": { "type": "string", "description": "Raw label from the tools (e.g. sub_401000), not a hypothesis." }
+    "thunk": {
+      "type": "boolean",
+      "description": "On a function: a stub that only jumps elsewhere (an import's PLT entry, for example), not source code of its own. Absent means not known to be one."
+    },
+    "label": {
+      "type": "string",
+      "description": "Raw label from the tools (e.g. sub_401000), not a hypothesis. On a string node, the string's contents."
+    }
   },
   "additionalProperties": false
 }

@@ -80,6 +80,14 @@ export class GraphStore {
     return row === undefined ? undefined : (JSON.parse(row.record) as GraphNode);
   }
 
+  /** Every node of one kind, by ID. */
+  nodesOfKind(kind: GraphNode["kind"]): GraphNode[] {
+    const rows = this.db.prepare("SELECT record FROM nodes WHERE kind = ? ORDER BY id").all(kind) as {
+      record: string;
+    }[];
+    return rows.map((row) => JSON.parse(row.record) as GraphNode);
+  }
+
   putEdge(edge: GraphEdge): void {
     assertEdge(edge);
     for (const end of [edge.from, edge.to]) {

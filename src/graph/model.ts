@@ -3,7 +3,7 @@
 export const SCHEMA_VERSION = 1 as const;
 
 export type NodeKind =
-  "binary" | "function" | "type" | "global" | "system" | "format" | "shader" | "resource" | "unknown";
+  "binary" | "function" | "type" | "global" | "string" | "system" | "format" | "shader" | "resource" | "unknown";
 
 export interface GraphNode {
   schema_version: typeof SCHEMA_VERSION;
@@ -12,6 +12,8 @@ export interface GraphNode {
   binary?: string;
   address?: string;
   size?: number;
+  /** On a function: a stub that only jumps elsewhere. */
+  thunk?: boolean;
   label?: string;
 }
 
@@ -25,13 +27,15 @@ export interface GraphEdge {
   evidence: string[];
 }
 
-export type EvidenceSource = "rea" | "trace" | "capture" | "verification";
+export type EvidenceSource = "rea" | "engine" | "trace" | "capture" | "verification";
 
 export interface Evidence {
   schema_version: typeof SCHEMA_VERSION;
   id: string;
   source: EvidenceSource;
   summary: string;
+  /** The engine that produced it; required when source is "engine". */
+  tool?: { name: string; version: string };
   limitations?: string[];
   created_at: string;
 }
@@ -62,6 +66,7 @@ export const NODE_ID_PREFIX: Record<NodeKind, string> = {
   function: "fn_",
   type: "ty_",
   global: "gl_",
+  string: "str_",
   system: "sys_",
   format: "fmt_",
   shader: "sh_",

@@ -71,21 +71,61 @@ Each analysis engine is one adapter in `src/tools/<tool>/`; nothing else calls a
 cross-checked: a fact two engines agree on carries both pieces of evidence, a disagreement becomes an unknown.
 
 - **Ghidra headless** (`src/tools/ghidra/`), driven directly: the first engine, so Atlas depends on no wrapper.
+  Version 12.1.4 on Java 21, found through `GHIDRA_INSTALL_DIR`. Each run imports the binary into a temporary
+  project at its own addresses (`-loader-imagebase 0`; Ghidra would otherwise rebase position-independent files),
+  and Atlas's script `scripts/AtlasExport.java` writes functions, calls and strings as JSON, which the adapter
+  validates before use. A raw image with no header (a 3DS `code.bin`, a ROM) is loaded with the CPU and base address
+  the operator gives (`atlas load <file> --arch arm-v6k --base 0x100000`); the architecture names are Atlas's own
+  (`src/tools/engine-analysis.ts`), mapped to each engine's identifiers in its adapter.
 - **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
 - Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
+Container formats whose code no engine reads directly are opened by Atlas's own readers before the engines run
+(`src/orchestrator/resolve-target.ts`), recognised by their content, not their file name:
+
+- **Nintendo 3DS** (`src/tools/ctr/`): NCSD card images (`.3ds`, `.cci`) and NCCH partitions (`.cxi`). The code
+  (ExeFS `.code`, BLZ-decompressed when flagged) is laid out by the extended header's segments and analysed as a
+  raw ARMv6K image at the text address. Only decrypted content: an NCCH without the NoCrypto flag is refused,
+  because decrypting would bypass the console's protection (AGENTS.md 1.7). Written from the community
+  documentation (3dbrew) and checked against containers built to that documentation, not yet against a real dump.
+
+- **ZIP-based packages** (`src/tools/zip/`): Android `.apk`/`.aab`, iOS `.ipa`, `.jar`, `.zip`. Every member
+  that is an executable (`src/tools/binary-kind.ts`: ELF, PE, Mach-O, DEX, by content) is loaded as its own binary,
+  labelled `<package>:<member path>`; a member's path never becomes a path on disk.
+
+Plain executables of any platform the engines read (Windows PE, Linux and Android ELF, macOS and iOS Mach-O, DEX)
+go to the engines as they are. A new container format is one reader in `src/tools/<format>/` and one opener in
+`resolve-target.ts`.
+
+The Ghidra export script drops two artefacts of Ghidra's analysis, measured on the fixtures: alignment padding
+(`nop`, `int3`) after calls that never return, which Ghidra made functions (104 of 1,098 on AArch64), and imports
+of dynamically linked files, which Ghidra places in a synthetic `EXTERNAL` block outside the file's bytes.
+
+Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
+them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
+graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
+(`fn_<same 16 digits>_<address>`, with `thunk: true` on stubs such as import entries, which agents need not name or
+rewrite), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
+function using it, all backed by one evidence record
+(source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
+engines found carries both records.
+
 What no engine does, and Atlas adds: a durable graph, the hypothesis verification loop, orchestration of many
 agents, clustering into systems, trace projection, knowledge carried over between binaries.
 
 ### Knowledge graph
 
-- **Nodes:** `binary`, `function`, `type`, `global`, `system`, `format`, `shader`, `resource`, `unknown`.
-- **Edges:** `calls`, `reads`, `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
+- **Nodes:** `binary`, `function`, `type`, `global`, `string` (its contents in `label`), `system`, `format`, `shader`, `resource`, `unknown`.
+- **Edges:** `calls`, `reads` (a function reading a global or a string), `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
 - **Facts on nodes** (name, signature, type, summary) are hypotheses (`schema/hypothesis.schema.json`), each
   with evidence and confidence. Conflicting hypotheses coexist until verification settles them.
+- **Evidence** (`schema/evidence.schema.json`) names its source. Facts from an engine Atlas runs through its own
+  adapter have source `engine` and a `tool` naming the engine and the version that ran (`ghidra` 12.1.4), so any
+  engine, Atlas's own included, is recorded without a schema change. REA's records keep source `rea` and their
+  `ev_` IDs.
 - **Storage:** SQLite (one file per project, Node's built-in `node:sqlite`: no native dependency), exportable to
   JSONL in a fixed order so two exports of one graph are byte-identical and can be diffed, reviewed and shared like
   code. Schemas are versioned (`schema_version`).
@@ -103,6 +143,9 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
   sessions. Each task gets its context from the graph:
   the node, its neighbours, observed values, current hypotheses.
 - Enforces a compute budget per project and per task.
+- In place today: loading a target with every engine that can run here (`load-target.ts`, the engine list in
+  `engines.ts`): an engine that is missing or fails is skipped and reported, and loading fails only when none
+  succeeds. A function's context (`function-context.ts`): callers, callees, strings read, hypotheses.
 
 Agent roles: **namer**, **typer**, **rewriter** (function to C), **summariser** (per system), **format reader**
 (infers a file format from its loader, emits a Kaitai description).
@@ -146,6 +189,13 @@ arrives partly named.
 
 The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
 description; the parser generated from it must read every file of that kind in the target.
+
+### Command line
+
+`atlas <command> [--graph <file>] [--json]` (`src/cli/`, built to `dist/src/cli/main.js`): `load`, `get function`,
+`list callers|callees|functions`, `export`. Functions are named by ID or by address. With `--json` every answer,
+errors included, is one JSON document (`{"error": {"code", "message"}}` on failure); exit code 0 on success, 1 on
+a failure, 2 on a usage error. The graph is `--graph`, else `$ATLAS_GRAPH`, else `./atlas.sqlite`.
 
 ### Question interface
 
