@@ -64,8 +64,16 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 ### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done; (5) setup script, done;
-(6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
+Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done;
+(5) setup script, done; (5b) raw images and the ARM fixture, done; (7) getting started in `AGENTS.md` and the
+fresh-session test; (6) the second engine and cross-check, moved after M3.
+
+Why the change (4 November 2026): the acceptance test is a game reverse engineered and recompiled in days, judged
+on time. A second engine raises confidence, not speed; the path to that test runs through raw console images (5b),
+naming (M2) and verified rewriting (M3). Measured meanwhile: REA 6.8.0 analyses native Linux binaries only through
+Ghidra, so it cannot cross-check Ghidra; the second engine is Rizin directly (0.9.1, independent code base), to be
+built from its pinned source since its release publishes no checksum, with REA kept for the targets Ghidra and
+Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
   conditions, so Ghidra's adapter comes first.
@@ -83,6 +91,11 @@ Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter a
 - CLI with `--json` output (`src/cli/`): `atlas load`, `atlas get function`, `atlas list callers`, `atlas export`.
   Done, with `atlas list callees` and `atlas list functions`; built to `dist/` (`npm run build`).
 - "Getting started" at the top of `AGENTS.md`: clone, set up, first commands.
+- **Raw images (5b):** `atlas load --arch --base` for bytes with no header. ARM fixture `tests/fixtures/lua-arm/`:
+  Lua for the 3DS's CPU (ARMv6K, hard float) with GCC and newlib, as a raw image at 0x100000. Ghidra on it: recall
+  0.82, precision 0.999. Most misses are library code nothing calls and functions reached only through pointers in
+  data; a naive pointer-seeding pass gave +0.01 recall for -0.13 precision and was dropped. A better finder
+  (prologue patterns, validated seeds) is a candidate for Atlas's own tool, scored on this fixture.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
   `tests/fixtures/lua/`. The symbols are the answer key for every later score. Done: `build.sh` compiles Lua
   5.4.7 (pinned, SHA-256 checked) once and strips a copy, so both files share their code byte for byte (checked
