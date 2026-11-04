@@ -71,11 +71,22 @@ Each analysis engine is one adapter in `src/tools/<tool>/`; nothing else calls a
 cross-checked: a fact two engines agree on carries both pieces of evidence, a disagreement becomes an unknown.
 
 - **Ghidra headless** (`src/tools/ghidra/`), driven directly: the first engine, so Atlas depends on no wrapper.
+  Version 12.1.4 on Java 21, found through `GHIDRA_INSTALL_DIR`. Each run imports the binary into a temporary
+  project at its own addresses (`-loader-imagebase 0`; Ghidra would otherwise rebase position-independent files),
+  and Atlas's script `scripts/AtlasExport.java` writes functions, calls and strings as JSON, which the adapter
+  validates before use.
 - **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
 - Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
+
+Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
+them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
+graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
+(`fn_<same 16 digits>_<address>`), a `calls` edge per caller and callee pair, all backed by one evidence record
+(source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
+engines found carries both records. Strings are returned but not yet stored: the graph has no node kind for them.
 
 What no engine does, and Atlas adds: a durable graph, the hypothesis verification loop, orchestration of many
 agents, clustering into systems, trace projection, knowledge carried over between binaries.

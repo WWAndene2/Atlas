@@ -64,7 +64,7 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 ### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader; (4) CLI; (5) setup script;
+Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI; (5) setup script;
 (6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
@@ -72,7 +72,9 @@ Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter a
 - `scripts/setup.sh`: installs Atlas, REA and Ghidra (with its Java) in one command, checks each, and names what is
   missing and how to get it. Idempotent: a second run changes nothing.
 - Two engine adapters, each listing functions, calls and strings with evidence:
-  - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone;
+  - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone. Done with Ghidra
+    12.1.4: on stripped Lua it finds 708 of the 711 functions (one extra), checked by test where Ghidra is
+    installed;
   - `src/tools/rea/`: REA 6.8.0 (its formats, its evidence records), installed as its review requires.
 - Loader that fills the graph from both and cross-checks them: agreement gives a fact two pieces of evidence,
   disagreement gives an unknown.
@@ -145,6 +147,8 @@ Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter a
 
 ## Open decisions
 
+- Where strings go in the graph: engines return them (M1), but no node kind holds them. A `string` node kind is a
+  schema change; to decide before the cross-check uses strings.
 - Model API access and budget for M6: which providers, which keys, what monthly cap. Not needed before.
 - `node:sqlite` is still flagged experimental in Node 22 (it prints a warning). Kept because it needs no native
   build; to revisit if its API changes.
