@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WWAndene2/atlas/schema/hypothesis.schema.json",
+  "title": "Atlas hypothesis",
+  "description": "A fact an agent proposes about a node of the graph. Only the verification loop sets confidence to 'verified'.",
+  "type": "object",
+  "required": ["schema_version", "id", "node", "kind", "value", "confidence", "evidence", "author"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^hyp_[0-9a-f]{16,64}$" },
+    "node": { "type": "string", "description": "ID of the graph node the fact is about (e.g. fn_..., ty_...)." },
+    "kind": { "enum": ["name", "signature", "type", "summary", "system", "format", "rewrite", "match"] },
+    "value": { "description": "The proposed fact: a string, a type layout, C source, a format description..." },
+    "confidence": { "enum": ["guessed", "inferred", "observed", "verified", "rejected"] },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "description": "REA evidence ID (ev_...), trace ID, or graph node ID." }
+    },
+    "author": {
+      "type": "object",
+      "required": ["agent"],
+      "properties": {
+        "agent": { "type": "string", "description": "Agent role and vendor, e.g. 'namer/claude'." },
+        "task": { "type": "string" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "Filled by the verification loop only.",
+      "properties": {
+        "check": { "enum": ["structural", "differential", "trace_types", "symbols", "parser_run"] },
+        "result": { "enum": ["pass", "fail", "inconclusive"] },
+        "details": { "type": "string" }
+      }
+    }
+  },
+  "additionalProperties": false
+}
