@@ -44,6 +44,26 @@ describe("edges", () => {
   });
 });
 
+describe("evidence", () => {
+  const engineEvidence = {
+    schema_version: 1 as const,
+    id: `evd_${"b".repeat(16)}`,
+    source: "engine" as const,
+    summary: "function list of bin_lua",
+    created_at: "2026-11-04T12:00:00Z",
+  };
+
+  it("from an engine is accepted with the engine and its version", () => {
+    const record = { ...engineEvidence, tool: { name: "ghidra", version: "12.1.4" } };
+    store.putEvidence(record);
+    expect(store.getEvidence(record.id)).toEqual(record);
+  });
+
+  it("from an engine is refused without naming the engine", () => {
+    expect(() => store.putEvidence(engineEvidence)).toThrow(SchemaError);
+  });
+});
+
 describe("hypotheses", () => {
   it("are proposed and read back by node", () => {
     store.proposeHypothesis(nameHypothesis);

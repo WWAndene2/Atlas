@@ -25,13 +25,15 @@ export interface GraphEdge {
   evidence: string[];
 }
 
-export type EvidenceSource = "rea" | "trace" | "capture" | "verification";
+export type EvidenceSource = "rea" | "engine" | "trace" | "capture" | "verification";
 
 export interface Evidence {
   schema_version: typeof SCHEMA_VERSION;
   id: string;
   source: EvidenceSource;
   summary: string;
+  /** The engine that produced it; required when source is "engine". */
+  tool?: { name: string; version: string };
   limitations?: string[];
   created_at: string;
 }

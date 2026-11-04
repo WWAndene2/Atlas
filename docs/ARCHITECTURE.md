@@ -86,6 +86,10 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
 - **Edges:** `calls`, `reads`, `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
 - **Facts on nodes** (name, signature, type, summary) are hypotheses (`schema/hypothesis.schema.json`), each
   with evidence and confidence. Conflicting hypotheses coexist until verification settles them.
+- **Evidence** (`schema/evidence.schema.json`) names its source. Facts from an engine Atlas runs through its own
+  adapter have source `engine` and a `tool` naming the engine and the version that ran (`ghidra` 12.1.4), so any
+  engine, Atlas's own included, is recorded without a schema change. REA's records keep source `rea` and their
+  `ev_` IDs.
 - **Storage:** SQLite (one file per project, Node's built-in `node:sqlite`: no native dependency), exportable to
   JSONL in a fixed order so two exports of one graph are byte-identical and can be diffed, reviewed and shared like
   code. Schemas are versioned (`schema_version`).
