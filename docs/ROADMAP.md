@@ -3,6 +3,22 @@
 The order of development, what each milestone delivers and how it is judged done. Durations are estimates, not
 measurements. Update this file when a milestone finishes or the plan changes.
 
+## End goal
+
+Atlas is a complete reverse-engineering solution: an operator says "use Atlas on <target> to <goal>" and Atlas does
+the job by itself, from setting up its tools to a verified result with its evidence. It builds on the best existing
+tools and adds its own where they fall short, so the whole does better than any of them alone.
+
+How it gets there:
+
+- **Several engines, cross-checked.** Each analysis tool is one adapter (`src/tools/<tool>/`). A fact two engines
+  agree on carries both pieces of evidence; a disagreement becomes an unknown, never a silent choice.
+- **Own tools where a gap is measured.** Atlas writes a tool of its own when the scores on the ground-truth targets
+  show an existing one falls short (missed functions, wrong types, slow traces), and the replacement must beat it on
+  the same score. No own tool without that measured gap.
+- **One command for the whole job.** `atlas run <target> --goal "<goal>"` (M9) chains setup, loading, analysis by
+  agents, verification and a report, with no step to run by hand.
+
 ## How an AI uses Atlas
 
 Atlas calls no AI model itself until M6. The AI is whichever assistant the operator already uses (Claude, GPT,
@@ -46,18 +62,25 @@ pinned, with its licence checked when added (AGENTS.md section 8).
   export and import.
 - **Done when:** CI green; a graph is written, read, exported and re-imported identically. Met: 14 tests.
 
-### M1 — Clone, set up, load a binary · 1–2 weeks
+### M1 — Clone, set up, load a binary with two engines · 2–3 weeks
 
+- **Security review of REA first**, on the version to pin: what it installs and runs, what it sends over the network.
+  If it fails, M1 goes on with Ghidra alone and REA waits.
 - `scripts/setup.sh`: installs Atlas, REA and Ghidra (with its Java) in one command, checks each, and names what is
   missing and how to get it. Idempotent: a second run changes nothing.
-- REA adapter (`src/tools/rea/`): open a binary, list functions, calls and strings, each with its REA evidence.
-- Loader that fills the graph from it.
+- Two engine adapters, each listing functions, calls and strings with evidence:
+  - `src/tools/rea/`: REA (its formats, its evidence records);
+  - `src/tools/ghidra/`: Ghidra headless, driven directly, with no REA in between.
+- Loader that fills the graph from both and cross-checks them: agreement gives a fact two pieces of evidence,
+  disagreement gives an unknown.
 - CLI with `--json` output (`src/cli/`): `atlas load`, `atlas get function`, `atlas list callers`, `atlas export`.
 - "Getting started" at the top of `AGENTS.md`: clone, set up, first commands.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
   `tests/fixtures/lua/`. The symbols are the answer key for every later score.
 - **Done when:**
-  - the graph's functions and calls on the stripped build match Ghidra's view, checked by test;
+  - on the stripped build, the graph's functions and calls are scored against the symbol build for each engine and
+    for their combination, checked by test;
+  - Atlas still loads Lua with either engine missing;
   - a fresh AI session given only the repository's address sets Atlas up and queries Lua's graph by itself.
 
 ### M2 — First agent, scoring, MCP · 1–2 weeks
@@ -106,6 +129,14 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 - A large open-source program with its sources (a full game), still scorable; then real targets the operator is
   authorised to analyse.
+
+### M9 — "Use Atlas on <target>": the whole job by itself
+
+- `atlas run <target> --goal "<goal>"`: setup, loading, analysis by agents (M6), verification, and a report of what
+  was found, with its confidence and evidence, and what stays unknown.
+- Own tools added where M1-M8's scores showed a gap, each beating the tool it replaces on the same score.
+- **Done when:** on a ground-truth target never seen before, one command produces the report, scored against the
+  target's sources.
 
 ## Open decisions
 
