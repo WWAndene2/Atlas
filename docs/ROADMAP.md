@@ -96,6 +96,10 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   0.82, precision 0.999. Most misses are library code nothing calls and functions reached only through pointers in
   data; a naive pointer-seeding pass gave +0.01 recall for -0.13 precision and was dropped. A better finder
   (prologue patterns, validated seeds) is a candidate for Atlas's own tool, scored on this fixture.
+- **3DS titles (5c):** `atlas load game.3ds` opens a decrypted NCSD/NCCH, decompresses the code and loads it as a
+  raw ARMv6K image (`src/tools/ctr/`); encrypted content is refused. Checked end to end on the ARM Lua image packed
+  as a card image with compressed code (885 functions, 28 s); not yet on a real dump, the first thing to check when
+  one is available.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
   `tests/fixtures/lua/`. The symbols are the answer key for every later score. Done: `build.sh` compiles Lua
   5.4.7 (pinned, SHA-256 checked) once and strips a copy, so both files share their code byte for byte (checked

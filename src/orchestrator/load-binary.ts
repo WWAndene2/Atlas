@@ -4,7 +4,6 @@
 // Loading again, with the same or another engine, adds evidence to what is already there instead of replacing it,
 // so a fact two engines agree on ends up carrying both records (the cross-check of roadmap M1 builds on this).
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
 import type { Evidence, GraphEdge, GraphNode, GraphStore } from "../graph/index.js";
 import type { EngineAnalysis } from "../tools/engine-analysis.js";
 
@@ -34,7 +33,7 @@ function union(existing: string[] | undefined, added: string): string[] {
 
 export function loadAnalysis(
   store: GraphStore,
-  binaryPath: string,
+  label: string,
   analysis: EngineAnalysis,
   now: Date = new Date(),
 ): LoadResult {
@@ -47,7 +46,7 @@ export function loadAnalysis(
     id: evidenceId,
     source: "engine",
     tool: { name: tool.name, version: tool.version },
-    summary: `${tool.name} ${tool.version}: ${analysis.functions.length} functions, ${analysis.calls.length} calls and ${analysis.strings.length} strings in ${basename(binaryPath)} (sha256 ${sha256})`,
+    summary: `${tool.name} ${tool.version}: ${analysis.functions.length} functions, ${analysis.calls.length} calls and ${analysis.strings.length} strings in ${label} (sha256 ${sha256})`,
     limitations: analysis.limitations,
     created_at: now.toISOString(),
   };
@@ -55,7 +54,7 @@ export function loadAnalysis(
   store.transaction(() => {
     store.putEvidence(evidence);
     if (store.getNode(binary) === undefined) {
-      store.putNode({ schema_version: 1, id: binary, kind: "binary", label: basename(binaryPath) });
+      store.putNode({ schema_version: 1, id: binary, kind: "binary", label });
     }
     for (const f of analysis.functions) {
       const id = functionId(sha256, f.address);

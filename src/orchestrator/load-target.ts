@@ -2,6 +2,7 @@
 // fails is skipped and reported, so the target still loads with the others; only when none succeeds is it an error.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 import type { GraphStore } from "../graph/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
 import { ENGINES, type Engine } from "./engines.js";
@@ -24,6 +25,7 @@ export async function loadTarget(
   store: GraphStore,
   input: EngineInput,
   engines: readonly Engine[] = ENGINES,
+  label: string = basename(input.path),
 ): Promise<EngineOutcome[]> {
   const sha256 = createHash("sha256")
     .update(await readFile(input.path))
@@ -35,7 +37,7 @@ export async function loadTarget(
       const analysis = await analyse(input);
       // An engine reporting another file's hash would attach its facts to the wrong binary.
       if (analysis.sha256 !== sha256) throw new Error(`${engine.name} analysed a file with another SHA-256`);
-      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, input.path, analysis) });
+      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, label, analysis) });
     } catch (error) {
       outcomes.push({ engine: engine.name, skipped: (error as Error).message });
     }

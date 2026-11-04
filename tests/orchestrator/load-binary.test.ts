@@ -27,7 +27,7 @@ afterEach(() => store.close());
 
 describe("loadAnalysis", () => {
   it("writes the binary, its functions and calls, backed by engine evidence", () => {
-    const result = loadAnalysis(store, "/x/lua.stripped", analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]), now);
+    const result = loadAnalysis(store, "lua.stripped", analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]), now);
     expect(result).toMatchObject({ binary: binaryId(sha256), functions: 3, calls: 1, strings: 1 });
     expect(store.getNode(stringId(sha256, "0x3000"))).toMatchObject({ kind: "string", label: "hello" });
     expect(store.edgesTo(stringId(sha256, "0x3000"), "reads")[0]?.from).toBe(functionId(sha256, "0x1000"));
@@ -43,18 +43,18 @@ describe("loadAnalysis", () => {
 
   it("is idempotent for the same engine", () => {
     const run = analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]);
-    const first = loadAnalysis(store, "/x/lua", run, now);
-    const second = loadAnalysis(store, "/x/lua", run, now);
+    const first = loadAnalysis(store, "lua", run, now);
+    const second = loadAnalysis(store, "lua", run, now);
     expect(second.evidence).toBe(first.evidence);
     expect(store.allRecords("evidence")).toHaveLength(1);
     expect(store.edgesFrom(functionId(sha256, "0x1000"))[0]?.evidence).toEqual([first.evidence]);
   });
 
   it("adds a second engine's evidence to the calls both engines found", () => {
-    const a = loadAnalysis(store, "/x/lua", analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]), now);
+    const a = loadAnalysis(store, "lua", analysis("ghidra", [{ from: "0x1000", to: "0x1010" }]), now);
     const b = loadAnalysis(
       store,
-      "/x/lua",
+      "lua",
       analysis("rizin", [
         { from: "0x1000", to: "0x1010" },
         { from: "0x1000", to: "0x1020" },

@@ -83,6 +83,15 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
 - Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
+Container formats whose code no engine reads directly are opened by Atlas's own readers before the engines run
+(`src/orchestrator/resolve-target.ts`), recognised by their content, not their file name:
+
+- **Nintendo 3DS** (`src/tools/ctr/`): NCSD card images (`.3ds`, `.cci`) and NCCH partitions (`.cxi`). The code
+  (ExeFS `.code`, BLZ-decompressed when flagged) is laid out by the extended header's segments and analysed as a
+  raw ARMv6K image at the text address. Only decrypted content: an NCCH without the NoCrypto flag is refused,
+  because decrypting would bypass the console's protection (AGENTS.md 1.7). Written from the community
+  documentation (3dbrew) and checked against containers built to that documentation, not yet against a real dump.
+
 Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
 them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
 graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function

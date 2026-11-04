@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import type { GraphStore } from "../../graph/index.js";
 import { loadTarget } from "../../orchestrator/load-target.js";
+import { resolveTarget } from "../../orchestrator/resolve-target.js";
 import { ARCHITECTURES, type Architecture, type EngineInput } from "../../tools/engine-analysis.js";
 import { CliError, type Output } from "../output.js";
 
@@ -27,9 +28,15 @@ export async function runLoad(
   if (path === undefined || extra.length > 0) {
     throw new CliError("usage", "usage: atlas load <binary> [--arch <architecture> --base <0xaddress>]");
   }
-  const target = input(path, arch, base);
+  const { raw } = input(path, arch, base);
   if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
-  const engines = await loadTarget(store, target);
+  const target = await resolveTarget(path, raw);
+  let engines;
+  try {
+    engines = await loadTarget(store, target.input, undefined, target.label);
+  } finally {
+    await target.dispose();
+  }
   const text = engines
     .map((e) =>
       e.loaded !== undefined
@@ -37,5 +44,11 @@ export async function runLoad(
         : `${e.engine}: skipped (${e.skipped})`,
     )
     .join("\n");
-  return { data: { engines }, text };
+  const c = target.container;
+  const opened =
+    c === undefined
+      ? ""
+      : `3DS ${c.container.toUpperCase()} "${c.title}" (program ${c.programId}): code at ${c.base}, ` +
+        `text ${c.text.size} bytes, rodata ${c.rodata.size}, data ${c.data.size}\n`;
+  return { data: { container: c, engines }, text: opened + text };
 }
