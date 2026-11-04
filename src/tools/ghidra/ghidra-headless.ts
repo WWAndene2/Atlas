@@ -1,16 +1,13 @@
 // Runs Ghidra headless on one binary and returns its analysis. The only place Atlas starts Ghidra.
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { repositoryPath } from "../../graph/index.js";
 import type { Architecture, EngineAnalysis, EngineInput } from "../engine-analysis.js";
 import { toolsDir } from "../tools-dir.js";
 import { parseGhidraExport } from "./ghidra-export.js";
-
-const run = promisify(execFile);
 
 /** The Ghidra release Atlas is reviewed and tested with (docs/DEPENDENCY_REVIEWS.md). */
 export const GHIDRA_VERSION = "12.1.4";
@@ -74,15 +71,53 @@ function importArguments(input: EngineInput): string[] {
 export interface GhidraRunOptions {
   /** From locateGhidra, which checks the version. */
   installDir: string;
-  /** Upper bound on the whole run, in milliseconds. */
+  /** Upper bound on the whole run, in milliseconds; defaults to ATLAS_GHIDRA_TIMEOUT_MINUTES, else 6 hours. */
   timeoutMs?: number;
+}
+
+// A whole game can keep Ghidra's auto-analysis busy for hours; the bound only stops a run that has hung.
+function defaultTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const minutes = Number(env.ATLAS_GHIDRA_TIMEOUT_MINUTES);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 360) * 60 * 1000;
+}
+
+/**
+ * Runs analyzeHeadless. Its standard output is a progress log that grows with the target (megabytes on a large
+ * game), so it is discarded rather than buffered; the last 64 KiB of standard error are kept for the failure message.
+ */
+function runHeadless(command: string, args: string[], timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Its own process group: analyzeHeadless is a launcher that starts Java, and a timeout must stop both.
+    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-64 * 1024);
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+    }, timeoutMs);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else if (timedOut) reject(new Error(`Ghidra stopped after ${timeoutMs / 60000} minutes`));
+      else
+        reject(new Error(`Ghidra exited with ${code ?? signal}: ${stderr.trim().split("\n").slice(-5).join(" | ")}`));
+    });
+  });
 }
 
 export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOptions): Promise<EngineAnalysis> {
   const work = await mkdtemp(join(tmpdir(), "atlas-ghidra-"));
   const output = join(work, "export.json");
   try {
-    await run(
+    await runHeadless(
       join(options.installDir, "support", "analyzeHeadless"),
       [
         work,
@@ -97,7 +132,7 @@ export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOp
         output,
         "-deleteProject",
       ],
-      { timeout: options.timeoutMs ?? 30 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 },
+      options.timeoutMs ?? defaultTimeoutMs(),
     );
     if (!existsSync(output)) throw new Error(`Ghidra wrote no export for ${input.path}`);
     return parseGhidraExport(await readFile(output, "utf8"));

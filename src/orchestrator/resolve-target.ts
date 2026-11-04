@@ -6,11 +6,13 @@
 // - ZIP-based package (Android .apk/.aab, iOS .ipa, .jar, .zip): every member that is an executable (native .so
 //   libraries for each ABI, DEX bytecode, Mach-O), each loaded as its own binary.
 //
-// Adding a format means one reader in src/tools/<format>/ and one opener here.
-import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+// Containers are read by offset (tools/byte-source.ts), never whole: game images and packages exceed what one read
+// can return. Adding a format means one reader in src/tools/<format>/ and one opener here.
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { binaryKind } from "../tools/binary-kind.js";
+import { fileSource } from "../tools/byte-source.js";
 import { ctrKind, readCtrCode, type CtrCode } from "../tools/ctr/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
 import { isZip, zipMembers } from "../tools/zip/index.js";
@@ -23,62 +25,81 @@ export interface ResolvedBinary {
 
 export interface ResolvedTarget {
   binaries: ResolvedBinary[];
+  /** Parts of a container that could not be read, with the reason; the others are still loaded. */
+  unreadable: { label: string; reason: string }[];
   /** What the container was, when the file is one. */
   container?: { format: "3ds"; code: Omit<CtrCode, "image"> } | { format: "zip"; members: number };
   /** Removes temporary files; call it once the engines are done. */
   dispose(): Promise<void>;
 }
 
-async function head(path: string, size: number): Promise<Uint8Array> {
-  const file = await open(path, "r");
+/** Runs `fill` in a fresh temporary directory, which is removed if `fill` fails. */
+async function inWorkDir<T>(prefix: string, fill: (work: string) => Promise<T>): Promise<{ work: string; result: T }> {
+  const work = await mkdtemp(join(tmpdir(), prefix));
   try {
-    const buffer = new Uint8Array(size);
-    const { bytesRead } = await file.read(buffer, 0, size, 0);
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await file.close();
+    return { work, result: await fill(work) };
+  } catch (error) {
+    await rm(work, { recursive: true, force: true });
+    throw error;
   }
 }
 
 export async function resolveTarget(path: string, raw?: EngineInput["raw"]): Promise<ResolvedTarget> {
   const nothing = async (): Promise<void> => {};
   const name = basename(path);
-  if (raw !== undefined) return { binaries: [{ input: { path, raw }, label: name }], dispose: nothing };
-  const start = await head(path, 0x200);
+  if (raw !== undefined) return { binaries: [{ input: { path, raw }, label: name }], unreadable: [], dispose: nothing };
+  const source = fileSource(path);
+  try {
+    const start = source.read(0, 0x200);
 
-  if (ctrKind(start) !== undefined) {
-    const { image, ...code } = readCtrCode(new Uint8Array(await readFile(path)));
-    const work = await mkdtemp(join(tmpdir(), "atlas-ctr-"));
-    const codePath = join(work, "code.bin");
-    await writeFile(codePath, image);
-    return {
-      binaries: [
-        { input: { path: codePath, raw: { architecture: "arm-v6k", base: code.base } }, label: `${name}:code.bin` },
-      ],
-      container: { format: "3ds", code },
-      dispose: () => rm(work, { recursive: true, force: true }),
-    };
-  }
-
-  if (isZip(start)) {
-    const members = zipMembers(new Uint8Array(await readFile(path)));
-    const work = await mkdtemp(join(tmpdir(), "atlas-zip-"));
-    const binaries: ResolvedBinary[] = [];
-    for (const member of members) {
-      if (member.size < 8) continue;
-      const bytes = member.read();
-      if (binaryKind(bytes) === undefined) continue;
-      // Member names are target data: the file on disk gets a plain numbered name, never the member's path.
-      const file = join(work, `${binaries.length}.bin`);
-      await writeFile(file, bytes);
-      binaries.push({ input: { path: file }, label: `${name}:${member.name}` });
+    if (ctrKind(start) !== undefined) {
+      const { image, ...code } = readCtrCode(source);
+      const { work, result: codePath } = await inWorkDir("atlas-ctr-", async (dir) => {
+        const file = join(dir, "code.bin");
+        await writeFile(file, image);
+        return file;
+      });
+      return {
+        binaries: [
+          { input: { path: codePath, raw: { architecture: "arm-v6k", base: code.base } }, label: `${name}:code.bin` },
+        ],
+        unreadable: [],
+        container: { format: "3ds", code },
+        dispose: () => rm(work, { recursive: true, force: true }),
+      };
     }
-    return {
-      binaries,
-      container: { format: "zip", members: members.length },
-      dispose: () => rm(work, { recursive: true, force: true }),
-    };
-  }
 
-  return { binaries: [{ input: { path }, label: name }], dispose: nothing };
+    if (isZip(start)) {
+      const members = zipMembers(source);
+      const unreadable: ResolvedTarget["unreadable"] = [];
+      const { work, result: binaries } = await inWorkDir("atlas-zip-", async (dir) => {
+        const found: ResolvedBinary[] = [];
+        for (const member of members) {
+          if (member.size < 8) continue;
+          const label = `${name}:${member.name}`;
+          try {
+            // Only the first bytes decide; the member is read in full only when it is an executable.
+            if (binaryKind(member.peek(8)) === undefined) continue;
+            // Member names are target data: the file on disk gets a plain numbered name, never the member's path.
+            const file = join(dir, `${found.length}.bin`);
+            await writeFile(file, member.read());
+            found.push({ input: { path: file }, label });
+          } catch (error) {
+            unreadable.push({ label, reason: (error as Error).message });
+          }
+        }
+        return found;
+      });
+      return {
+        binaries,
+        unreadable,
+        container: { format: "zip", members: members.length },
+        dispose: () => rm(work, { recursive: true, force: true }),
+      };
+    }
+
+    return { binaries: [{ input: { path }, label: name }], unreadable: [], dispose: nothing };
+  } finally {
+    source.close();
+  }
 }

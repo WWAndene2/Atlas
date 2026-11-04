@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -73,5 +73,34 @@ describe("resolveTarget", () => {
     expect(new Uint8Array(readFileSync((target.binaries[0] as ResolvedBinary).input.path))).toEqual(elf);
     expect(target.container).toEqual({ format: "zip", members: 4 });
     await target.dispose();
+  });
+
+  it("loads the readable members of a package and reports the others", async () => {
+    const elf = new Uint8Array(64);
+    elf.set([0x7f, 0x45, 0x4c, 0x46, 1, 1, 1]);
+    const zip = buildZip([
+      { name: "bad.so", data: elf, deflate: true },
+      { name: "good.so", data: elf, deflate: false },
+    ]);
+    zip.fill(0xff, 30 + "bad.so".length, 30 + "bad.so".length + 4);
+    const path = join(dir, "partly.apk");
+    writeFileSync(path, zip);
+    const target = await resolveTarget(path);
+    expect(target.binaries.map((b) => b.label)).toEqual(["partly.apk:good.so"]);
+    expect(target.unreadable).toEqual([{ label: "partly.apk:bad.so", reason: expect.stringContaining("ZIP") }]);
+    await target.dispose();
+  });
+
+  it("leaves no temporary directory behind for a package without executables", async () => {
+    const before = readdirSync(tmpdir()).filter((f) => f.startsWith("atlas-zip-")).length;
+    const path = join(dir, "assets.zip");
+    writeFileSync(
+      path,
+      buildZip([{ name: "readme.txt", data: new TextEncoder().encode("hello world"), deflate: true }]),
+    );
+    const target = await resolveTarget(path);
+    expect(target.binaries).toEqual([]);
+    await target.dispose();
+    expect(readdirSync(tmpdir()).filter((f) => f.startsWith("atlas-zip-")).length).toBe(before);
   });
 });

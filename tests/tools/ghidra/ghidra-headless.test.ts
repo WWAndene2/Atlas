@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +57,43 @@ describe("locateGhidra", () => {
     } finally {
       rmSync(good, { recursive: true });
       rmSync(bad, { recursive: true });
+    }
+  });
+});
+
+describe("analyseWithGhidra's process handling", () => {
+  // A stand-in for analyzeHeadless: writes a valid export to the path given after the script's name.
+  function fakeHeadless(body: string): string {
+    const dir = fakeInstall(GHIDRA_VERSION);
+    const script = join(dir, "support", "analyzeHeadless");
+    writeFileSync(
+      script,
+      `#!/usr/bin/env bash\nout=""; prev=""; for a in "$@"; do [[ $prev == AtlasExport.java ]] && out=$a; prev=$a; done\n${body}\n` +
+        `echo '{"format":"atlas-ghidra-export","format_version":1,"ghidra_version":"${GHIDRA_VERSION}",` +
+        `"sha256":"${"a".repeat(64)}","functions":[],"calls":[],"strings":[]}' > "$out"\n`,
+    );
+    chmodSync(script, 0o755);
+    return dir;
+  }
+
+  it("is not killed by a large progress log", async () => {
+    const dir = fakeHeadless("head -c 100000000 /dev/zero | tr '\\0' 'x'");
+    try {
+      const analysis = await analyseWithGhidra({ path: "/dev/null" }, { installDir: dir });
+      expect(analysis.tool.version).toBe(GHIDRA_VERSION);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("stops a run that exceeds its time bound and says so", async () => {
+    const dir = fakeHeadless("sleep 30");
+    try {
+      await expect(analyseWithGhidra({ path: "/dev/null" }, { installDir: dir, timeoutMs: 300 })).rejects.toThrow(
+        /stopped after/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true });
     }
   });
 });

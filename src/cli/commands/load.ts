@@ -31,15 +31,21 @@ export async function runLoad(
   const { raw } = input(path, arch, base);
   if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
   const target = await resolveTarget(path, raw);
-  if (target.binaries.length === 0) throw new CliError("not_found", `${path} holds no executable Atlas recognises`);
-  const binaries: { label: string; engines?: EngineOutcome[]; error?: string }[] = [];
+  const binaries: { label: string; engines?: EngineOutcome[]; error?: string }[] = target.unreadable.map((u) => ({
+    label: u.label,
+    error: u.reason,
+  }));
   try {
+    if (target.binaries.length === 0) {
+      const why = binaries.length > 0 ? `: ${binaries.map((b) => `${b.label}: ${b.error}`).join("; ")}` : "";
+      throw new CliError("not_found", `${path} holds no executable Atlas could read${why}`);
+    }
     for (const binary of target.binaries) {
       try {
         binaries.push({ label: binary.label, engines: await loadTarget(store, binary.input, undefined, binary.label) });
       } catch (error) {
         // One binary of a package failing (an engine cannot read it) must not lose the others.
-        if (target.binaries.length === 1) throw error;
+        if (target.binaries.length === 1 && binaries.length === 0) throw error;
         binaries.push({ label: binary.label, error: (error as Error).message });
       }
     }
@@ -56,7 +62,7 @@ export async function runLoad(
   }
   if (c?.format === "zip") lines.push(`archive: ${target.binaries.length} executables among ${c.members} members`);
   for (const b of binaries) {
-    if (target.binaries.length > 1) lines.push(`${b.label}:`);
+    if (binaries.length > 1) lines.push(`${b.label}:`);
     if (b.error !== undefined) lines.push(`  failed: ${b.error}`);
     for (const e of b.engines ?? []) {
       lines.push(

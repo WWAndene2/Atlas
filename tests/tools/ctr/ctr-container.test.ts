@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bytesSource } from "../../../src/tools/byte-source.js";
 import { CtrFormatError, ctrKind, readCtrCode } from "../../../src/tools/ctr/index.js";
 import { buildNcch, buildNcsd, type ContainerOptions } from "./ctr-builder.js";
 
@@ -23,7 +24,7 @@ describe("readCtrCode", () => {
   it("reads the code of a card image, decompressed and laid out by segment", () => {
     const image = buildNcsd(buildNcch(options));
     expect(ctrKind(image)).toBe("ncsd");
-    const result = readCtrCode(image);
+    const result = readCtrCode(bytesSource(image));
     expect(result).toMatchObject({
       container: "ncsd",
       title: "LUATEST",
@@ -37,24 +38,31 @@ describe("readCtrCode", () => {
   });
 
   it("reads a lone NCCH with uncompressed code", () => {
-    const result = readCtrCode(buildNcch({ ...options, compress: false }));
+    const result = readCtrCode(bytesSource(buildNcch({ ...options, compress: false })));
     expect(result.container).toBe("ncch");
     expect(result.image).toEqual(code);
   });
 
   it("refuses encrypted content and says why", () => {
-    expect(() => readCtrCode(buildNcsd(buildNcch({ ...options, encrypted: true })))).toThrow(
+    expect(() => readCtrCode(bytesSource(buildNcsd(buildNcch({ ...options, encrypted: true }))))).toThrow(
       /decrypted on your own console/,
     );
   });
 
   it("refuses what is not a 3DS container", () => {
     expect(ctrKind(new Uint8Array(0x200))).toBeUndefined();
-    expect(() => readCtrCode(new Uint8Array(0x200))).toThrow(CtrFormatError);
+    expect(() => readCtrCode(bytesSource(new Uint8Array(0x200)))).toThrow(CtrFormatError);
   });
 
   it("refuses a truncated container instead of reading past its end", () => {
     const image = buildNcsd(buildNcch(options));
-    expect(() => readCtrCode(image.subarray(0, 0x4000 + 0xb00))).toThrow(CtrFormatError);
+    expect(() => readCtrCode(bytesSource(image.subarray(0, 0x4000 + 0xb00)))).toThrow(CtrFormatError);
+  });
+
+  it("refuses a header cut short and segments larger than their pages", () => {
+    const ncch = buildNcch(options);
+    expect(() => readCtrCode(bytesSource(ncch.subarray(0, 0x150)))).toThrow(CtrFormatError);
+    const oversized = buildNcch({ ...options, text: { address: 0x100000, pages: 1, size: 0x1800 } });
+    expect(() => readCtrCode(bytesSource(oversized))).toThrow(/do not fit/);
   });
 });

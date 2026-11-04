@@ -29,4 +29,10 @@ describe("BLZ", () => {
     expect(() => blzDecompress(packed)).toThrow(BlzError);
     expect(() => blzDecompress(new Uint8Array(4))).toThrow(BlzError);
   });
+
+  it("refuses a footer claiming more than the caller expects, before allocating", () => {
+    const packed = blzCompress(sample(1000));
+    new DataView(packed.buffer).setUint32(packed.length - 4, 0xfffffff0, true);
+    expect(() => blzDecompress(packed, 4096)).toThrow(/more than the 4096 expected/);
+  });
 });

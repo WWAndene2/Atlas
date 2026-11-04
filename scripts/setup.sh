@@ -129,6 +129,11 @@ cat >"$launcher.tmp" <<EOF
 exec node --disable-warning=ExperimentalWarning "$repo/dist/src/cli/main.js" "\$@"
 EOF
 chmod +x "$launcher.tmp"
+# One launcher per user: a setup run in another checkout re-points it. Say so, so no one runs the wrong code unaware.
+previous="$(grep -o '"[^"]*/dist/src/cli/main.js"' "$launcher" 2>/dev/null | tr -d '"' || true)"
+if [[ -n "$previous" && "$previous" != "$repo/dist/src/cli/main.js" ]]; then
+  echo "   note: atlas pointed to ${previous%/dist/src/cli/main.js}; it now runs $repo"
+fi
 mv "$launcher.tmp" "$launcher"
 if [[ ":$PATH:" == *":$launcher_dir:"* ]]; then
   ok "atlas ($launcher)"

@@ -17,9 +17,16 @@ export function blzDecompressedSize(compressed: Uint8Array): number {
   return compressed.length + view.getUint32(compressed.length - 4, true);
 }
 
-export function blzDecompress(compressed: Uint8Array): Uint8Array {
+/**
+ * @param limit the largest size the caller expects (from the container's headers): a footer claiming more is
+ *   refused before anything is allocated, so a damaged file cannot make Atlas reserve gigabytes.
+ */
+export function blzDecompress(compressed: Uint8Array, limit: number = 256 * 1024 * 1024): Uint8Array {
   const size = compressed.length;
-  const out = new Uint8Array(blzDecompressedSize(compressed));
+  const total = blzDecompressedSize(compressed);
+  if (total > Math.max(limit, size))
+    throw new BlzError(`footer claims ${total} bytes, more than the ${limit} expected`);
+  const out = new Uint8Array(total);
   const view = new DataView(compressed.buffer, compressed.byteOffset, compressed.byteLength);
   const topAndBottom = view.getUint32(size - 8, true);
   let index = size - ((topAndBottom >>> 24) & 0xff);
