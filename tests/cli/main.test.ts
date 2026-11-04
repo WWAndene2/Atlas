@@ -1,15 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { GraphStore, repositoryPath } from "../../src/graph/index.js";
 import { loadAnalysis } from "../../src/orchestrator/load-binary.js";
+import { compiledBytes } from "../verify/recompile/compile-helper.js";
 
 // Runs the built CLI (npm test builds first) as an agent would, on a graph filled through the loader.
 const cli = repositoryPath("dist", "src", "cli", "main.js");
 const graph = join(mkdtempSync(join(tmpdir(), "atlas-cli-")), "graph.sqlite");
 const sha256 = "e".repeat(64);
+const scaleSource = "int scale(int x) { return x * 7 + 3; }\n";
+const scaleCode = Buffer.from(compiledBytes(scaleSource, "scale")).toString("hex");
 
 function atlas(...args: string[]): { code: number | null; out: unknown; stderr: string } {
   const r = spawnSync(
@@ -31,6 +34,7 @@ beforeAll(() => {
     functions: [
       { address: "0x1000", size: 16, label: "FUN_00001000", thunk: false },
       { address: "0x1010", size: 8, label: "FUN_00001010", thunk: false },
+      { address: "0x2000", size: scaleCode.length / 2, label: "FUN_00002000", thunk: false, code: scaleCode },
     ],
     calls: [{ from: "0x1000", to: "0x1010" }],
     strings: [{ address: "0x3000", value: "usage: %s", readers: ["0x1000"] }],
@@ -58,7 +62,22 @@ describe("atlas CLI", () => {
 
   it("exports the graph", () => {
     const { out } = atlas("export");
-    expect((out as { jsonl: string }).jsonl.split("\n").filter(Boolean)).toHaveLength(7); // evidence, binary, 2 functions, string, call, read
+    // evidence, binary, 3 functions, string, call, read
+    expect((out as { jsonl: string }).jsonl.split("\n").filter(Boolean)).toHaveLength(8);
+  });
+
+  it("takes an agent's rewrite and verifies it by recompiling", () => {
+    const file = join(dirname(graph), "scale.c");
+    writeFileSync(file, scaleSource);
+    const proposed = atlas("propose", "rewrite", "0x2000", "--source", file, "--name", "scale");
+    expect(proposed).toMatchObject({ code: 0, out: { hypothesis: { kind: "rewrite", confidence: "guessed" } } });
+    const id = (proposed.out as { hypothesis: { id: string } }).hypothesis.id;
+    const verified = atlas("verify", id, "--cc", "gcc", "--cflags=-O2");
+    expect(verified).toMatchObject({
+      code: 0,
+      out: { check: { result: "pass" }, hypothesis: { confidence: "verified" } },
+    });
+    expect(atlas("verify", "all", "--cc", "gcc", "--cflags=-O2")).toMatchObject({ out: { checked: 0 } });
   });
 
   it("answers errors in JSON with an exit code", () => {

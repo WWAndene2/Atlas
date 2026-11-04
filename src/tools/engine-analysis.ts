@@ -23,6 +23,8 @@ export interface EngineFunction {
   label: string;
   /** A stub that only jumps to another function (a PLT entry, for example). */
   thunk: boolean;
+  /** The file's bytes from the entry up to the next function (at most 64 KiB), lowercase hex, when the engine gives them. */
+  code?: string;
 }
 
 export interface EngineCall {

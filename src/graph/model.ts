@@ -12,6 +12,8 @@ export interface GraphNode {
   binary?: string;
   address?: string;
   size?: number;
+  /** On a function: the file's bytes from its entry up to the next function, hex; the recompile check's reference. */
+  code?: string;
   /** On a function: a stub that only jumps elsewhere. */
   thunk?: boolean;
   label?: string;
@@ -54,7 +56,7 @@ export interface Hypothesis {
   evidence: string[];
   author: { agent: string; task?: string };
   verification?: {
-    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run";
+    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run" | "recompile";
     result?: "pass" | "fail" | "inconclusive";
     details?: string;
   };

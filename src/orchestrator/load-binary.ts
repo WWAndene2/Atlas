@@ -69,6 +69,7 @@ export function loadAnalysis(
         size: f.size,
         label: f.label,
         ...(f.thunk ? { thunk: true } : {}),
+        ...(f.code !== undefined ? { code: f.code } : {}),
       };
       store.putNode(node);
     }

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { repositoryPath } from "../../graph/index.js";
 import type { Architecture, EngineAnalysis, EngineInput } from "../engine-analysis.js";
 import { toolsDir } from "../tools-dir.js";
+import { parseGhidraDecompile, type DecompiledFunction } from "./ghidra-decompile.js";
 import { parseGhidraExport } from "./ghidra-export.js";
 
 /** The Ghidra release Atlas is reviewed and tested with (docs/DEPENDENCY_REVIEWS.md). */
@@ -113,9 +114,15 @@ function runHeadless(command: string, args: string[], timeoutMs: number): Promis
   });
 }
 
-export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOptions): Promise<EngineAnalysis> {
+/** Imports `input` into a fresh temporary project, runs one Atlas script on it and returns what the script wrote. */
+async function runScript(
+  input: EngineInput,
+  options: GhidraRunOptions,
+  script: string,
+  scriptArgs: string[],
+): Promise<string> {
   const work = await mkdtemp(join(tmpdir(), "atlas-ghidra-"));
-  const output = join(work, "export.json");
+  const output = join(work, "output.json");
   try {
     await runHeadless(
       join(options.installDir, "support", "analyzeHeadless"),
@@ -128,15 +135,31 @@ export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOp
         "-scriptPath",
         scriptDir(),
         "-postScript",
-        "AtlasExport.java",
+        script,
         output,
+        ...scriptArgs,
         "-deleteProject",
       ],
       options.timeoutMs ?? defaultTimeoutMs(),
     );
-    if (!existsSync(output)) throw new Error(`Ghidra wrote no export for ${input.path}`);
-    return parseGhidraExport(await readFile(output, "utf8"));
+    if (!existsSync(output)) throw new Error(`Ghidra's ${script} wrote nothing for ${input.path}`);
+    return await readFile(output, "utf8");
   } finally {
     await rm(work, { recursive: true, force: true });
   }
+}
+
+export async function analyseWithGhidra(input: EngineInput, options: GhidraRunOptions): Promise<EngineAnalysis> {
+  return parseGhidraExport(await runScript(input, options, "AtlasExport.java", []));
+}
+
+/** Decompiles the functions at `addresses` (every function with a body when omitted) to C. */
+export async function decompileWithGhidra(
+  input: EngineInput,
+  options: GhidraRunOptions,
+  addresses?: string[],
+): Promise<DecompiledFunction[]> {
+  // The analysis is redone here: Ghidra keeps no project between runs (each target is analysed in a fresh one).
+  const args = addresses === undefined ? [] : [addresses.join(",")];
+  return parseGhidraDecompile(await runScript(input, options, "AtlasDecompile.java", args));
 }

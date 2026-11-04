@@ -62,7 +62,14 @@ export function parseGhidraExport(text: string): EngineAnalysis {
     if (typeof size !== "number" || !Number.isInteger(size) || size < 0)
       throw new GhidraExportError(`${where}.size is invalid`);
     const address = string(f, "address", where, HEX);
-    functions.push({ address, size, label: string(f, "label", where), thunk: boolean(f, "thunk", where) });
+    const code = f.code === undefined ? undefined : string(f, "code", where, /^([0-9a-f]{2}){0,65536}$/);
+    functions.push({
+      address,
+      size,
+      label: string(f, "label", where),
+      thunk: boolean(f, "thunk", where),
+      ...(code !== undefined ? { code } : {}),
+    });
     internal.add(address);
   });
 

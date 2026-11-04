@@ -164,6 +164,16 @@ Each hypothesis goes to the checker that fits it:
 Pass raises confidence; fail goes back to the agent with the failure, up to a retry budget, then becomes an
 `unknown`.
 
+In place today, the **recompile check** (`src/verify/recompile/`): a rewrite hypothesis holds a function's C
+(`rewrite-value.ts`); `atlas verify` compiles it with the target's toolchain (`--cc`, `--cflags`) and compares the
+machine code with the function's `code` in the graph (the file's bytes from its entry to the next function), masking
+the bytes relocations fill at link time. Every byte outside them must match: then the hypothesis is `verified`;
+otherwise the failure (compile error, or how many bytes differ and where) is recorded for the agent, its confidence
+unchanged. Validated on Lua: the real source of 152 of the 154 functions whose names survive in the stripped binary
+passes; the other two hit the known limit (a tail jump to a function of the same file, a short jump in the original,
+is a relocation when compiled alone). `atlas decompile` adds Ghidra's C for each function as a rewrite with
+`prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
+
 ### Dynamic data
 
 - Execution traces (functions called, arguments, memory touched) from Frida or an emulator, projected onto the

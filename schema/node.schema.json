@@ -26,6 +26,11 @@
       "type": "boolean",
       "description": "On a function: a stub that only jumps elsewhere (an import's PLT entry, for example), not source code of its own. Absent means not known to be one."
     },
+    "code": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{2}){0,65536}$",
+      "description": "On a function: the file's bytes from its entry up to the next function (at most 64 KiB), lowercase hex. The reference a rewrite is recompiled and compared against."
+    },
     "label": {
       "type": "string",
       "description": "Raw label from the tools (e.g. sub_401000), not a hypothesis. On a string node, the string's contents."

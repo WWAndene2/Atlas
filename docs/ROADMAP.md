@@ -131,6 +131,11 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   small functions. Failures go back to the agent with the diff, up to a retry budget, then become unknowns.
 - **Done when:** a measured share of Lua's functions rewritten and verified, and no hypothesis marked `verified`
   that the symbol build contradicts.
+- **In progress.** Done: the recompile check (byte-exact, relocations masked; validated on Lua's real source, 152 of
+  154), `atlas decompile`, `atlas propose rewrite`, `atlas verify <hyp|all>`. Baseline, Ghidra's C as written on
+  x86-64 Lua with GCC -O2: 19 of 709 functions verified, 439 compile but differ, 251 do not compile. Next: the agent
+  loop that raises it (an outside AI fixing the C from the recorded failure), measured on the same 709; then ARM,
+  where the 3DS test lies.
 
 ### M4 — Types and traces · 2–3 weeks
 

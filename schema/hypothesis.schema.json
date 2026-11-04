@@ -29,7 +29,7 @@
       "type": "object",
       "description": "Filled by the verification loop only.",
       "properties": {
-        "check": { "enum": ["structural", "differential", "trace_types", "symbols", "parser_run"] },
+        "check": { "enum": ["structural", "differential", "trace_types", "symbols", "parser_run", "recompile"] },
         "result": { "enum": ["pass", "fail", "inconclusive"] },
         "details": { "type": "string" }
       }

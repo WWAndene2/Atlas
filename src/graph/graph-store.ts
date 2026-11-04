@@ -15,7 +15,7 @@ export class GraphIntegrityError extends Error {
 
 /** The outcome the verification loop records on a hypothesis. */
 export interface VerificationRecord {
-  confidence: Extract<Confidence, "verified" | "rejected" | "inferred" | "observed">;
+  confidence: Confidence;
   verification: NonNullable<Hypothesis["verification"]>;
 }
 

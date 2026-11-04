@@ -7,7 +7,8 @@ import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
-import { runLoad } from "./commands/load.js";
+import { parseRaw, runLoad } from "./commands/load.js";
+import { runDecompile, runProposeRewrite, runVerify } from "./commands/rewrite.js";
 import { CliError, fail, print, type Output } from "./output.js";
 
 const USAGE = `usage: atlas <command> [--graph <file>] [--json]
@@ -21,6 +22,15 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   list callees <fn_id|0xaddress>    the functions it calls
   list functions                    every function in the graph
   export [<file.jsonl>]             the graph as JSONL (stdout without a file)
+
+  decompile <file> [--arch <a> --base <0x..>] [--function <fn|0x>]...
+                                    Ghidra's C for the binary's functions (all without --function), added
+                                    as rewrite hypotheses; load the file first
+  propose rewrite <fn|0x> --source <file.c> --name <function> [--prelude ghidra]
+                                    an agent's C for a function
+  verify <hyp_id|all> --cc <compiler> [--cflags="<flags>"]
+                                    recompile a rewrite with the target's toolchain and compare it with
+                                    the original bytes; records verified, or the failure and its details
 
   --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)
   --binary <bin_>  with an address, the binary it belongs to when the graph holds several
@@ -36,6 +46,12 @@ async function main(argv: string[]): Promise<number> {
         graph: { type: "string" },
         binary: { type: "string" },
         arch: { type: "string" },
+        function: { type: "string", multiple: true },
+        source: { type: "string" },
+        name: { type: "string" },
+        prelude: { type: "string" },
+        cc: { type: "string" },
+        cflags: { type: "string" },
         base: { type: "string" },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -65,6 +81,25 @@ async function main(argv: string[]): Promise<number> {
         break;
       case "list":
         output = runList(store, rest, values.binary);
+        break;
+      case "decompile": {
+        const { raw } = parseRaw(values.arch, values.base);
+        output = await runDecompile(store, rest, raw, values.function ?? [], values.binary);
+        break;
+      }
+      case "propose":
+        output = runProposeRewrite(store, rest, {
+          ...(values.source !== undefined ? { source: values.source } : {}),
+          ...(values.name !== undefined ? { name: values.name } : {}),
+          ...(values.prelude !== undefined ? { prelude: values.prelude } : {}),
+          ...(values.binary !== undefined ? { binary: values.binary } : {}),
+        });
+        break;
+      case "verify":
+        output = await runVerify(store, rest, {
+          ...(values.cc !== undefined ? { cc: values.cc } : {}),
+          ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),
+        });
         break;
       case "export":
         output = runExport(store, rest);
