@@ -66,7 +66,8 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done;
 (5) setup script, done; (5b) raw images and the ARM fixture, done; (7) getting started in `AGENTS.md` and the
-fresh-session test; (6) the second engine and cross-check, moved after M3.
+fresh-session test, done (a clean clone sets up in 50 s and loads Lua with the documented commands; not yet run by
+another AI vendor); (6) the second engine and cross-check, moved after M3.
 
 Why the change (4 November 2026): the acceptance test is a game reverse engineered and recompiled in days, judged
 on time. A second engine raises confidence, not speed; the path to that test runs through raw console images (5b),
