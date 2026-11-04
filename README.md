@@ -14,6 +14,9 @@ Atlas is not tied to one AI or one language:
 - **The analysis tools** (Ghidra, IDA, Rizin, JEB, Frida, file-format parsers) come through
   [REA](https://github.com/morluto/rea), used as Atlas's tools layer.
 
-Status: design. The architecture is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); nothing runs yet.
+Status: early. The graph layer exists (`src/graph/`); the rest is design. Architecture:
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+Development: Node.js 22.13 or later, then `npm ci` and `npm run check` (types, lint, format, tests).
 
 Use Atlas only on software you own or are authorised to analyse.

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WWAndene2/atlas/schema/evidence.schema.json",
+  "title": "Atlas evidence",
+  "description": "A record of where a fact comes from. REA evidence keeps REA's own ID; Atlas's own records use the evd_ prefix.",
+  "type": "object",
+  "required": ["schema_version", "id", "source", "summary", "created_at"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^(ev_[0-9a-f]{64}|evd_[0-9a-f]{16,64})$" },
+    "source": { "enum": ["rea", "trace", "capture", "verification"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,6 +1,7 @@
 # Atlas architecture
 
-Status: design, nothing implemented. Estimates below are guesses, not measurements.
+Status: M0 (foundations) done: the graph layer (`src/graph/`). Everything else is design. The plan and its order are
+in [`ROADMAP.md`](ROADMAP.md). Estimates below are guesses, not measurements.
 
 ## Goal
 
@@ -50,8 +51,13 @@ verification loop, orchestration of many agents, clustering into systems, trace 
 - **Edges:** `calls`, `reads`, `writes`, `contains`, `draws`, `loads`, `matches` (to a documented binary).
 - **Facts on nodes** (name, signature, type, summary) are hypotheses (`schema/hypothesis.schema.json`), each
   with evidence and confidence. Conflicting hypotheses coexist until verification settles them.
-- **Storage:** SQLite (one file per project), exportable to JSONL so the graph can be diffed, reviewed and
-  shared like code. Schemas are versioned (`schema_version`).
+- **Storage:** SQLite (one file per project, Node's built-in `node:sqlite`: no native dependency), exportable to
+  JSONL in a fixed order so two exports of one graph are byte-identical and can be diffed, reviewed and shared like
+  code. Schemas are versioned (`schema_version`).
+- **What the store enforces beyond the schemas** (`src/graph/graph-store.ts`): an ID's prefix matches its kind;
+  every non-binary node names a binary in the graph; edges and hypotheses reference existing nodes; agents propose
+  hypotheses (`proposeHypothesis`) but cannot set `verified`, `rejected` or the verification result, which only the
+  verification loop writes (`recordVerification`); an import restores a reviewed export as is, in one transaction.
 
 ### Orchestrator
 
@@ -68,12 +74,12 @@ Agent roles: **namer**, **typer**, **rewriter** (function to C), **summariser** 
 
 Each hypothesis goes to the checker that fits it:
 
-| Hypothesis | Check |
-|---|---|
+| Hypothesis         | Check                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Rewritten function | Recompile, then structural equivalence (control-flow graph, solver on small functions) or differential testing against the original on inputs recorded in traces |
-| Type / structure | Every observed memory access in traces must fit it |
-| Name | Cross-check with strings, leftover symbols, matched functions in documented binaries |
-| File format | The generated parser must read every file of that kind in the target |
+| Type / structure   | Every observed memory access in traces must fit it                                                                                                               |
+| Name               | Cross-check with strings, leftover symbols, matched functions in documented binaries                                                                             |
+| File format        | The generated parser must read every file of that kind in the target                                                                                             |
 
 Pass raises confidence; fail goes back to the agent with the failure, up to a retry budget, then becomes an
 `unknown`.

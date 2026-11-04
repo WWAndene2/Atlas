@@ -4,6 +4,7 @@ These rules apply to every agent (any vendor, any language) and every human cont
 not suggestions. When a request conflicts with them, say so before acting.
 
 There are two kinds of work:
+
 - **Analysis work:** using Atlas on a target binary. See section 1.
 - **Engineering work:** changing Atlas itself. See sections 2 to 8.
 
@@ -41,6 +42,7 @@ There are two kinds of work:
 ### 2.1 Definition of done
 
 A change is done when all of these hold:
+
 - The root cause is addressed.
 - The behaviour is verified by real execution (tests or a reproduced scenario), not by reading the code.
 - The full test suite passes, not only the new test.
@@ -67,20 +69,21 @@ A change is done when all of these hold:
 
 ### 4.1 Layout: by purpose
 
-| Purpose | Location |
-|---|---|
-| Graph model and storage (SQLite, JSONL export) | `src/graph/` |
-| Orchestrator: tasks, priorities, budgets, model API calls | `src/orchestrator/` |
-| Agent roles (namer, typer, rewriter, summariser, format reader): prompts and output parsing | `src/agents/<role>/` |
-| Verification loop and its checkers | `src/verify/<check>/` |
-| Tools layer: adapters to REA and other analysis tools | `src/tools/<tool>/` |
-| Public interfaces | `src/mcp/` (MCP server), `src/cli/` (CLI) |
-| Public contract: JSON Schemas | `schema/<entity>.schema.json` |
-| Tests, mirroring `src/` | `tests/<same path>/` |
-| Test fixtures and scoring targets | `tests/fixtures/<subject>/` |
-| Design documentation | `docs/` |
+| Purpose                                                                                     | Location                                  |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Graph model and storage (SQLite, JSONL export)                                              | `src/graph/`                              |
+| Orchestrator: tasks, priorities, budgets, model API calls                                   | `src/orchestrator/`                       |
+| Agent roles (namer, typer, rewriter, summariser, format reader): prompts and output parsing | `src/agents/<role>/`                      |
+| Verification loop and its checkers                                                          | `src/verify/<check>/`                     |
+| Tools layer: adapters to REA and other analysis tools                                       | `src/tools/<tool>/`                       |
+| Public interfaces                                                                           | `src/mcp/` (MCP server), `src/cli/` (CLI) |
+| Public contract: JSON Schemas                                                               | `schema/<entity>.schema.json`             |
+| Tests, mirroring `src/`                                                                     | `tests/<same path>/`                      |
+| Test fixtures and scoring targets                                                           | `tests/fixtures/<subject>/`               |
+| Design documentation                                                                        | `docs/`                                   |
 
 **Placement procedure:**
+
 1. Use the existing directory whose purpose matches.
 2. A new kind of purpose needs a new directory. Ask first, and add it to this table in the same change.
 3. No catch-all directories (`misc/`, `utils/`, `helpers/`, `common/`).
@@ -90,8 +93,8 @@ A change is done when all of these hold:
 - Follow the language's standard style guide, enforced by its formatter and linter. Use no personal variant.
 - One concept, one name, everywhere: in code, schemas, CLI, MCP tools and docs. The graph terms are fixed:
   `node`, `edge`, `hypothesis`, `evidence`, `confidence`, `unknown`, `system`.
-- IDs are prefixed by kind: `fn_`, `ty_`, `gl_`, `sys_`, `fmt_`, `hyp_`, `unk_`. REA's evidence IDs keep their
-  own `ev_` prefix.
+- IDs are prefixed by kind: `bin_`, `fn_`, `ty_`, `gl_`, `sys_`, `fmt_`, `sh_`, `res_`, `unk_` for nodes, `hyp_` for
+  hypotheses, `evd_` for Atlas's own evidence. REA's evidence IDs keep their own `ev_` prefix.
 - MCP tools and CLI commands share one verb-noun vocabulary: `get_function` / `atlas get function`.
 - Files are named after what they contain. Tests are named after the file under test.
 
@@ -117,6 +120,7 @@ schema  ←  graph  ←  verify, agents, tools  ←  orchestrator  ←  mcp, cli
 ## 5. Documentation
 
 A finding or decision that must outlive the task has exactly one home:
+
 1. a **code comment** at the line it explains (why this line is the way it is);
 2. the **commit message** (why the change was made);
 3. an **existing document in `docs/`** on that subject;

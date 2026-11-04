@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WWAndene2/atlas/schema/node.schema.json",
+  "title": "Atlas node",
+  "description": "An entity of the analysed target. Facts about it (name, type, summary) are hypotheses, not node fields.",
+  "type": "object",
+  "required": ["schema_version", "id", "kind"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^(bin|fn|ty|gl|sys|fmt|sh|res|unk)_[0-9a-z_.-]{1,128}$",
+      "description": "Prefixed by kind: bin_, fn_, ty_, gl_, sys_, fmt_, sh_, res_, unk_."
+    },
+    "kind": { "enum": ["binary", "function", "type", "global", "system", "format", "shader", "resource", "unknown"] },
+    "binary": {
+      "type": "string",
+      "pattern": "^bin_",
+      "description": "The binary the node belongs to. Absent on a binary."
+    },
+    "address": { "type": "string", "pattern": "^0x[0-9a-f]+$", "description": "Start address, lowercase hex." },
+    "size": { "type": "integer", "minimum": 0, "description": "Size in bytes, when the node occupies memory." },
+    "label": { "type": "string", "description": "Raw label from the tools (e.g. sub_401000), not a hypothesis." }
+  },
+  "additionalProperties": false
+}

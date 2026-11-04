@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WWAndene2/atlas/schema/edge.schema.json",
+  "title": "Atlas edge",
+  "description": "A directed relation between two nodes. An edge is identified by (from, kind, to).",
+  "type": "object",
+  "required": ["schema_version", "from", "to", "kind", "evidence"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "from": { "type": "string" },
+    "to": { "type": "string" },
+    "kind": { "enum": ["calls", "reads", "writes", "contains", "draws", "loads", "matches"] },
+    "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
