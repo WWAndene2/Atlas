@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { repositoryPath } from "../../graph/index.js";
 import type { EngineAnalysis } from "../engine-analysis.js";
 import { parseGhidraExport } from "./ghidra-export.js";
 
@@ -21,9 +21,8 @@ export class GhidraUnavailableError extends Error {
   }
 }
 
-// The script ships as source: Ghidra compiles it itself. Found from this module's place in the repository, which is
-// the same for src/ (run by tsx or vitest) as long as Atlas runs from its checkout, the only supported way so far.
-const SCRIPT_DIR = fileURLToPath(new URL("./scripts/", import.meta.url));
+// The script ships as source: Ghidra compiles it itself.
+const scriptDir = (): string => repositoryPath("src", "tools", "ghidra", "scripts");
 
 /** The Ghidra installation named by GHIDRA_INSTALL_DIR, checked to be the reviewed version. */
 export function locateGhidra(env: NodeJS.ProcessEnv = process.env): string {
@@ -66,7 +65,7 @@ export async function analyseWithGhidra(binaryPath: string, options: GhidraRunOp
         "-loader-imagebase",
         "0",
         "-scriptPath",
-        SCRIPT_DIR,
+        scriptDir(),
         "-postScript",
         "AtlasExport.java",
         output,

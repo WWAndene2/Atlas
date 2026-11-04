@@ -119,6 +119,9 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
   sessions. Each task gets its context from the graph:
   the node, its neighbours, observed values, current hypotheses.
 - Enforces a compute budget per project and per task.
+- In place today: loading a target with every engine that can run here (`load-target.ts`, the engine list in
+  `engines.ts`): an engine that is missing or fails is skipped and reported, and loading fails only when none
+  succeeds. A function's context (`function-context.ts`): callers, callees, strings read, hypotheses.
 
 Agent roles: **namer**, **typer**, **rewriter** (function to C), **summariser** (per system), **format reader**
 (infers a file format from its loader, emits a Kaitai description).
@@ -162,6 +165,13 @@ arrives partly named.
 
 The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
 description; the parser generated from it must read every file of that kind in the target.
+
+### Command line
+
+`atlas <command> [--graph <file>] [--json]` (`src/cli/`, built to `dist/src/cli/main.js`): `load`, `get function`,
+`list callers|callees|functions`, `export`. Functions are named by ID or by address. With `--json` every answer,
+errors included, is one JSON document (`{"error": {"code", "message"}}` on failure); exit code 0 on success, 1 on
+a failure, 2 on a usage error. The graph is `--graph`, else `$ATLAS_GRAPH`, else `./atlas.sqlite`.
 
 ### Question interface
 

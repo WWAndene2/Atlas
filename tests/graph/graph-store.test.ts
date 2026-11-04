@@ -19,6 +19,11 @@ describe("nodes", () => {
     expect(store.getNode(main.id)).toEqual(main);
   });
 
+  it("are listed by kind", () => {
+    expect(store.nodesOfKind("function").map((n) => n.id)).toEqual([main.id, callee.id]);
+    expect(store.nodesOfKind("binary")).toEqual([binary]);
+  });
+
   it("refuses a record that breaks the schema", () => {
     expect(() => store.putNode({ ...main, address: "401000" })).toThrow(SchemaError);
   });

@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
+import { repositoryPath } from "./repository-path.js";
 import type { Evidence, GraphEdge, GraphNode, Hypothesis } from "./model.js";
 
 // ajv-formats is CommonJS: under NodeNext its default import is the module object.
@@ -11,8 +12,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 
 function compile(file: string): ValidateFunction {
-  const url = new URL(`../../schema/${file}`, import.meta.url);
-  return ajv.compile(JSON.parse(readFileSync(url, "utf8")) as object);
+  return ajv.compile(JSON.parse(readFileSync(repositoryPath("schema", file), "utf8")) as object);
 }
 
 const validators = {
