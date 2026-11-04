@@ -140,7 +140,8 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   works on every platform in view (ELF and COFF objects), validated with Lua's real source on each (97 to 99%), and
   the baseline of Ghidra's C as written: Linux x86-64 19 of 709, Windows x86-64 67 of 819, Android AArch64 51 of 686,
   raw ARMv6K 61 of 872, each checked in about 20 s. Runs of neighbouring functions remove the
-  same-file jump limit (all 30 Lua source files reproduce whole). Next: the agent loop over a whole binary, larger
+  same-file jump limit (all 30 Lua source files reproduce whole). Toolchain detection finds the compiler and flags
+  with no hint (right on all four Lua builds). Next: the agent loop over a whole binary, larger
   functions, and the share verified and the time it takes.
 
 ### M4 — Types and traces · 2–3 weeks

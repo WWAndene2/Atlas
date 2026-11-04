@@ -9,7 +9,7 @@
     "schema_version": { "const": 1 },
     "id": { "type": "string", "pattern": "^hyp_[0-9a-f]{16,64}$" },
     "node": { "type": "string", "description": "ID of the graph node the fact is about (e.g. fn_..., ty_...)." },
-    "kind": { "enum": ["name", "signature", "type", "summary", "system", "format", "rewrite", "match"] },
+    "kind": { "enum": ["name", "signature", "type", "summary", "system", "format", "rewrite", "match", "toolchain"] },
     "value": { "description": "The proposed fact: a string, a type layout, C source, a format description..." },
     "confidence": { "enum": ["guessed", "inferred", "observed", "verified", "rejected"] },
     "evidence": {

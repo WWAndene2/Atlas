@@ -176,7 +176,18 @@ against its builds: x86-64 Linux 152 of 154, ARMv6K 344 of 351, AArch64 Android 
 jump the assembler resolved in the original, a relocation when compiled alone) is checked in a **run**: the rewrite
 names its `last` function, the source defines the functions from the first to the last in original order, it is
 compiled without `-ffunction-sections`, and the run is compared with the graph's code from the first entry to the
-end of the last function. Validated: each of Lua's 30 source files, compiled whole, reproduces its run byte for byte. `atlas decompile` adds Ghidra's C for each function as a rewrite with
+end of the last function. Validated: each of Lua's 30 source files, compiled whole, reproduces its run byte for byte. **Toolchain detection** (`src/orchestrator/detect-toolchain.ts`, `atlas detect toolchain <file>`): a real target does
+not say how it was compiled. Atlas reads its architecture from the header (recorded on the binary node) and the
+compiler version strings left in the file, then probes: Ghidra's C for a sample of the binary's functions is
+recompiled with each installed compiler for that architecture at each optimisation level, then with the variants
+that matter (ARM or Thumb, float ABI, PIC for libraries), and the candidate reproducing the most functions becomes a
+`toolchain` hypothesis on the binary, with its score and the candidates it tied with. `atlas verify` uses it when no
+`--cc` is given. Measured on Lua with no hint: correct compiler and level on all four builds (Linux gcc -O2, Windows
+MinGW -O2, Android AArch64 -fPIC -O2, raw ARMv6K -marm -mfloat-abi=hard -O2), in 0.5 to 2.5 minutes; -O3 and the
+soft-float variants tie, since most functions compile the same with them. Limit: only compilers installed locally
+are candidates (MSVC, console SDKs and old GCC releases are not, yet).
+
+`atlas decompile` adds Ghidra's C for each function as a rewrite with
 `prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
 
 ### Dynamic data

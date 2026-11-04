@@ -78,6 +78,11 @@ describe("atlas CLI", () => {
       out: { check: { result: "pass" }, hypothesis: { confidence: "verified" } },
     });
     expect(atlas("verify", "all", "--cc", "gcc", "--cflags=-O2")).toMatchObject({ out: { checked: 0 } });
+    // Without --cc, the binary's detected toolchain is used; there is none here, and the error says how to get one.
+    expect(atlas("verify", id)).toMatchObject({
+      code: 2,
+      out: { error: { message: expect.stringContaining("atlas detect toolchain") } },
+    });
   });
 
   it("answers errors in JSON with an exit code", () => {

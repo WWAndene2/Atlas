@@ -8,7 +8,7 @@ import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
-import { runDecompile, runProposeRewrite, runVerify } from "./commands/rewrite.js";
+import { runDecompile, runDetectToolchain, runProposeRewrite, runVerify } from "./commands/rewrite.js";
 import { CliError, fail, print, type Output } from "./output.js";
 
 const USAGE = `usage: atlas <command> [--graph <file>] [--json]
@@ -30,9 +30,14 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                   [--last <fn|0x> --last-name <function>]
                                     an agent's C for a function, or with --last for the run of neighbouring
                                     functions up to that one (when they jump to each other)
-  verify <hyp_id|all> --cc <compiler> [--cflags="<flags>"]
+  detect toolchain <file> [--arch <a> --base <0x..>]
+                                    how the binary was compiled: compiler clues in the file, then a probe
+                                    recompiling a sample of Ghidra's C with each candidate; load and
+                                    decompile the file first
+  verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
                                     recompile a rewrite with the target's toolchain and compare it with
-                                    the original bytes; records verified, or the failure and its details
+                                    the original bytes; records verified, or the failure and its details;
+                                    without --cc, the toolchain detected for the binary
 
   --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)
   --binary <bin_>  with an address, the binary it belongs to when the graph holds several
@@ -107,6 +112,11 @@ async function main(argv: string[]): Promise<number> {
           ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),
         });
         break;
+      case "detect": {
+        const { raw } = parseRaw(values.arch, values.base);
+        output = await runDetectToolchain(store, rest, raw);
+        break;
+      }
       case "export":
         output = runExport(store, rest);
         break;

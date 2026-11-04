@@ -1,10 +1,9 @@
 // Decompiles a binary's functions with Ghidra and adds each one's C to the graph as a rewrite hypothesis, the
 // starting point an agent improves until it recompiles to the original bytes.
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
 import { decompileWithGhidra, locateGhidra } from "../tools/ghidra/index.js";
+import { fileSha256 } from "./file-hash.js";
 import { functionId } from "./load-binary.js";
 import { proposeRewrite } from "./propose-rewrite.js";
 
@@ -24,9 +23,7 @@ export async function decompileFunctions(
   input: EngineInput,
   addresses?: string[],
 ): Promise<DecompileOutcome> {
-  const sha256 = createHash("sha256")
-    .update(await readFile(input.path))
-    .digest("hex");
+  const sha256 = await fileSha256(input.path);
   const functions = await decompileWithGhidra(input, { installDir: locateGhidra() }, addresses);
   const outcome: DecompileOutcome = { proposed: [], skipped: [] };
   store.transaction(() => {

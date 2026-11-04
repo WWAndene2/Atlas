@@ -3,7 +3,11 @@
 // atlas verify <hyp_id> --cc <compiler> [--cflags "<flags>"]
 import { existsSync, readFileSync } from "node:fs";
 import type { GraphStore, Hypothesis } from "../../graph/index.js";
+import { binaryFacts } from "../../orchestrator/binary-facts.js";
 import { decompileFunctions } from "../../orchestrator/decompile-functions.js";
+import { binaryToolchain, detectToolchain } from "../../orchestrator/detect-toolchain.js";
+import { fileSha256 } from "../../orchestrator/file-hash.js";
+import { binaryId } from "../../orchestrator/load-binary.js";
 import { resolveFunction } from "../../orchestrator/function-context.js";
 import { proposeRewrite } from "../../orchestrator/propose-rewrite.js";
 import { resolveTarget } from "../../orchestrator/resolve-target.js";
@@ -91,14 +95,27 @@ export async function runVerify(
   options: { cc?: string; cflags?: string },
 ): Promise<Output> {
   const [id, ...extra] = args;
-  if (id === undefined || extra.length > 0 || !options.cc) {
+  if (id === undefined || extra.length > 0) {
     throw new CliError(
       "usage",
-      'usage: atlas verify <hyp_id|all> --cc <compiler> [--cflags="<flags>"] (with =: the flags start with a dash)',
+      'usage: atlas verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] (with =: the flags start with a dash; without --cc, the toolchain detected for the binary)',
     );
   }
   const flags = (options.cflags ?? "").split(/\s+/).filter((f) => f !== "");
-  const toolchain = { cc: options.cc, flags };
+  // Without --cc, each rewrite is checked with the toolchain detected for its binary (atlas detect toolchain).
+  const given = options.cc !== undefined ? { cc: options.cc, flags } : undefined;
+  const toolchainFor = (h: Hypothesis): { cc: string; flags: string[] } => {
+    if (given !== undefined) return given;
+    const binary = store.getNode(h.node)?.binary;
+    const detected = binary === undefined ? undefined : binaryToolchain(store, binary);
+    if (detected === undefined) {
+      throw new CliError(
+        "usage",
+        `no toolchain for ${binary ?? h.node}: give --cc and --cflags, or run atlas detect toolchain`,
+      );
+    }
+    return { cc: detected.cc, flags: detected.flags };
+  };
   if (id === "all") {
     // Every rewrite not checked yet, in one process: a whole binary costs one start, not one per function.
     const pending = (store.allRecords("hypotheses") as Hypothesis[]).filter(
@@ -106,7 +123,7 @@ export async function runVerify(
     );
     const counts: Record<string, number> = {};
     for (const h of pending) {
-      const { check } = await verifyRewrite(store, h.id, toolchain);
+      const { check } = await verifyRewrite(store, h.id, toolchainFor(h));
       const key = check.result === "pass" ? "verified" : check.reason;
       counts[key] = (counts[key] ?? 0) + 1;
     }
@@ -115,9 +132,43 @@ export async function runVerify(
       .join(", ")}`;
     return { data: { checked: pending.length, counts }, text };
   }
-  const { hypothesis, check } = await verifyRewrite(store, id, toolchain);
+  const target = store.getHypothesis(id);
+  if (target === undefined) throw new CliError("not_found", `no hypothesis ${id}`);
+  const { hypothesis, check } = await verifyRewrite(store, id, toolchainFor(target));
   return {
     data: { hypothesis, check },
     text: `${hypothesis.id}: ${check.result} (${hypothesis.verification?.details ?? ""}) -> ${hypothesis.confidence}`,
   };
+}
+
+export async function runDetectToolchain(store: GraphStore, args: string[], raw: EngineInput["raw"]): Promise<Output> {
+  const [what, path, ...extra] = args;
+  if (what !== "toolchain" || path === undefined || extra.length > 0) {
+    throw new CliError("usage", "usage: atlas detect toolchain <file> [--arch <a> --base <0x..>]");
+  }
+  if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
+  const target = await resolveTarget(path, raw);
+  const results = [];
+  try {
+    for (const b of target.binaries) {
+      const binary = binaryId(await fileSha256(b.input.path));
+      if (store.getNode(binary) === undefined)
+        throw new CliError("not_found", `${b.label} is not loaded; atlas load it first`);
+      const facts = binaryFacts(b.input);
+      const { value, hypothesis, tried } = await detectToolchain(store, binary, facts);
+      results.push({ label: b.label, binary, facts, toolchain: value, hypothesis: hypothesis?.id, tried });
+    }
+  } finally {
+    await target.dispose();
+  }
+  const text = results
+    .map((r) =>
+      r.toolchain === undefined
+        ? `${r.label}: no candidate reproduced any function (tried ${r.tried.length}); the toolchain stays unknown`
+        : `${r.label}: ${r.toolchain.cc} ${r.toolchain.flags.join(" ")} (${r.toolchain.verified} of ${r.toolchain.sample} ` +
+          `functions reproduced${r.toolchain.ties.length > 0 ? `; tied: ${r.toolchain.ties.map((t) => t.join(" ")).join(" | ")}` : ""})` +
+          `${r.facts.clues.length > 0 ? `; clues: ${r.facts.clues.join(", ")}` : ""}`,
+    )
+    .join("\n");
+  return { data: { binaries: results }, text };
 }

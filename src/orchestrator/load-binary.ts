@@ -36,6 +36,7 @@ export function loadAnalysis(
   label: string,
   analysis: EngineAnalysis,
   now: Date = new Date(),
+  architecture?: GraphNode["architecture"],
 ): LoadResult {
   const { sha256, tool } = analysis;
   const binary = binaryId(sha256);
@@ -54,7 +55,13 @@ export function loadAnalysis(
   store.transaction(() => {
     store.putEvidence(evidence);
     if (store.getNode(binary) === undefined) {
-      store.putNode({ schema_version: 1, id: binary, kind: "binary", label });
+      store.putNode({
+        schema_version: 1,
+        id: binary,
+        kind: "binary",
+        label,
+        ...(architecture !== undefined ? { architecture } : {}),
+      });
     }
     for (const f of analysis.functions) {
       const id = functionId(sha256, f.address);
