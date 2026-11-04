@@ -14,8 +14,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: tests/fixtures/lua/build.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      # Ghidra is 570 MB: keep the unpacked install between runs. The key names the version, so a bump downloads again
+      # (setup still checks the archive's SHA-256 whenever it downloads).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/atlas/tools
+          key: atlas-tools-ghidra-12.1.4
+      - run: scripts/setup.sh
+      # Everything setup installs is required here: a missing fixture fails instead of skipping its tests.
       - run: npm run check
         env:
           ATLAS_REQUIRE_FIXTURES: "1"

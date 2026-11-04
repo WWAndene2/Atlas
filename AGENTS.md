@@ -83,6 +83,7 @@ A change is done when all of these hold:
 | Tests, mirroring `src/`                                                                     | `tests/<same path>/`                      |
 | Test fixtures and scoring targets                                                           | `tests/fixtures/<subject>/`               |
 | Design documentation                                                                        | `docs/`                                   |
+| Setup and maintenance scripts run by operators and CI                                       | `scripts/`                                |
 
 **Placement procedure:**
 

@@ -64,13 +64,15 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 ### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done; (5) setup script;
+Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader, done; (4) CLI, done; (5) setup script, done;
 (6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
   conditions, so Ghidra's adapter comes first.
 - `scripts/setup.sh`: installs Atlas, REA and Ghidra (with its Java) in one command, checks each, and names what is
-  missing and how to get it. Idempotent: a second run changes nothing.
+  missing and how to get it. Idempotent: a second run changes nothing. Done: also builds the Lua fixture and
+  installs an `atlas` command; engines go in `~/.local/share/atlas/tools`, where Atlas finds them unconfigured.
+  CI runs it, so the Ghidra tests run there.
 - Two engine adapters, each listing functions, calls and strings with evidence:
   - `src/tools/ghidra/`: Ghidra headless, driven directly: first, Atlas works with it alone. Done with Ghidra
     12.1.4: on stripped Lua it finds 708 of the 711 functions (one extra), checked by test where Ghidra is

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { repositoryPath } from "../../graph/index.js";
 import type { EngineAnalysis } from "../engine-analysis.js";
+import { toolsDir } from "../tools-dir.js";
 import { parseGhidraExport } from "./ghidra-export.js";
 
 const run = promisify(execFile);
@@ -24,15 +25,17 @@ export class GhidraUnavailableError extends Error {
 // The script ships as source: Ghidra compiles it itself.
 const scriptDir = (): string => repositoryPath("src", "tools", "ghidra", "scripts");
 
-/** The Ghidra installation named by GHIDRA_INSTALL_DIR, checked to be the reviewed version. */
+/**
+ * The Ghidra installation to use, checked to be the reviewed version: GHIDRA_INSTALL_DIR when set, else the one
+ * scripts/setup.sh installs in the tools directory.
+ */
 export function locateGhidra(env: NodeJS.ProcessEnv = process.env): string {
-  const dir = env.GHIDRA_INSTALL_DIR;
-  if (dir === undefined || dir === "") {
-    throw new GhidraUnavailableError("GHIDRA_INSTALL_DIR is not set; run scripts/setup.sh");
-  }
+  const dir = env.GHIDRA_INSTALL_DIR || join(toolsDir(env), `ghidra_${GHIDRA_VERSION}_PUBLIC`);
   const headless = join(dir, "support", "analyzeHeadless");
   const properties = join(dir, "Ghidra", "application.properties");
-  if (!existsSync(headless) || !existsSync(properties)) throw new GhidraUnavailableError(`no Ghidra at ${dir}`);
+  if (!existsSync(headless) || !existsSync(properties)) {
+    throw new GhidraUnavailableError(`no Ghidra at ${dir}; run scripts/setup.sh or set GHIDRA_INSTALL_DIR`);
+  }
   const version = /^application\.version=(.+)$/m.exec(readFileSync(properties, "utf8"))?.[1]?.trim();
   if (version !== GHIDRA_VERSION) {
     throw new GhidraUnavailableError(

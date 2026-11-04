@@ -75,4 +75,10 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+// A reader that stops early (atlas list functions | head) closes the pipe: that is not an error of Atlas.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(process.exitCode ?? 0);
+  throw error;
+});
+
 process.exitCode = await main(process.argv.slice(2));

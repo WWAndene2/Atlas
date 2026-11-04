@@ -17,7 +17,7 @@ function atlas(...args: string[]): { code: number | null; out: unknown; stderr: 
     ["--disable-warning=ExperimentalWarning", cli, ...args, "--graph", graph, "--json"],
     {
       encoding: "utf8",
-      env: { ...process.env, GHIDRA_INSTALL_DIR: "" },
+      env: { ...process.env, GHIDRA_INSTALL_DIR: "", ATLAS_TOOLS_DIR: "/nonexistent" },
     },
   );
   return { code: r.status, out: r.stdout === "" ? undefined : JSON.parse(r.stdout), stderr: r.stderr };
@@ -67,9 +67,36 @@ describe("atlas CLI", () => {
     expect(atlas("frobnicate")).toMatchObject({ code: 2, out: { error: { code: "usage" } } });
   });
 
+  it("exits cleanly when its reader closes the pipe early", () => {
+    // Output far larger than a pipe's buffer, so the CLI is still writing when head has gone.
+    const big = join(mkdtempSync(join(tmpdir(), "atlas-cli-")), "big.sqlite");
+    const store = new GraphStore(big);
+    loadAnalysis(store, "/x/big", {
+      tool: { name: "test", version: "1" },
+      sha256: "f".repeat(64),
+      functions: Array.from({ length: 5000 }, (_, i) => ({
+        address: `0x${(0x1000 + i * 16).toString(16)}`,
+        size: 16,
+        label: `FUN_${i}`,
+        thunk: false,
+      })),
+      calls: [],
+      strings: [],
+      limitations: [],
+    });
+    store.close();
+    const r = spawnSync(
+      "bash",
+      ["-c", `node --disable-warning=ExperimentalWarning ${cli} list functions --json --graph ${big} | head -c 1`],
+      { encoding: "utf8" },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toBe("{");
+  });
+
   it("reports why no engine could load a binary", () => {
     const { code, out } = atlas("load", cli);
     expect(code).toBe(1);
-    expect(out).toMatchObject({ error: { code: "no_engine", message: expect.stringContaining("GHIDRA_INSTALL_DIR") } });
+    expect(out).toMatchObject({ error: { code: "no_engine", message: expect.stringContaining("scripts/setup.sh") } });
   });
 });
