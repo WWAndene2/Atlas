@@ -64,7 +64,7 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 
 ### M1 — Clone, set up, load a binary with two engines · 2–3 weeks · in progress
 
-Order of work: (1) REA review, done; (2) Lua fixture; (3) Ghidra adapter and loader; (4) CLI; (5) setup script;
+Order of work: (1) REA review, done; (2) Lua fixture, done; (3) Ghidra adapter and loader; (4) CLI; (5) setup script;
 (6) REA adapter and cross-check; (7) getting started in `AGENTS.md` and the fresh-session test.
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
@@ -79,7 +79,9 @@ Order of work: (1) REA review, done; (2) Lua fixture; (3) Ghidra adapter and loa
 - CLI with `--json` output (`src/cli/`): `atlas load`, `atlas get function`, `atlas list callers`, `atlas export`.
 - "Getting started" at the top of `AGENTS.md`: clone, set up, first commands.
 - **Ground-truth target:** Lua, built twice from its sources (with symbols, stripped), fixture in
-  `tests/fixtures/lua/`. The symbols are the answer key for every later score.
+  `tests/fixtures/lua/`. The symbols are the answer key for every later score. Done: `build.sh` compiles Lua
+  5.4.7 (pinned, SHA-256 checked) once and strips a copy, so both files share their code byte for byte (checked
+  by test; CI builds it and requires it).
 - **Done when:**
   - on the stripped build, the graph's functions and calls are scored against the symbol build for each engine and
     for their combination, checked by test;

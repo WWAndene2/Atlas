@@ -15,4 +15,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: tests/fixtures/lua/build.sh
       - run: npm run check
+        env:
+          ATLAS_REQUIRE_FIXTURES: "1"
