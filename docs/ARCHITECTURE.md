@@ -89,7 +89,7 @@ Container formats whose code no engine reads directly are opened by Atlas's own 
 - **Nintendo 3DS** (`src/tools/ctr/`): NCSD card images (`.3ds`, `.cci`) and NCCH partitions (`.cxi`). The code
   (ExeFS `.code`, BLZ-decompressed when flagged) is laid out by the extended header's segments and analysed as a
   raw ARMv6K image at the text address. Only decrypted content: an NCCH without the NoCrypto flag is refused,
-  because decrypting would bypass the console's protection (AGENTS.md 1.7). Written from the community
+  because decrypting would bypass the console's copy protection. Written from the community
   documentation (3dbrew) and checked against containers built to that documentation, not yet against a real dump.
 
 - **ZIP-based packages** (`src/tools/zip/`): Android `.apk`/`.aab`, iOS `.ipa`, `.jar`, `.zip`. Every member

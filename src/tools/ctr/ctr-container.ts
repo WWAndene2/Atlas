@@ -5,7 +5,7 @@
 // Only the headers and the code are read, by offset, so card images of several gigabytes cost no more than small ones.
 //
 // Only decrypted content is read. An NCCH without the NoCrypto flag is refused: decrypting it would mean bypassing
-// the console's encryption, which is out of Atlas's scope (AGENTS.md, section 1.7). Dumps decrypted by the owner's
+// the console's copy protection, which Atlas does not do. Dumps decrypted by the owner's
 // own console are what Atlas takes.
 import type { ByteSource } from "../byte-source.js";
 import { blzDecompress } from "./ctr-blz.js";
