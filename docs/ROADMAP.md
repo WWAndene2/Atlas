@@ -171,6 +171,7 @@ on first download, since the release publishes no checksum). `atlas check functi
 - Clustering functions into systems; a summary per system.
 - Format agent: file format inferred from its loader, Kaitai parser checked on every file of that kind.
 - **Done when:** Lua's modules recovered as systems, scored against its source files.
+- **In progress.** Done: the format check (`atlas check format`, Kaitai Struct 0.11). Next: clustering into systems.
 
 ### M6 — Orchestrator: many agents at once · 2–3 weeks
 

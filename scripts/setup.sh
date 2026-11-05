@@ -173,19 +173,43 @@ else
   rm -rf "$work"
 fi
 
-step "Python tools: angr (verify --equivalence, --differential) and Frida (atlas trace)"
+step "Kaitai Struct compiler (atlas check format)"
+# Exactly the reviewed release, checked against the SHA-256 recorded at review. Runs on the Java installed above.
+KSC_VERSION=0.11
+KSC_SHA256=ff89389d9dc9e770d78a24af328763cb1f8e7b31ce7766c9edf10669a060f2a2
+ksc_dir="$tools/kaitai-struct-compiler-$KSC_VERSION"
+if [[ -x "$ksc_dir/bin/kaitai-struct-compiler" ]]; then
+  ok "Kaitai Struct compiler $KSC_VERSION"
+elif ! { have curl && have sha256sum && { have unzip || have python3; }; }; then
+  printf '   note: Kaitai Struct compiler not installed\n   how: install curl, sha256sum and unzip, then run this again\n'
+else
+  work=$(mktemp -d)
+  archive="kaitai-struct-compiler-$KSC_VERSION.zip"
+  if curl -sSLf -o "$work/$archive" "https://github.com/kaitai-io/kaitai_struct_compiler/releases/download/$KSC_VERSION/$archive" &&
+    echo "$KSC_SHA256  $work/$archive" | sha256sum -c --quiet -; then
+    if have unzip; then unzip -q "$work/$archive" -d "$tools"; else python3 -m zipfile -e "$work/$archive" "$tools"; fi
+    chmod +x "$ksc_dir/bin/kaitai-struct-compiler"
+    ok "Kaitai Struct compiler $KSC_VERSION in $ksc_dir"
+  else
+    printf '   note: Kaitai Struct compiler download or checksum failed; run this again\n'
+  fi
+  rm -rf "$work"
+fi
+
+step "Python tools: angr (verify --equivalence, --differential), Frida (atlas trace), Kaitai runtime"
 # One Python environment of its own in the tools directory, exactly the reviewed versions (docs/DEPENDENCY_REVIEWS.md),
 # wheels only. Recommended, not required: without it those commands say what is missing.
 ANGR_VERSION=10.0.5
 FRIDA_VERSION=17.25.2
+KAITAI_RUNTIME_VERSION=0.11
 py="$tools/py/bin/python"
-if [[ -x "$py" ]] && "$py" -c "import angr, frida; assert angr.__version__ == '$ANGR_VERSION' and frida.__version__ == '$FRIDA_VERSION'" 2>/dev/null; then
-  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION"
+if [[ -x "$py" ]] && "$py" -c "import angr, frida, kaitaistruct; assert angr.__version__ == '$ANGR_VERSION' and frida.__version__ == '$FRIDA_VERSION' and kaitaistruct.__version__ == '$KAITAI_RUNTIME_VERSION'" 2>/dev/null; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION, kaitaistruct $KAITAI_RUNTIME_VERSION"
 elif have python3 && python3 -m venv "$tools/py" >/dev/null 2>&1 &&
-  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" "frida==$FRIDA_VERSION" >/dev/null 2>&1; then
-  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION in $tools/py"
+  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" "frida==$FRIDA_VERSION" "kaitaistruct==$KAITAI_RUNTIME_VERSION" >/dev/null 2>&1; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION, kaitaistruct $KAITAI_RUNTIME_VERSION in $tools/py"
 else
-  printf '   note: angr and Frida not installed, so no equivalence, differential test or trace\n   how: apt install python3-venv, then run this again\n'
+  printf '   note: angr and Frida not installed, so no equivalence, differential test, trace or format check\n   how: apt install python3-venv, then run this again\n'
 fi
 
 step "atlas command"

@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
@@ -73,6 +74,9 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   check functions <file> [--arch <a> --base <0x..>]
                                     a second engine (Rizin) lists the functions too: how many entries both
                                     engines agree on, which only one finds; recorded as evidence
+  check format <file.ksy> <files...> [--agent <name>] [--binary <bin_>]
+                                    a file format described in Kaitai Struct (.ksy), as a format node and
+                                    hypothesis; verified when its parser reads every file given
   trace <program> [--stdin <text>] [-- <arguments>]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
@@ -249,6 +253,13 @@ async function main(argv: string[]): Promise<number> {
         output = await runTrace(store, rest, values.stdin !== undefined ? { stdin: values.stdin } : {});
         break;
       case "check": {
+        if (rest[0] === "format") {
+          output = await runCheckFormat(store, rest.slice(1), {
+            ...(values.agent !== undefined ? { agent: values.agent } : {}),
+            ...(values.binary !== undefined ? { binary: values.binary } : {}),
+          });
+          break;
+        }
         const { raw } = parseRaw(values.arch, values.base);
         output = await runCheckFunctions(store, rest, raw);
         break;

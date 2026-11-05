@@ -22,6 +22,7 @@ import { rewriteTask } from "../orchestrator/rewrite-task.js";
 import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
+import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { verifyOne, verifyPending } from "../orchestrator/verify-rewrites.js";
@@ -160,6 +161,16 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { path: z.string(), argv: z.array(z.string()).optional(), stdin: z.string().optional() },
       handler: async (a: { path: string; argv?: string[]; stdin?: string }) =>
         traceTarget(store, a.path, a.argv ?? [], a.stdin !== undefined ? { stdin: a.stdin } : {}),
+    },
+    check_format: {
+      description:
+        "A file format as Kaitai Struct (.ksy source): recorded as a format hypothesis, verified when its parser reads every file given.",
+      input: { ksy: z.string(), files: z.array(z.string()).min(1), agent: z.string().optional(), binary },
+      handler: async (a: { ksy: string; files: string[]; agent?: string; binary?: string }) =>
+        checkFormat(store, a.ksy, a.files, {
+          ...(a.agent !== undefined ? { agent: a.agent } : {}),
+          ...(a.binary !== undefined ? { binary: a.binary } : {}),
+        }),
     },
     check_functions: {
       description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",

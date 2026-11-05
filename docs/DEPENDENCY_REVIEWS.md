@@ -116,3 +116,18 @@ since Atlas does not ship Frida). Local device only: no network use in what Atla
 2. `atlas trace` runs the target natively under the operator's account: only on a program the operator asked to
    run, which the CLI help and MCP description say. Only the script in `src/tools/frida/trace.py` is injected.
 3. Local device only (`frida.get_local_device()`); no remote or USB devices without a new review.
+
+## Kaitai Struct compiler 0.11 and runtime (`kaitaistruct`) 0.11 — 5 November 2026
+
+**Scope of the check.** The compiler's release archive (`kaitai-struct-compiler-0.11.zip`, SHA-256
+`ff89389d9dc9e770d78a24af328763cb1f8e7b31ce7766c9edf10669a060f2a2`, recorded at the first download since the release
+publishes none) and the runtime's PyPI wheel, in the tools Python environment. Not audited line by line.
+
+**Seen:** compiler GPL-3.0, run as a separate program on the Java installed for Ghidra (Atlas does not link or ship
+it); runtime MIT, a single pure-Python module. The compiler only reads the .ksy and writes source; the generated
+Python only reads the file it parses.
+
+**Conditions:**
+
+1. Exactly 0.11 for both, the archive installed by `scripts/setup.sh` only after its SHA-256 matches.
+2. Generated parsers run in a subprocess on files the operator names; the generated code is not kept.

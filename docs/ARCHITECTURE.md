@@ -62,7 +62,7 @@ Flawed methods behind those gaps, each answered by a principle below:
     session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
-                      Ghidra, REA, Rizin, angr, Frida; later IDA
+                      Ghidra, REA, Rizin, angr, Frida, Kaitai; later IDA
 ```
 
 ### Tools layer: several engines, cross-checked
@@ -94,6 +94,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   ran a `signature` hypothesis at `observed` (calls; per argument register pointer, integer or mixed; return).
   Measured on Lua running a script: 256 functions ran, the first argument of 173 Lua functions classified right
   (the three non-pointers are `void`, `unsigned` and a NULL state). Registers past the real arity hold leftovers.
+- Kaitai Struct (`src/tools/kaitai/`): `atlas check format <file.ksy> <files...>` records a file format as a
+  format node (`fmt_<binary>_<id>`) and a format hypothesis holding the .ksy, then compiles it to a Python parser
+  and runs it on every file given (`src/orchestrator/check-format.ts`): all read makes it verified (check
+  `parser_run`); a failure records the file and the error; trailing bytes are reported.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
