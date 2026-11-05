@@ -110,6 +110,71 @@ describe("atlas CLI", () => {
     });
   });
 
+  it("hands agents claiming at the same moment different tasks", async () => {
+    // Eight processes at once, as eight subagents would, on a graph of ten open functions: no task twice.
+    const { spawn } = await import("node:child_process");
+    const own = join(dirname(graph), "claims.sqlite");
+    const store = new GraphStore(own);
+    loadAnalysis(store, "target", {
+      tool: { name: "test", version: "1" },
+      sha256: "c".repeat(64),
+      functions: Array.from({ length: 10 }, (_, i) => ({
+        address: `0x${(0x1000 + i * 16).toString(16)}`,
+        size: 8,
+        label: `FUN_${i}`,
+        thunk: false,
+        code: "90".repeat(16),
+      })),
+      calls: [],
+      strings: [],
+      limitations: [],
+    });
+    store.close();
+    const claimOnce = (agent: string): Promise<string> =>
+      new Promise((resolve) => {
+        const p = spawn(process.execPath, [
+          "--disable-warning=ExperimentalWarning",
+          cli,
+          "claim",
+          "task",
+          "rewrite",
+          "--agent",
+          agent,
+          "--graph",
+          own,
+          "--json",
+        ]);
+        let out = "";
+        p.stdout.on("data", (d: Buffer) => (out += d.toString()));
+        p.on("close", () => resolve(out));
+      });
+    const results = await Promise.all(Array.from({ length: 8 }, (_, i) => claimOnce(`agent-${i}`)));
+    const tasks = results
+      .map((r) => (JSON.parse(r) as { claim: { task: string } | null }).claim?.task)
+      .filter((t) => t !== undefined);
+    expect(tasks).toHaveLength(8);
+    expect(new Set(tasks).size).toBe(8);
+    const someone = tasks[0] as string;
+    const holder = `agent-${results.findIndex((r) => r.includes(someone))}`;
+    const release = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        cli,
+        "release",
+        "task",
+        someone,
+        "--agent",
+        holder,
+        "--graph",
+        own,
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(JSON.parse(release.stdout)).toEqual({ released: true });
+  });
+
   it("answers errors in JSON with an exit code", () => {
     expect(atlas("get", "function", "0x9")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });
     expect(atlas("load", "/nonexistent")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });

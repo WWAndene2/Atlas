@@ -2,12 +2,13 @@
 // Atlas's command line. Every command answers in JSON with --json (the form agents read, AGENTS.md section 1) and
 // in short text otherwise. Exit code 0 on success, 1 on a failure the output describes, 2 on a usage error.
 import { parseArgs } from "node:util";
-import { GraphStore } from "../graph/index.js";
+import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
+import { runClaimTask, runReleaseTask } from "./commands/claim.js";
 import { runMatchLibraries } from "./commands/libraries.js";
 import { runRun } from "./commands/run.js";
 import { runProposeName, runScoreNames } from "./commands/names.js";
@@ -30,6 +31,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     attempts' instructions, toolchain, callees' prototypes, the commands
   list tasks rewrite [--binary <bin_>]
                                     the functions still to rewrite, callees before callers
+  claim task rewrite --agent <name> [--lease <seconds>]
+                                    the next open task nobody holds, callees first, with its full context,
+                                    held for the agent until the lease ends (30 minutes by default)
+  release task <fn_id> --agent <name>
+                                    give a claimed task back
   list callers <fn_id|0xaddress>    the functions calling it
   list callees <fn_id|0xaddress>    the functions it calls
   list functions                    every function in the graph
@@ -81,6 +87,8 @@ async function main(argv: string[]): Promise<number> {
         cc: { type: "string" },
         cflags: { type: "string" },
         truth: { type: "string" },
+        agent: { type: "string" },
+        lease: { type: "string" },
         goal: { type: "string" },
         report: { type: "string" },
         library: { type: "string", multiple: true },
@@ -101,7 +109,8 @@ async function main(argv: string[]): Promise<number> {
     return command === undefined && values.help !== true ? 2 : 0;
   }
 
-  const store = new GraphStore(values.graph ?? process.env.ATLAS_GRAPH ?? "atlas.sqlite");
+  const graphPath = values.graph ?? process.env.ATLAS_GRAPH ?? "atlas.sqlite";
+  const store = new GraphStore(graphPath);
   try {
     let output: Output;
     switch (command) {
@@ -130,6 +139,23 @@ async function main(argv: string[]): Promise<number> {
           ...(values.report !== undefined ? { report: values.report } : {}),
           ...(raw !== undefined ? { raw } : {}),
         });
+        break;
+      }
+      case "claim":
+      case "release": {
+        const claims = new TaskClaims(graphPath);
+        try {
+          output =
+            command === "claim"
+              ? await runClaimTask(store, claims, rest, {
+                  ...(values.agent !== undefined ? { agent: values.agent } : {}),
+                  ...(values.lease !== undefined ? { lease: values.lease } : {}),
+                  ...(values.binary !== undefined ? { binary: values.binary } : {}),
+                })
+              : runReleaseTask(claims, rest, values.agent);
+        } finally {
+          claims.close();
+        }
         break;
       }
       case "match":

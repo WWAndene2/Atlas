@@ -58,8 +58,8 @@ Flawed methods behind those gaps, each answered by a principle below:
          ▼                     ▼                          ▼
    Orchestrator         Knowledge graph             Verification loop
    (task queue,         (SQLite + JSONL export,     (recompile + compare,
-    budgets, agents      schema/*.schema.json)       differential tests,
-    over model APIs)                                 type checks on traces)
+    claims for the       schema/*.schema.json)       differential tests,
+    session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
                       Ghidra, REA, later Rizin, angr, IDA, Frida
@@ -138,11 +138,9 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
 
 - Turns a goal ("understand the rendering") into tasks on graph nodes, by priority (hot code from traces first,
   the goal's system first).
-- Until it exists (roadmap M6), the agent is the operator's own AI, reaching Atlas by the CLI or MCP
-  (`docs/ROADMAP.md`, How an AI uses Atlas). Then it runs agents as model API calls in parallel, not as chat
-  sessions. Each task gets its context from the graph:
-  the node, its neighbours, observed values, current hypotheses.
-- Enforces a compute budget per project and per task.
+- The agents are the operator's own AI session and the subagents it starts, reaching Atlas by the CLI or MCP
+  (`docs/ROADMAP.md`, How an AI uses Atlas); Atlas calls no model. Each task gets its context from the graph: the
+  node, its neighbours, observed values, current hypotheses.
 - In place today: loading a target with every engine that can run here (`load-target.ts`, the engine list in
   `engines.ts`): an engine that is missing or fails is skipped and reported, and loading fails only when none
   succeeds. A function's context (`function-context.ts`): callers, callees, strings read, hypotheses.
@@ -272,6 +270,15 @@ tools in the same vocabulary (`run`, `load`, `get_function`, `list_functions`, `
 `decompile`, `detect_toolchain`, `match_libraries`, `list_tasks_rewrite`, `get_task_rewrite`, `propose_rewrite`,
 `propose_name`, `verify`, `export`), calling the same orchestrator functions. Each answers one JSON document; an error
 is an error result holding `{"error": {"message"}}`. Built on the official MCP TypeScript SDK (1.32.2, MIT).
+
+### Parallel agents
+
+Atlas calls no model: the operator's AI session starts subagents, and Atlas coordinates them. `atlas claim task
+rewrite --agent <name>` gives the next open task nobody holds, callees first, with its full context, under a lease
+(30 minutes by default) recorded in a `claims` table beside the graph (`src/graph/task-claims.ts`, never exported);
+a verified task leaves the queue, a released or lapsed one returns to it. Several processes share one graph file:
+WAL journaling, a 30-second lock wait and immediate transactions keep it consistent (checked with eight claims at
+the same moment: eight different tasks). The protocol for sessions is in `AGENTS.md` 1.8.
 
 ### Command line
 

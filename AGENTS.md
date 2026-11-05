@@ -63,6 +63,14 @@ There are two kinds of work:
    non-inlined caller in the same file). When a function jumps to a neighbour of the same file (a failure at a jump,
    or a short jump in the original), propose the run instead: the source defines both, in original order, and
    `--last <fn> --last-name <name>` names the run's last function.
+8. **Working in parallel with subagents** (an AI session and the agents it starts; Atlas calls no model itself).
+   The main session runs `atlas run <file> --goal "..."`, then starts N subagents, each given a distinct name and
+   this loop: `atlas claim task rewrite --agent <name> --json` (the next open task nobody holds, callees first, with
+   its full context, held 30 minutes); work it as in 7; propose and verify; then claim the next. A verified task
+   leaves the queue by itself; one given up is released (`atlas release task <fn> --agent <name>`), and one left
+   by a stopped agent returns when its lease ends. Stop when a claim answers `"claim": null`. All agents share one
+   graph file (`--graph`), which Atlas keeps consistent across processes. The main session then reruns
+   `atlas run` for the report.
 
 ---
 

@@ -21,7 +21,7 @@ How it gets there:
 
 ## How an AI uses Atlas
 
-Atlas calls no AI model itself until M6. The AI is whichever assistant the operator already uses (Claude, GPT,
+Atlas calls no AI model itself. The AI is whichever assistant the operator already uses (Claude, GPT,
 Gemini...), and it reaches Atlas through one of two doors onto the same engine and graph:
 
 1. **Clone and run (the main door).** The AI is given the repository's address, clones it into its own environment,
@@ -30,7 +30,7 @@ Gemini...), and it reaches Atlas through one of two doors onto the same engine a
 2. **MCP.** The AI connects to an Atlas already running somewhere. For AIs that cannot run commands (chat in a
    browser) and for one graph shared by several AIs or people.
 
-Running many agents in parallel, with Atlas calling model APIs itself, comes at M6, once the method is measured.
+Running many agents in parallel comes at M6: subagents of the operator's own AI session, which Atlas coordinates.
 
 ## Principle: write the core, reuse the rest
 
@@ -165,10 +165,13 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 
 ### M6 — Orchestrator: many agents at once · 2–3 weeks
 
-- Atlas runs agents itself, through model APIs (several providers behind one setting), in parallel, with priorities,
-  a per-task and a per-project budget.
-- **Done when:** all of Lua named and typed by parallel agents, with accuracy and cost measured against M2's single
-  assistant.
+- Agents of the operator's own AI session, not model APIs (decided 5 November 2026: the operator uses no API
+  provider). The session starts subagents; Atlas hands them tasks without overlap and keeps one graph consistent
+  across their processes. Done: `atlas claim task rewrite` (a lease per task, callees first), `atlas release task`,
+  the protocol in `AGENTS.md` 1.8, the store safe for concurrent processes (WAL, lock waits, immediate
+  transactions).
+- **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
+  measured against one agent.
 
 ### M7 — Knowledge carried over
 
@@ -196,6 +199,5 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 
 ## Open decisions
 
-- Model API access and budget for M6: which providers, which keys, what monthly cap. Not needed before.
 - `node:sqlite` is still flagged experimental in Node 22 (it prints a warning). Kept because it needs no native
   build; to revisit if its API changes.
