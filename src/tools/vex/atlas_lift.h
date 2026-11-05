@@ -286,4 +286,42 @@ static inline uint64_t amd64g_calculate_condition(uint64_t cond, uint64_t op, ui
   }
   return (uint64_t)(r ^ (int)(cond & 1));
 }
+/* ---- ARM condition flags, from VEX's thunk (as guest_arm_helpers.c): cc_op COPY 0 (dep1 holds NZCV in bits 31-28),
+ * ADD 1, SUB 2, ADC 3 and SBB 4 (ndep: old C), LOGIC 5 (dep1 result, dep2 shifter carry, ndep old V), MUL 6 and
+ * MULL 7 (ndep: old C in bit 1, old V in bit 0). Results: NZCV in bits 31-28. */
+static inline uint32_t armg_calculate_flags_nzcv(uint32_t op, uint32_t d1, uint32_t d2, uint32_t nd) {
+  uint32_t n = 0, z = 0, c = 0, v = 0, r;
+  switch (op) {
+    case 0: return d1 & 0xf0000000u;
+    case 1: r = d1 + d2; n = r >> 31; z = r == 0; c = r < d1; v = ((r ^ d1) & (r ^ d2)) >> 31; break;
+    case 2: r = d1 - d2; n = r >> 31; z = r == 0; c = d1 >= d2; v = ((d1 ^ d2) & (d1 ^ r)) >> 31; break;
+    case 3: r = d1 + d2 + nd; n = r >> 31; z = r == 0; c = nd ? r <= d1 : r < d1; v = ((r ^ d1) & (r ^ d2)) >> 31; break;
+    case 4: r = d1 - d2 - (nd ^ 1); n = r >> 31; z = r == 0; c = nd ? d1 >= d2 : d1 > d2; v = ((d1 ^ d2) & (d1 ^ r)) >> 31; break;
+    case 5: n = d1 >> 31; z = d1 == 0; c = d2 & 1; v = nd & 1; break;
+    case 6: n = d1 >> 31; z = d1 == 0; c = (nd >> 1) & 1; v = nd & 1; break;
+    case 7: n = d2 >> 31; z = (d1 | d2) == 0; c = (nd >> 1) & 1; v = nd & 1; break;
+    default: return 0;
+  }
+  return (n << 31) | (z << 30) | (c << 29) | (v << 28);
+}
+static inline uint32_t armg_calculate_flag_n(uint32_t op, uint32_t d1, uint32_t d2, uint32_t nd) { return armg_calculate_flags_nzcv(op, d1, d2, nd) >> 31; }
+static inline uint32_t armg_calculate_flag_z(uint32_t op, uint32_t d1, uint32_t d2, uint32_t nd) { return (armg_calculate_flags_nzcv(op, d1, d2, nd) >> 30) & 1; }
+static inline uint32_t armg_calculate_flag_c(uint32_t op, uint32_t d1, uint32_t d2, uint32_t nd) { return (armg_calculate_flags_nzcv(op, d1, d2, nd) >> 29) & 1; }
+static inline uint32_t armg_calculate_flag_v(uint32_t op, uint32_t d1, uint32_t d2, uint32_t nd) { return (armg_calculate_flags_nzcv(op, d1, d2, nd) >> 28) & 1; }
+/* cond_n_op: the condition in bits 7-4, the cc_op below. */
+static inline uint32_t armg_calculate_condition(uint32_t cond_n_op, uint32_t d1, uint32_t d2, uint32_t nd) {
+  uint32_t f = armg_calculate_flags_nzcv(cond_n_op & 0xf, d1, d2, nd);
+  uint32_t n = f >> 31, z = (f >> 30) & 1, c = (f >> 29) & 1, v = (f >> 28) & 1, r;
+  switch (cond_n_op >> 5) {
+    case 0: r = z; break;             /* EQ / NE */
+    case 1: r = c; break;             /* HS / LO */
+    case 2: r = n; break;             /* MI / PL */
+    case 3: r = v; break;             /* VS / VC */
+    case 4: r = c & !z; break;        /* HI / LS */
+    case 5: r = !(n ^ v); break;      /* GE / LT */
+    case 6: r = !z & !(n ^ v); break; /* GT / LE */
+    default: return 1;                /* AL */
+  }
+  return r ^ ((cond_n_op >> 4) & 1);
+}
 #endif

@@ -34,6 +34,18 @@ from angr import claripy
 from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
 
 ARG_REGS = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+# Calling conventions by architecture (archinfo's name): argument registers, return register, stack pointer, and
+# the link register a call leaves the return address in (None: x86-64, which pushes it on the stack). MIPS's PIC
+# code also expects its own address in t9 at entry.
+CONVENTIONS = {
+    "AMD64": {"args": ARG_REGS, "ret": "rax", "sp": "rsp", "link": None},
+    "ARMEL": {"args": ["r0", "r1", "r2", "r3"], "ret": "r0", "sp": "sp", "link": "lr"},
+    "ARMHF": {"args": ["r0", "r1", "r2", "r3"], "ret": "r0", "sp": "sp", "link": "lr"},
+    "AARCH64": {"args": [f"x{i}" for i in range(8)], "ret": "x0", "sp": "sp", "link": "x30"},
+    "MIPS32": {"args": ["a0", "a1", "a2", "a3"], "ret": "v0", "sp": "sp", "link": "ra", "entry": "t9"},
+    "PPC32": {"args": [f"r{i}" for i in range(3, 11)], "ret": "r3", "sp": "r1", "link": "lr"},
+}
+CONV = dict(CONVENTIONS["AMD64"])
 SAVED = ["rbx", "rbp", "r12", "r13", "r14", "r15"]
 STACK = 0x7FFF0000
 RETURN = 0xDEAD0000
@@ -46,6 +58,7 @@ HEAP = 0x30000000
 CTYPE = 0x31000000
 DEFAULTS = []
 CTYPE_PAGES = {}
+BIG_ENDIAN = False
 EDGES = [0, 1, 2, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000]
 
 # Guest-memory versions of common C library functions: what the C side runs for an import of that name.
@@ -85,7 +98,10 @@ BRIDGE = {
 
 
 def glue(functions, imports, offsets, off):
-    regs = {r: offsets[r][0] for r in ARG_REGS + ["rsp", "rax"]}
+    conv = CONV
+    regs = {"rdi": offsets[conv["args"][0]][0], "rsi": offsets[conv["args"][1]][0], "rdx": offsets[conv["args"][2]][0],
+            "rsp": offsets[conv["sp"]][0], "rax": offsets[conv["ret"]][0]}
+    word = "uint64_t" if offsets[conv["sp"]][1] == 8 else "uint32_t"
     decls = "\n".join(f"void fn_{a:x}(atlas_state *s);" for a in functions)
     cases = [f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in functions]
     bridges = []
@@ -94,10 +110,12 @@ def glue(functions, imports, offsets, off):
         if body is None:
             continue
         bridges.append(f"static void bridge_{name}(atlas_state *s) {{ {body} }}")
-        # The translated caller resumes after the call itself; the bridge pops the return address, as ret would.
-        cases.append(f"    case {address:#x}ULL: bridge_{name}(s); REG(uint64_t, {regs['rsp']}) += 8; return;")
+        # The translated caller resumes after the call itself; on x86-64 the bridge pops the return address, as ret
+        # would (elsewhere the call left it in a link register).
+        pop = f" REG(uint64_t, {regs['rsp']}) += 8;" if conv["link"] is None else ""
+        cases.append(f"    case {address:#x}ULL: bridge_{name}(s);{pop} return;")
     for name, address in sorted(imports.items()):
-        if name in LONGJMP_NAMES:
+        if name in LONGJMP_NAMES and conv["link"] is None:
             cases.append(f"    case {address:#x}ULL: longjmp_guest(s); return;")
     setjmps = [a for n, a in imports.items() if n in SETJMP_NAMES]
     is_setjmp = " || ".join(f"t == {a:#x}ULL" for a in setjmps) or "0"
@@ -106,10 +124,10 @@ def glue(functions, imports, offsets, off):
 #include <setjmp.h>
 #include <stdlib.h>
 {decls}
-#define A0 REG(uint64_t, {regs['rdi']})
-#define A1 REG(uint64_t, {regs['rsi']})
-#define A2 REG(uint64_t, {regs['rdx']})
-#define RET(v) do {{ REG(uint64_t, {regs['rax']}) = (uint64_t)(v); return; }} while (0)
+#define A0 ((uint64_t)REG({word}, {regs['rdi']}))
+#define A1 ((uint64_t)REG({word}, {regs['rsi']}))
+#define A2 ((uint64_t)REG({word}, {regs['rdx']}))
+#define RET(v) do {{ REG({word}, {regs['rax']}) = ({word})(v); return; }} while (0)
 /* Pages: an open-addressing table from page number to a 4 KiB block, made on first use. */
 #define HEAP {HEAP:#x}ULL
 #define SLOTS (1 << 20)
@@ -141,8 +159,8 @@ static uint64_t heap_realloc(atlas_state *s, uint64_t old, uint64_t n) {{
   return p;
 }}
 {chr(10).join(bridges)}
-{jumps_c(off)}
-int atlas_is_setjmp(uint64_t t) {{ return {is_setjmp}; }}
+{jumps_c(off) if conv["link"] is None else ""}
+int atlas_is_setjmp(uint64_t t) {{ return {is_setjmp if conv["link"] is None else "0"}; }}
 jmp_buf atlas_escape;
 uint64_t atlas_missing;
 void atlas_call(atlas_state *s, uint64_t target) {{
@@ -166,35 +184,41 @@ def build(c_path, runtime, functions, imports, offsets, work, off):
     header = os.path.join(work, "setjmp.h")
     open(header, "w").write(SETJMP_HEADER)
     lib = os.path.join(work, "lifted.so")
-    subprocess.run(["gcc", "-O1", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", "-I", runtime, "-include", header,
+    big = ["-DATLAS_BIG_ENDIAN"] if BIG_ENDIAN else []
+    subprocess.run(["gcc", "-O1", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", *big, "-I", runtime, "-include", header,
                     c_path, os.path.join(work, "glue.c"), "-o", lib], check=True)
     return lib
 
 
 def segments(path):
+    """The loaded segments of an ELF (any class and byte order)."""
+    from elftools.elf.elffile import ELFFile
+
     with open(path, "rb") as f:
-        data = f.read()
-    phoff, = struct.unpack_from("<Q", data, 0x20)
-    phentsize, phnum = struct.unpack_from("<HH", data, 0x36)
-    for i in range(phnum):
-        p_type, _, p_offset, p_vaddr, _, p_filesz, _, _ = struct.unpack_from("<IIQQQQQQ", data, phoff + i * phentsize)
-        if p_type == 1:
-            yield p_vaddr, data[p_offset:p_offset + p_filesz]
+        elf = ELFFile(f)
+        for seg in elf.iter_segments():
+            if seg["p_type"] == "PT_LOAD":
+                yield seg["p_vaddr"], seg.data()
 
 
 def generated(rng, entry, pointers):
     """An input made up: integers in the argument registers, a random page behind each pointer argument, and a
     stack whose top holds a return address no code has."""
     regs = {r: rng.choice(EDGES) if rng.random() < 0.3 else rng.randrange(0, 64) if rng.random() < 0.6
-            else rng.getrandbits(32) for r in ARG_REGS}
+            else rng.getrandbits(32) for r in CONV["args"]}
     pages = {}
     for i in pointers.get(entry, []):
         base = BUF_BASE + i * BUF_STRIDE
-        regs[ARG_REGS[i]] = base
+        regs[CONV["args"][i]] = base
         pages[base] = bytes(rng.getrandbits(8) for _ in range(PAGE))
-    regs["rsp"] = STACK + 0x800
+    regs[CONV["sp"]] = STACK + 0x800
     stack = bytearray(PAGE)
-    struct.pack_into("<Q", stack, 0x800, RETURN)
+    if CONV["link"] is None:
+        struct.pack_into("<Q", stack, 0x800, RETURN)
+    else:
+        regs[CONV["link"]] = RETURN
+    if CONV.get("entry"):
+        regs[CONV["entry"]] = entry
     pages[STACK] = bytes(stack)
     return {"regs": regs, "pages": pages}
 
@@ -212,10 +236,12 @@ def run_c(lib, State, offsets, entry, case, timeout=2):
             lib.atlas_poke(ctypes.byref(state), ctypes.c_uint64(base), content, len(content))
         for r, v in case["regs"].items():
             if r in offsets:
-                struct.pack_into("<Q", state.r, offsets[r][0], v)
+                off, size = offsets[r]
+                state.r[off:off + size] = list((v & ((1 << (8 * size)) - 1)).to_bytes(size, "little"))
         code = lib.atlas_run(ctypes.byref(state), ctypes.c_uint64(entry))
         if code == 0:
-            out = {"rax": struct.unpack_from("<Q", state.r, offsets["rax"][0])[0]}
+            off, size = offsets[CONV["ret"]]
+            out = {"rax": int.from_bytes(bytes(state.r[off:off + size]), "little")}
             # Memory the call allocated (the shared allocator's heap): what it wrote there must agree too.
             end = ctypes.c_uint64.in_dll(lib, "heap").value
             if end > HEAP:
@@ -261,7 +287,7 @@ class Heap(angr.SimProcedure):
         kind = self.kind
         def alloc(n):
             p = self.state.globals.get("heap", HEAP) + 16
-            self.state.memory.store(p - 8, claripy.BVV(n, 64), endness="Iend_LE")
+            self.state.memory.store(p - 8, claripy.BVV(n, 64), endness=self.state.arch.memory_endness)
             self.state.globals["heap"] = p + ((n + 15) & ~15)
             return p
 
@@ -276,7 +302,7 @@ class Heap(angr.SimProcedure):
         if n == 0:
             return 0
         p = alloc(n)
-        keep = self.state.solver.eval(self.state.memory.load(old - 8, 8, endness="Iend_LE")) if old else 0
+        keep = self.state.solver.eval(self.state.memory.load(old - 8, 8, endness=self.state.arch.memory_endness)) if old else 0
         if min(keep, n):
             self.state.memory.store(p, self.state.memory.load(old, min(keep, n)))
         return p
@@ -323,7 +349,10 @@ def import_slots(proj):
     out = []
     for r in proj.loader.main_object.relocs:
         if r.symbol is not None and r.symbol.is_import:
-            out.append((r.relative_addr, proj.loader.memory.unpack_word(r.relative_addr)))
+            try:
+                out.append((r.relative_addr, proj.loader.memory.unpack_word(r.relative_addr)))
+            except KeyError:
+                continue  # a slot outside the loaded image (some MIPS and PowerPC relocations)
     return out
 
 
@@ -336,12 +365,16 @@ def run_original(proj, entry, case, max_steps=4000, slots=()):
     # addresses angr has no code for): angr's own values go back.
     for address, value in slots:
         if (address & ~0xFFF) in case["pages"]:
-            state.memory.store(address, claripy.BVV(value, 64), endness="Iend_LE")
+            state.memory.store(address, claripy.BVV(value, proj.arch.bits), endness=proj.arch.memory_endness)
     for r, v in case["regs"].items():
-        setattr(state.regs, r, claripy.BVV(v, 64))
-    rsp = case["regs"]["rsp"]
-    ret = int.from_bytes(case["pages"][rsp & ~0xFFF][rsp & 0xFFF:(rsp & 0xFFF) + 8], "little") \
-        if (rsp & ~0xFFF) in case["pages"] and (rsp & 0xFFF) <= PAGE - 8 else None
+        bits = proj.arch.registers[r][1] * 8
+        setattr(state.regs, r, claripy.BVV(v & ((1 << bits) - 1), bits))
+    rsp = case["regs"][CONV["sp"]]
+    if CONV["link"] is not None:
+        ret = case["regs"][CONV["link"]]
+    else:
+        ret = int.from_bytes(case["pages"][rsp & ~0xFFF][rsp & 0xFFF:(rsp & 0xFFF) + 8], "little") \
+            if (rsp & ~0xFFF) in case["pages"] and (rsp & 0xFFF) <= PAGE - 8 else None
     if ret is None:
         return {"skip": "input: no stack page"}
     simgr = proj.factory.simulation_manager(state)
@@ -353,8 +386,10 @@ def run_original(proj, entry, case, max_steps=4000, slots=()):
             return {"skip": f"original: {len(simgr.active)} paths"}
         s = simgr.active[0]
         # Returned: back at the return address with the stack popped.
-        if not s.regs.rip.symbolic and s.solver.eval(s.regs.rip) == ret and s.solver.eval(s.regs.rsp) == rsp + 8:
-            out = {"rax": s.solver.eval(s.regs.rax)}
+        returned = not s.regs.ip.symbolic and s.solver.eval(s.regs.ip) == ret and (
+            CONV["link"] is not None or s.solver.eval(s.regs.rsp) == rsp + 8)
+        if returned:
+            out = {"rax": s.solver.eval(getattr(s.regs, CONV["ret"]))}
             end = s.globals.get("heap", HEAP)
             if end > HEAP:
                 out["heap"] = s.solver.eval(s.memory.load(HEAP, end - HEAP)).to_bytes(end - HEAP, "big").hex()
@@ -367,7 +402,7 @@ def run_original(proj, entry, case, max_steps=4000, slots=()):
 def live(case, out):
     """Memory below the stack pointer the caller gets back is dead after the return (callee frames, scratch the two
     sides leave differently): blanked before comparing."""
-    end = case["regs"]["rsp"] + 8
+    end = case["regs"][CONV["sp"]] + (8 if CONV["link"] is None else 0)
     for base in case["pages"]:
         key = hex(base)
         if key in out and base < end:
@@ -388,12 +423,17 @@ def load_captures(path):
 
 def main():
     request = json.load(open(sys.argv[1]))
-    arch = archinfo.arch_from_id(request["arch"])
+    arch = archinfo.arch_from_id(request["arch"], request.get("endness", "any"))
     CTYPE_PAGES.update(ctype_pages())
     # The guest state's reset values (x86's direction flag d = 1...), as on the original's side.
     DEFAULTS.extend((arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
                     if n in arch.registers and n not in ("rsp", "esp", "sp", "xsp", "gpr1", "fs", "fpcr"))
-    offsets = {r: arch.registers[r] for r in ARG_REGS + SAVED + ["rsp", "rax"]}
+    global BIG_ENDIAN
+    BIG_ENDIAN = arch.memory_endness == "Iend_BE"
+    CONV.clear()
+    CONV.update(CONVENTIONS[arch.name])
+    names = CONV["args"] + [CONV["sp"], CONV["ret"]] + [r for r in (CONV["link"], CONV.get("entry")) if r]
+    offsets = {r: arch.registers[r] for r in names + (SAVED if CONV["link"] is None else [])}
     functions = [int(a) for a in request["functions"]]
     translated = [int(a) for a in request.get("translated", functions)]
     proj = angr.Project(request["binary"], auto_load_libs=False, main_opts={"base_addr": 0})
