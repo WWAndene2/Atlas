@@ -165,10 +165,18 @@ if [[ -n "$previous" && "$previous" != "$repo/dist/src/cli/main.js" ]]; then
   echo "   note: atlas pointed to ${previous%/dist/src/cli/main.js}; it now runs $repo"
 fi
 mv "$launcher.tmp" "$launcher"
+# The MCP server, for AI clients that connect rather than run commands (configure the client to start atlas-mcp).
+cat >"$launcher_dir/atlas-mcp.tmp" <<EOF
+#!/usr/bin/env bash
+# Written by $repo/scripts/setup.sh
+exec node --disable-warning=ExperimentalWarning "$repo/dist/src/mcp/server.js" "\$@"
+EOF
+chmod +x "$launcher_dir/atlas-mcp.tmp"
+mv "$launcher_dir/atlas-mcp.tmp" "$launcher_dir/atlas-mcp"
 if [[ ":$PATH:" == *":$launcher_dir:"* ]]; then
-  ok "atlas ($launcher)"
+  ok "atlas and atlas-mcp ($launcher_dir)"
 else
-  ok "$launcher (not on PATH: add $launcher_dir to PATH, or call it by its full path)"
+  ok "$launcher and atlas-mcp (not on PATH: add $launcher_dir to PATH, or call them by their full path)"
 fi
 
 step "Summary"

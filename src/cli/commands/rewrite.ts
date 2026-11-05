@@ -2,18 +2,17 @@
 // atlas propose rewrite <fn_id|0xaddress> --source <file.c> --name <function> [--prelude ghidra]
 // atlas verify <hyp_id> --cc <compiler> [--cflags "<flags>"]
 import { existsSync, readFileSync } from "node:fs";
-import type { GraphStore, Hypothesis } from "../../graph/index.js";
+import type { GraphStore } from "../../graph/index.js";
 import { binaryFacts } from "../../orchestrator/binary-facts.js";
 import { decompileFunctions } from "../../orchestrator/decompile-functions.js";
-import { forEachConcurrently } from "../../orchestrator/parallel.js";
-import { binaryToolchain, detectToolchain } from "../../orchestrator/detect-toolchain.js";
+import { detectToolchain } from "../../orchestrator/detect-toolchain.js";
 import { fileSha256 } from "../../orchestrator/file-hash.js";
 import { binaryId } from "../../orchestrator/load-binary.js";
 import { resolveFunction } from "../../orchestrator/function-context.js";
 import { proposeRewrite } from "../../orchestrator/propose-rewrite.js";
 import { resolveTarget } from "../../orchestrator/resolve-target.js";
 import type { EngineInput } from "../../tools/engine-analysis.js";
-import { verifyRewrite } from "../../verify/recompile/verify-rewrite.js";
+import { NoToolchainError, verifyOne, verifyPending } from "../../orchestrator/verify-rewrites.js";
 import { CliError, type Output } from "../output.js";
 
 export async function runDecompile(
@@ -105,42 +104,23 @@ export async function runVerify(
   const flags = (options.cflags ?? "").split(/\s+/).filter((f) => f !== "");
   // Without --cc, each rewrite is checked with the toolchain detected for its binary (atlas detect toolchain).
   const given = options.cc !== undefined ? { cc: options.cc, flags } : undefined;
-  const toolchainFor = (h: Hypothesis): { cc: string; flags: string[] } => {
-    if (given !== undefined) return given;
-    const binary = store.getNode(h.node)?.binary;
-    const detected = binary === undefined ? undefined : binaryToolchain(store, binary);
-    if (detected === undefined) {
-      throw new CliError(
-        "usage",
-        `no toolchain for ${binary ?? h.node}: give --cc and --cflags, or run atlas detect toolchain`,
-      );
+  try {
+    if (id === "all") {
+      const { checked, counts } = await verifyPending(store, given);
+      const text = `${checked} rewrites checked: ${Object.entries(counts)
+        .map(([k, n]) => `${n} ${k}`)
+        .join(", ")}`;
+      return { data: { checked, counts }, text };
     }
-    return { cc: detected.cc, flags: detected.flags };
-  };
-  if (id === "all") {
-    // Every rewrite not checked yet, in one process: a whole binary costs one start, not one per function.
-    const pending = (store.allRecords("hypotheses") as Hypothesis[]).filter(
-      (h) => h.kind === "rewrite" && h.verification === undefined,
-    );
-    const counts: Record<string, number> = {};
-    for (const h of pending) toolchainFor(h); // a missing toolchain is reported before any work starts
-    await forEachConcurrently(pending, async (h) => {
-      const { check } = await verifyRewrite(store, h.id, toolchainFor(h));
-      const key = check.result === "pass" ? "verified" : check.reason;
-      counts[key] = (counts[key] ?? 0) + 1;
-    });
-    const text = `${pending.length} rewrites checked: ${Object.entries(counts)
-      .map(([k, n]) => `${n} ${k}`)
-      .join(", ")}`;
-    return { data: { checked: pending.length, counts }, text };
+    const { hypothesis, check } = await verifyOne(store, id, given);
+    return {
+      data: { hypothesis, check },
+      text: `${hypothesis.id}: ${check.result} (${hypothesis.verification?.details ?? ""}) -> ${hypothesis.confidence}`,
+    };
+  } catch (error) {
+    if (error instanceof NoToolchainError) throw new CliError("usage", error.message);
+    throw error;
   }
-  const target = store.getHypothesis(id);
-  if (target === undefined) throw new CliError("not_found", `no hypothesis ${id}`);
-  const { hypothesis, check } = await verifyRewrite(store, id, toolchainFor(target));
-  return {
-    data: { hypothesis, check },
-    text: `${hypothesis.id}: ${check.result} (${hypothesis.verification?.details ?? ""}) -> ${hypothesis.confidence}`,
-  };
 }
 
 export async function runDetectToolchain(store: GraphStore, args: string[], raw: EngineInput["raw"]): Promise<Output> {

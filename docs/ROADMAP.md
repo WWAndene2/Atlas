@@ -43,7 +43,7 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 | Analysis tools behind one MCP interface | [REA](https://github.com/morluto/rea) | Tools layer (`src/tools/rea/`)                 | M1        |
 | Free decompiler                         | Ghidra, through REA                   | Default engine: no commercial licence required | M1        |
 | Light disassembly                       | Rizin, through REA                    | Fast analysis, CI                              | M1        |
-| MCP server                              | Official MCP TypeScript SDK           | Second door (`src/mcp/`)                       | M2        |
+| MCP server                              | Official MCP TypeScript SDK 1.32.2    | Second door (`src/mcp/`)                       | M2        |
 | Graph storage                           | SQLite (`node:sqlite`)                | `src/graph/`                                   | M0        |
 | Schema validation                       | Ajv                                   | Records checked against `schema/`              | M0        |
 | Code comparison                         | objdiff                               | Rewrite checker                                | M3        |
@@ -121,7 +121,7 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 - Symbol checker: names scored against the symbol build, the result written by the verification path. Done:
   `atlas propose name`, `atlas score names --truth` (free answers counted apart).
 - An outside AI (Claude Code first, then another vendor) names Lua's functions through the CLI.
-- MCP server (`src/mcp/`) over the same commands.
+- MCP server (`src/mcp/`) over the same commands. Done: `atlas-mcp`, tested with the SDK's own client.
 - **Done when:** a measured accuracy (share of correct names) on Lua, for at least two AI vendors, through the CLI;
   the same commands answer through MCP.
 

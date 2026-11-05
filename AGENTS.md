@@ -23,6 +23,8 @@ atlas list callers <fn_id|0xaddress> --json
 atlas export graph.jsonl
 ```
 
+An AI that connects rather than runs commands uses the MCP server, `atlas-mcp`: the same operations, as tools.
+
 Every command answers in JSON with `--json`, errors included (`{"error": {"code", "message"}}`, exit code 1, or 2
 for a usage error). The graph is `./atlas.sqlite` unless `--graph` or `$ATLAS_GRAPH` says otherwise. To try it on
 the ground-truth target: `atlas load tests/fixtures/lua/build/lua.stripped`.

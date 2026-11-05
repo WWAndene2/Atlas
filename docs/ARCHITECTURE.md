@@ -265,6 +265,14 @@ and still open, the first open ones callees first, the time of each step, and an
 goes on without it). Agents working the open tasks in parallel (roadmap M6) will come between verification and the
 report. Raw ARM Lua: 881 functions, 9 stubs, 198 library, 60 verified, 618 open, in about 3 minutes.
 
+### MCP server
+
+`atlas-mcp [--graph <file>]` (`src/mcp/`, over stdio; launcher installed by setup) offers the CLI's operations as MCP
+tools in the same vocabulary (`run`, `load`, `get_function`, `list_functions`, `list_callers`, `list_callees`,
+`decompile`, `detect_toolchain`, `match_libraries`, `list_tasks_rewrite`, `get_task_rewrite`, `propose_rewrite`,
+`propose_name`, `verify`, `export`), calling the same orchestrator functions. Each answers one JSON document; an error
+is an error result holding `{"error": {"message"}}`. Built on the official MCP TypeScript SDK (1.32.2, MIT).
+
 ### Command line
 
 `atlas <command> [--graph <file>] [--json]` (`src/cli/`, built to `dist/src/cli/main.js`): `load`, `get function`,
