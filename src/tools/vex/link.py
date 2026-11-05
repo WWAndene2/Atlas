@@ -21,6 +21,8 @@ import sys
 import archinfo
 import cle
 
+from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
+
 TRAMPOLINE = r"""
 /* Calls a host function with the guest's argument registers: frame layout in atlas_native_frame. */
 struct atlas_native_frame { uint64_t gp[6]; uint8_t xmm[8][16]; uint64_t stack[16]; uint64_t rax, rdx;
@@ -38,21 +40,6 @@ __attribute__((naked)) static void atlas_native(void *fn, struct atlas_native_fr
     "mov %rax,304(%rbx)\n mov %rdx,312(%rbx)\n movdqu %xmm0,320(%rbx)\n movdqu %xmm1,336(%rbx)\n"
     "lea -16(%rbp),%rsp\n pop %r12\n pop %rbx\n pop %rbp\n ret\n");
 }
-"""
-
-
-# Included before every translation: a call to setjmp runs the host's setjmp in the translated caller's own frame,
-# so a later longjmp lands back in it, alive, as in C.
-SETJMP_HEADER = """#include <setjmp.h>
-#include <stdint.h>
-struct atlas_state;
-int atlas_is_setjmp(uint64_t target);
-void *atlas_jump_buf(struct atlas_state *s);
-void atlas_jump_first(struct atlas_state *s);
-void atlas_jump_back(struct atlas_state *s);
-#define ATLAS_CALL(t) do { uint64_t t_ = (t); if (atlas_is_setjmp(t_)) { \\
-    if (setjmp(*(jmp_buf *)atlas_jump_buf(s))) atlas_jump_back(s); else atlas_jump_first(s); \\
-  } else atlas_call(s, t_); } while (0)
 """
 
 
@@ -115,35 +102,8 @@ static void call_host(atlas_state *s, void *fn) {{
   REG(uint64_t, RSP) += 8; /* the import returns: pop the guest's return address */
 }}
 
-/* setjmp/longjmp: a host jmp_buf per guest jmp_buf, with the guest registers to restore. */
-struct jump {{ uint64_t guest; jmp_buf host; uint64_t regs[8]; uint64_t value; }};
-static struct jump jumps[256];
-static struct jump *jump_for(uint64_t guest) {{
-  for (int i = 0; i < 256; i++) if (jumps[i].guest == guest || jumps[i].guest == 0) {{ jumps[i].guest = guest; return &jumps[i]; }}
-  abort();
-}}
-static const int saved[8] = {{RSP, RBP, RBX, R12, R13, R14, R15, RAX}};
+{jumps_c(off)}
 static int import_is(uint64_t t, const char *name);
-static struct jump *landing;
-static void longjmp_guest(atlas_state *s) {{
-  struct jump *j = jump_for(REG(uint64_t, RDI));
-  j->value = REG(uint64_t, RSI) ? REG(uint64_t, RSI) : 1;
-  landing = j;
-  longjmp(j->host, 1);
-}}
-void *atlas_jump_buf(atlas_state *s) {{
-  struct jump *j = jump_for(REG(uint64_t, RDI));
-  for (int k = 0; k < 8; k++) j->regs[k] = REG(uint64_t, saved[k]);
-  return &j->host;
-}}
-/* setjmp's first return: 0, and the return address the guest's call pushed popped. */
-void atlas_jump_first(atlas_state *s) {{ REG(uint64_t, RAX) = 0; REG(uint64_t, RSP) += 8; }}
-/* Back from a longjmp: the registers as setjmp saw them, the value longjmp passed. */
-void atlas_jump_back(atlas_state *s) {{
-  for (int k = 0; k < 8; k++) REG(uint64_t, saved[k]) = landing->regs[k];
-  REG(uint64_t, RAX) = landing->value;
-  REG(uint64_t, RSP) += 8;
-}}
 
 static int import_of(uint64_t target) {{
   switch (target) {{
@@ -156,7 +116,7 @@ static int import_is(uint64_t t, const char *name) {{
   int i = import_of(t);
   return i >= 0 && strcmp(import_names[i], name) == 0;
 }}
-int atlas_is_setjmp(uint64_t t) {{ return import_is(t, "_setjmp") || import_is(t, "setjmp") || import_is(t, "__sigsetjmp"); }}
+int atlas_is_setjmp(uint64_t t) {{ return {" || ".join(f'import_is(t, "{n}")' for n in SETJMP_NAMES)}; }}
 
 static atlas_state *main_state;
 static int guest_main_called;
@@ -171,7 +131,7 @@ void atlas_call(atlas_state *s, uint64_t target) {{
   int i = import_of(target);
   if (i < 0) {{ fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target); abort(); }}
   const char *name = import_names[i];
-  if (!strcmp(name, "__longjmp_chk") || !strcmp(name, "longjmp") || !strcmp(name, "_longjmp") || !strcmp(name, "siglongjmp"))
+  if ({" || ".join(f'!strcmp(name, "{n}")' for n in LONGJMP_NAMES)})
     longjmp_guest(s);
   if (!strcmp(name, "__libc_start_main")) {{
     /* Run the guest's main with the host's arguments (identity memory: the same pointers), then exit. */

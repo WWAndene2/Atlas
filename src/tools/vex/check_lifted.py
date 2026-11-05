@@ -31,6 +31,8 @@ import angr
 import archinfo
 from angr import claripy
 
+from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
+
 ARG_REGS = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 SAVED = ["rbx", "rbp", "r12", "r13", "r14", "r15"]
 STACK = 0x7FFF0000
@@ -39,7 +41,11 @@ BUF_BASE = 0x10000000
 BUF_STRIDE = 0x100000
 PAGE = 4096
 HEAP = 0x30000000
+# The C library's character tables (__ctype_b_loc and the like hand out a pointer to a pointer into them): copied
+# from the host's C library to one fixed address, the same on both sides.
+CTYPE = 0x31000000
 DEFAULTS = []
+CTYPE_PAGES = {}
 EDGES = [0, 1, 2, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000]
 
 # Guest-memory versions of common C library functions: what the C side runs for an import of that name.
@@ -68,6 +74,9 @@ BRIDGE = {
     "calloc": "RET(heap_alloc(s, A0 * A1));",
     "realloc": "RET(heap_realloc(s, A0, A1));",
     "free": "RET(0);",
+    "__ctype_b_loc": f"RET({CTYPE:#x}ULL);",
+    "__ctype_tolower_loc": f"RET({CTYPE + 8:#x}ULL);",
+    "__ctype_toupper_loc": f"RET({CTYPE + 16:#x}ULL);",
     "toupper": "RET((A0 >= 'a' && A0 <= 'z') ? A0 - 32 : A0);",
     "tolower": "RET((A0 >= 'A' && A0 <= 'Z') ? A0 + 32 : A0);",
     "abs": "RET((uint64_t)(int64_t)abs((int)A0));",
@@ -75,7 +84,7 @@ BRIDGE = {
 }
 
 
-def glue(functions, imports, offsets):
+def glue(functions, imports, offsets, off):
     regs = {r: offsets[r][0] for r in ARG_REGS + ["rsp", "rax"]}
     decls = "\n".join(f"void fn_{a:x}(atlas_state *s);" for a in functions)
     cases = [f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in functions]
@@ -87,6 +96,11 @@ def glue(functions, imports, offsets):
         bridges.append(f"static void bridge_{name}(atlas_state *s) {{ {body} }}")
         # The translated caller resumes after the call itself; the bridge pops the return address, as ret would.
         cases.append(f"    case {address:#x}ULL: bridge_{name}(s); REG(uint64_t, {regs['rsp']}) += 8; return;")
+    for name, address in sorted(imports.items()):
+        if name in LONGJMP_NAMES:
+            cases.append(f"    case {address:#x}ULL: longjmp_guest(s); return;")
+    setjmps = [a for n, a in imports.items() if n in SETJMP_NAMES]
+    is_setjmp = " || ".join(f"t == {a:#x}ULL" for a in setjmps) or "0"
     return f"""#define ATLAS_PAGED
 #include "atlas_lift.h"
 #include <setjmp.h>
@@ -127,6 +141,8 @@ static uint64_t heap_realloc(atlas_state *s, uint64_t old, uint64_t n) {{
   return p;
 }}
 {chr(10).join(bridges)}
+{jumps_c(off)}
+int atlas_is_setjmp(uint64_t t) {{ return {is_setjmp}; }}
 jmp_buf atlas_escape;
 uint64_t atlas_missing;
 void atlas_call(atlas_state *s, uint64_t target) {{
@@ -145,11 +161,13 @@ int atlas_run(atlas_state *s, uint64_t entry) {{
 """
 
 
-def build(c_path, runtime, functions, imports, offsets, work):
-    open(os.path.join(work, "glue.c"), "w").write(glue(functions, imports, offsets))
+def build(c_path, runtime, functions, imports, offsets, work, off):
+    open(os.path.join(work, "glue.c"), "w").write(glue(functions, imports, offsets, off))
+    header = os.path.join(work, "setjmp.h")
+    open(header, "w").write(SETJMP_HEADER)
     lib = os.path.join(work, "lifted.so")
-    subprocess.run(["gcc", "-O1", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", "-I", runtime, c_path,
-                    os.path.join(work, "glue.c"), "-o", lib], check=True)
+    subprocess.run(["gcc", "-O1", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", "-I", runtime, "-include", header,
+                    c_path, os.path.join(work, "glue.c"), "-o", lib], check=True)
     return lib
 
 
@@ -264,7 +282,37 @@ class Heap(angr.SimProcedure):
         return p
 
 
+def ctype_pages():
+    """The host's ctype tables laid out at CTYPE: three pointers, then the tables they point into (each pointer is
+    to entry 0 of a table that starts 128 entries earlier, as glibc's)."""
+    libc = ctypes.CDLL(None)
+    out = bytearray(0x4000)
+    for i, (name, width) in enumerate((("__ctype_b_loc", 2), ("__ctype_tolower_loc", 4), ("__ctype_toupper_loc", 4))):
+        fn = getattr(libc, name)
+        fn.restype = ctypes.POINTER(ctypes.c_void_p)
+        start = fn()[0] - 128 * width
+        table = ctypes.string_at(start, 384 * width)
+        at = 0x100 + i * 0x1000
+        out[at:at + len(table)] = table
+        struct.pack_into("<Q", out, 8 * i, CTYPE + at + 128 * width)
+    return {CTYPE + k: bytes(out[k:k + PAGE]) for k in range(0, len(out), PAGE)}
+
+
+class Constant(angr.SimProcedure):
+    """An import returning one value (the ctype table pointers)."""
+
+    def __init__(self, value, **kwargs):
+        super().__init__(**kwargs)
+        self.value = value
+
+    def run(self):
+        return self.value
+
+
 def hook_heap(proj):
+    for i, name in enumerate(("__ctype_b_loc", "__ctype_tolower_loc", "__ctype_toupper_loc")):
+        if name in proj.loader.main_object.plt:
+            proj.hook(proj.loader.main_object.plt[name], Constant(CTYPE + 8 * i), replace=True)
     for name, address in proj.loader.main_object.plt.items():
         if name in ("malloc", "calloc", "realloc", "free"):
             proj.hook(address, Heap(kind=name), replace=True)
@@ -282,7 +330,7 @@ def import_slots(proj):
 def run_original(proj, entry, case, max_steps=4000, slots=()):
     state = proj.factory.blank_state(addr=entry, add_options={angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
                                                                angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS})
-    for base, content in case["pages"].items():
+    for base, content in list(case["pages"].items()) + list(CTYPE_PAGES.items()):
         state.memory.store(base, content)
     # A captured page of the program's data holds its import slots as the real run filled them (C library
     # addresses angr has no code for): angr's own values go back.
@@ -341,6 +389,7 @@ def load_captures(path):
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id(request["arch"])
+    CTYPE_PAGES.update(ctype_pages())
     # The guest state's reset values (x86's direction flag d = 1...), as on the original's side.
     DEFAULTS.extend((arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
                     if n in arch.registers and n not in ("rsp", "esp", "sp", "xsp", "gpr1", "fs", "fpcr"))
@@ -351,7 +400,8 @@ def main():
     hook_heap(proj)
     slots = import_slots(proj)
     work = tempfile.mkdtemp(prefix="atlas-lifted-")
-    lib = ctypes.CDLL(build(request["c"], request["runtime"], translated, dict(proj.loader.main_object.plt), offsets, work))
+    lib = ctypes.CDLL(build(request["c"], request["runtime"], translated, dict(proj.loader.main_object.plt), offsets, work,
+                            lambda r: arch.registers[r][0]))
     lib.atlas_run.restype = ctypes.c_int
 
     class State(ctypes.Structure):
@@ -359,7 +409,7 @@ def main():
 
     # The binary's segments, loaded once in this process: each forked child starts from them.
     loader = State()
-    for vaddr, content in segments(request["binary"]):
+    for vaddr, content in list(segments(request["binary"])) + list(CTYPE_PAGES.items()):
         lib.atlas_poke(ctypes.byref(loader), ctypes.c_uint64(vaddr), content, len(content))
     captures = load_captures(request["captures"]) if request.get("captures") else {}
     rng = random.Random(int(request.get("seed", 1)))
