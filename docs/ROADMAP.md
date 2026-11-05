@@ -167,10 +167,13 @@ on first download, since the release publishes no checksum). `atlas check functi
 - **In progress.** Done: `atlas trace` (Frida 17.25.2): calls and per-register pointer/integer observations projected
   as observed signature hypotheses; first argument right for all 173 traced Lua functions. Then `atlas infer fields`
   (angr over the whole binary, callees followed): per pointer argument, the offsets and widths read or written,
-  checked against traces (an argument with fields never seen holding a pointer contradicts it). Scored against
-  DWARF on a random sample of Lua functions taking struct pointers (first 60 of 120 measured): 166 accesses at a
-  member's exact offset and width, 5 inside a member, 4 matching none (all in one function). Next: struct types
-  assembled from the fields across functions, and the typer agent.
+  checked against traces (an argument with fields never seen holding a pointer contradicts it). Whole Lua x86-64
+  (702 functions, 11 minutes on 4 cores): 657 functions with fields; against DWARF, of 2,051 accesses through
+  struct parameters 1,837 hit a member's exact offset and width, 43 fall inside a member, 158 on an array element,
+  13 on nothing (99.4% right); against the Frida trace, 226 functions confirmed, 4 contradicted. Then `atlas infer
+types`: 58 struct types for the 19 real structs met, purity 0.86 (arguments in a type pointing to its majority
+  struct), inverse purity 0.78 (large structs such as lua_State split in several). Next: merging the split types
+  through calls (an argument passed on to a callee is the same struct), and the typer agent declaring them.
 
 ### M5 — Systems · 2–3 weeks
 
