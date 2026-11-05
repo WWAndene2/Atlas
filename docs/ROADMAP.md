@@ -175,7 +175,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 - Fuzzy matching against documented binaries (other versions, open-source libraries); matches imported as
   hypotheses and checked.
 - Functions of the compiler's runtime and C library (seen on Windows Lua: `___chkstk_ms`, hand-written assembly that no
-  C reproduces) recognised as such, and linked from the library instead of rewritten.
+  C reproduces) recognised as such, and linked from the library instead of rewritten. Done for static libraries
+  (`atlas match libraries`: 153 of 153 names right on ARM Lua, 95 of 96 on Windows Lua). Next: libraries the
+  toolchain does not ship (a game's engine, SDKs), from a documented build of them.
 - **Done when:** a second Lua version starts from the first one's graph, with the gain in cost measured.
 
 ### M8 — Scale

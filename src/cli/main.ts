@@ -8,6 +8,7 @@ import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
+import { runMatchLibraries } from "./commands/libraries.js";
 import { runProposeName, runScoreNames } from "./commands/names.js";
 import { runGetTask, runListTasks } from "./commands/task.js";
 import { runDecompile, runDetectToolchain, runProposeRewrite, runVerify } from "./commands/rewrite.js";
@@ -33,6 +34,9 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   decompile <file> [--arch <a> --base <0x..>] [--function <fn|0x>]...
                                     Ghidra's C for the binary's functions (all without --function), added
                                     as rewrite hypotheses; load the file first
+  match libraries [--library <file.a>]...
+                                    recognise functions of static libraries (the detected toolchain's own,
+                                    and any given): matched code is linked, not rewritten
   propose name <fn|0x> <name>       an agent's name for a function
   score names --truth <unstripped file>
                                     score the names proposed against the unstripped build's symbols
@@ -73,6 +77,7 @@ async function main(argv: string[]): Promise<number> {
         cc: { type: "string" },
         cflags: { type: "string" },
         truth: { type: "string" },
+        library: { type: "string", multiple: true },
         base: { type: "string" },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -112,6 +117,9 @@ async function main(argv: string[]): Promise<number> {
         output = await runDecompile(store, rest, raw, values.function ?? [], values.binary);
         break;
       }
+      case "match":
+        output = await runMatchLibraries(store, rest, values.library ?? [], values.binary);
+        break;
       case "score":
         output = await runScoreNames(store, rest, values.truth, values.binary);
         break;

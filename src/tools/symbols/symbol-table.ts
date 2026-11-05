@@ -35,6 +35,9 @@ export async function functionSymbols(path: string): Promise<FunctionSymbol[]> {
     for (const line of stdout.split("\n")) {
       const [value, type, name] = line.trim().split(/\s+/);
       if (value === undefined || name === undefined || (type !== "T" && type !== "t")) continue;
+      // Section symbols (.text, .text$name) share their first function's address; they name no function. Kept, they
+      // made 38 right library matches on Windows Lua look wrong.
+      if (name.startsWith(".")) continue;
       const address = `0x${BigInt(`0x${value}`).toString(16)}`;
       if (!symbols.has(address)) symbols.set(address, name);
     }

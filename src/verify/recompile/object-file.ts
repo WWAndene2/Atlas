@@ -66,13 +66,16 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
     sections.push({ name, bytes: bytes.subarray(offset, offset + size), relocations: holes.get(name) ?? [] });
   }
   const symbols: ObjectSymbol[] = [];
+  const arm32 = bytes[4] === 1 && new DataView(bytes.buffer, bytes.byteOffset).getUint16(18, bytes[5] !== 2) === 40;
   for (const line of symbolList.split("\n")) {
     // Num: Value Size Type Bind Vis Ndx Name
     const f = line.trim().split(/\s+/);
     if (f.length < 8 || f[3] !== "FUNC" || !/^\d+$/.test(f[6] ?? "")) continue;
     const section = sectionNames.get(Number(f[6]));
     if (section === undefined) continue;
-    symbols.push({ name: f[7] ?? "", section, value: parseInt(f[1] ?? "0", 16), size: Number(f[2]) });
+    // 32-bit ARM marks Thumb functions with bit 0 of their value; the code itself starts at the even address.
+    const value = parseInt(f[1] ?? "0", 16);
+    symbols.push({ name: f[7] ?? "", section, value: arm32 ? value & ~1 : value, size: Number(f[2]) });
   }
   return { sections, symbols };
 }
@@ -195,4 +198,16 @@ export function functionRun(
       .filter((r) => r.offset >= start.value && r.offset < stop)
       .map((r) => ({ offset: r.offset - start.value, width: r.width })),
   };
+}
+
+/** Every function defined in an object, with its bytes and relocation holes: the reference library matching uses. */
+export function objectFunctions(
+  object: ObjectFile,
+): { name: string; bytes: Uint8Array; relocations: { offset: number; width: number }[] }[] {
+  const out = [];
+  for (const symbol of object.symbols) {
+    const run = functionRun(object, symbol.name, symbol.name);
+    if (run !== undefined && run.bytes.length > 0) out.push({ name: symbol.name, ...run });
+  }
+  return out;
 }

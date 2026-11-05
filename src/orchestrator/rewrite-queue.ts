@@ -1,6 +1,6 @@
 // The functions of a binary still to rewrite, in the order to hand them to agents: callees before callers, so an
 // agent finds its callees' verified prototypes in its task. Import stubs (thunks) are left out, and a function counts
-// as done when a verified rewrite covers it, alone or inside a run.
+// as done when a verified rewrite covers it, alone or inside a run. Functions matched to a library are left out.
 import type { GraphNode, GraphStore } from "../graph/index.js";
 import { isRewriteValue } from "../verify/recompile/rewrite-value.js";
 
@@ -35,6 +35,8 @@ export function rewriteQueue(store: GraphStore, binary: string): QueuedFunction[
   const open = store
     .nodesOfKind("function")
     .filter((n) => n.binary === binary && n.thunk !== true && n.code !== undefined && !done.has(n.id))
+    // Library code recognised by match-libraries.ts is linked from its library, not rewritten.
+    .filter((n) => !store.hypothesesFor(n.id, "match").some((h) => h.confidence !== "rejected"))
     .sort((a, b) => (BigInt(a.address ?? 0) < BigInt(b.address ?? 0) ? -1 : 1));
   const isOpen = new Set(open.map((n) => n.id));
   const callees = (n: GraphNode): string[] =>

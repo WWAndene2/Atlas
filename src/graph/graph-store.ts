@@ -172,11 +172,12 @@ export class GraphStore {
     return row === undefined ? undefined : (JSON.parse(row.record) as Hypothesis);
   }
 
+  /** A node's hypotheses in the order they were added (an import adds them in its file's order). */
   hypothesesFor(nodeId: string, kind?: Hypothesis["kind"]): Hypothesis[] {
     const rows = (
       kind === undefined
-        ? this.db.prepare("SELECT record FROM hypotheses WHERE node = ? ORDER BY id").all(nodeId)
-        : this.db.prepare("SELECT record FROM hypotheses WHERE node = ? AND kind = ? ORDER BY id").all(nodeId, kind)
+        ? this.db.prepare("SELECT record FROM hypotheses WHERE node = ? ORDER BY rowid").all(nodeId)
+        : this.db.prepare("SELECT record FROM hypotheses WHERE node = ? AND kind = ? ORDER BY rowid").all(nodeId, kind)
     ) as { record: string }[];
     return rows.map((row) => JSON.parse(row.record) as Hypothesis);
   }

@@ -312,11 +312,15 @@ export async function detectToolchain(
   return { hypothesis, value, tried };
 }
 
-/** The toolchain inferred for a binary: its best-scoring toolchain hypothesis, if any. */
+/**
+ * The toolchain inferred for a binary: its latest toolchain hypothesis. A later detection supersedes an earlier one
+ * (the detector improves, and scores from different samples do not compare): picking the best score instead kept a
+ * soft-float result from an older run on raw ARM Lua, and with it the wrong libraries.
+ */
 export function binaryToolchain(store: GraphStore, binary: string): ToolchainValue | undefined {
   const values = store
     .hypothesesFor(binary, "toolchain")
     .map((h) => h.value as ToolchainValue)
     .filter((v) => typeof v?.cc === "string" && Array.isArray(v.flags));
-  return values.sort((a, b) => b.verified / b.sample - a.verified / a.sample)[0];
+  return values[values.length - 1];
 }

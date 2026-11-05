@@ -234,6 +234,19 @@ arrives partly named.
 The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
 description; the parser generated from it must read every file of that kind in the target.
 
+### Library recognition
+
+`atlas match libraries` (`src/orchestrator/match-libraries.ts`) finds the functions of a binary that are code of a
+static library: the detected toolchain's own (`libgcc`, the C and maths libraries, MinGW's; found with
+`-print-file-name` under the detected flags, so multilib toolchains answer for the right CPU) and any `--library`
+given. Each library function is its bytes in its object with relocation holes masked (`src/tools/archive/` reads
+`ar` archives); a binary's function matches when its code equals those bytes outside the holes (looked up by its
+first 8 bytes; functions under 12 bytes are not matched). A match is a `match` hypothesis, plus a name when one
+library name fits, and takes the function out of the rewrite queue: library code is linked, not rewritten.
+Measured: raw ARMv6K Lua (newlib linked statically) 198 functions matched, 153 named, all right; Windows Lua (MinGW
+runtime) 100 matched, 96 named, 95 right (the other: two byte-identical trivial functions with different names);
+Android Lua 1 (its C library is dynamic: nothing to find). A later toolchain detection supersedes an earlier one.
+
 ### Name scoring
 
 `atlas propose name <fn> <name>` adds a name hypothesis. On a ground-truth target, `atlas score names --truth
