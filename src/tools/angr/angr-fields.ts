@@ -1,13 +1,10 @@
 // Field accesses through pointer arguments (fields.py): angr runs each function of the whole binary from symbolic
 // arguments and reports, per argument, the offsets and widths read or written through it.
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { repositoryPath } from "../../graph/index.js";
-
-const run = promisify(execFile);
 
 export interface FieldAccess {
   offset: number;
@@ -22,6 +19,32 @@ export interface FunctionFields {
   /** Every path returned within the bounds; else the accesses may be only some of them. */
   complete: boolean;
   error?: string;
+}
+
+/**
+ * Runs the script and returns its output. Each function is stopped by an alarm after three times `seconds`, but a
+ * solver call can hold the process past it: a process silent for longer than that (plus time to load the binary
+ * before the first line) is killed, and what it wrote is kept.
+ */
+function watched(python: string, args: string[], seconds: number): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn(python, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    let timer: NodeJS.Timeout;
+    const arm = (s: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => child.kill("SIGKILL"), s * 1000);
+    };
+    arm(seconds * 3 + 180);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+      arm(seconds * 3 + 30);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve(stdout);
+    });
+  });
 }
 
 function parseLines(stdout: string, into: Record<string, FunctionFields>): void {
@@ -63,17 +86,7 @@ export async function functionFields(
           max_steps: options.maxSteps ?? 40,
         }),
       );
-      try {
-        const { stdout } = await run(python, [repositoryPath("src", "tools", "angr", "fields.py"), path], {
-          // Each function is stopped by an alarm after three times `seconds`; a stuck solver call can still outlast
-          // it, so the whole run is bounded too, with time to load the binary.
-          timeout: (todo.length * (seconds * 3 + 2) + 120) * 1000,
-          maxBuffer: 256 * 1024 * 1024,
-        });
-        parseLines(stdout, out);
-      } catch (error) {
-        parseLines((error as { stdout?: string }).stdout ?? "", out);
-      }
+      parseLines(await watched(python, [repositoryPath("src", "tools", "angr", "fields.py"), path], seconds), out);
       const left = todo.filter((a) => out[`0x${a.toString(16)}`] === undefined);
       // The first function without an answer is the one the process was on: recorded, and the rest run again.
       const stuck = left[0];
