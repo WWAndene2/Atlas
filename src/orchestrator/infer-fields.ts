@@ -93,6 +93,7 @@ export async function inferFields(
     withFields: 0,
     complete: 0,
     checked: { pass: 0, fail: 0 },
+    failed: 0,
   };
   await forEachConcurrently(batches, async (batch) => {
     let found;
