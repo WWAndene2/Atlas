@@ -261,11 +261,25 @@ def hook_heap(proj):
             proj.hook(address, Heap(kind=name), replace=True)
 
 
-def run_original(proj, entry, case, max_steps=4000):
+def import_slots(proj):
+    """The binary's import slots (GOT) and the values angr's loader put there."""
+    out = []
+    for r in proj.loader.main_object.relocs:
+        if r.symbol is not None and r.symbol.is_import:
+            out.append((r.relative_addr, proj.loader.memory.unpack_word(r.relative_addr)))
+    return out
+
+
+def run_original(proj, entry, case, max_steps=4000, slots=()):
     state = proj.factory.blank_state(addr=entry, add_options={angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
                                                                angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS})
     for base, content in case["pages"].items():
         state.memory.store(base, content)
+    # A captured page of the program's data holds its import slots as the real run filled them (C library
+    # addresses angr has no code for): angr's own values go back.
+    for address, value in slots:
+        if (address & ~0xFFF) in case["pages"]:
+            state.memory.store(address, claripy.BVV(value, 64), endness="Iend_LE")
     for r, v in case["regs"].items():
         setattr(state.regs, r, claripy.BVV(v, 64))
     rsp = case["regs"]["rsp"]
@@ -320,6 +334,7 @@ def main():
     translated = [int(a) for a in request.get("translated", functions)]
     proj = angr.Project(request["binary"], auto_load_libs=False, main_opts={"base_addr": 0})
     hook_heap(proj)
+    slots = import_slots(proj)
     work = tempfile.mkdtemp(prefix="atlas-lifted-")
     lib = ctypes.CDLL(build(request["c"], request["runtime"], translated, dict(proj.loader.main_object.plt), offsets, work))
     lib.atlas_run.restype = ctypes.c_int
@@ -339,7 +354,7 @@ def main():
         ran, reasons, verdict = 0, {}, None
         for case in cases:
             a = run_c(lib, State, offsets, entry, case)
-            b = run_original(proj, entry, case) if "skip" not in a else {}
+            b = run_original(proj, entry, case, slots=slots) if "skip" not in a else {}
             reason = a.get("skip") or b.get("skip")
             if reason is not None:
                 reasons[reason] = reasons.get(reason, 0) + 1

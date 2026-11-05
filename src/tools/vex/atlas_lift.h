@@ -19,8 +19,17 @@ void atlas_call(atlas_state *s, uint64_t target);
 void atlas_trap(atlas_state *s, uint64_t at, int kind);
 
 #define REG(T, off) (*(T *)(s->r + (off)))
+/* A call from a translation: the program may expand it in the calling function itself (setjmp, see link.py). */
+#ifndef ATLAS_CALL
+#define ATLAS_CALL(target) atlas_call(s, (target))
+#endif
 #ifndef ATLAS_HOST
+#ifdef ATLAS_IDENTITY
+/* A linked program on a host of the same architecture: the guest's memory is mapped at its own addresses. */
+#define ATLAS_HOST(a) ((uint8_t *)(uintptr_t)(a))
+#else
 #define ATLAS_HOST(a) (s->mem + (uint64_t)(a))
+#endif
 #endif
 
 #ifdef ATLAS_BIG_ENDIAN
@@ -116,6 +125,44 @@ static inline uint64_t atlas_v128hito64(v128 a) { return (uint64_t)(a >> 64); }
 static inline v128 atlas_64hlto_v128(uint64_t h, uint64_t l) { return ((v128)h << 64) | l; }
 static inline v128 atlas_setv128lo64(v128 a, uint64_t l) { return (a & ~(v128)~0ULL) | l; }
 static inline v128 atlas_setv128lo32(v128 a, uint32_t l) { return (a & ~(v128)0xffffffffULL) | l; }
+/* Interleaves (VEX: the left operand's lanes go high): LO64x2 = [L.lo64 | R.lo64], LO32x4 = L1 R1 L0 R0. */
+static inline v128 atlas_interleavelo64x2(v128 l, v128 r) { return ((v128)(uint64_t)l << 64) | (uint64_t)r; }
+static inline v128 atlas_interleavehi64x2(v128 l, v128 r) { return (l & ((v128)~0ULL << 64)) | (uint64_t)(r >> 64); }
+static inline v128 atlas_lane32(v128 v, int i) { return (uint32_t)(v >> (32 * i)); }
+static inline v128 atlas_interleavelo32x4(v128 l, v128 r) {
+  return atlas_lane32(r, 0) | atlas_lane32(l, 0) << 32 | atlas_lane32(r, 1) << 64 | atlas_lane32(l, 1) << 96;
+}
+static inline v128 atlas_interleavehi32x4(v128 l, v128 r) {
+  return atlas_lane32(r, 2) | atlas_lane32(l, 2) << 32 | atlas_lane32(r, 3) << 64 | atlas_lane32(l, 3) << 96;
+}
+static inline v128 atlas_shln64x2(v128 v, uint8_t n) {
+  if (n > 63) return 0;
+  return ((v128)((uint64_t)(v >> 64) << n) << 64) | (uint64_t)((uint64_t)v << n);
+}
+static inline v128 atlas_shrn64x2(v128 v, uint8_t n) {
+  if (n > 63) return 0;
+  return ((v128)((uint64_t)(v >> 64) >> n) << 64) | (uint64_t)((uint64_t)v >> n);
+}
+/* Per-lane integer vector operations (Add64x2...): the vector seen as lanes of W bits. */
+#define ATLAS_LANES(NAME, W, EXPR)                                                    \
+  static inline v128 NAME(v128 a, v128 b) {                                           \
+    uint##W##_t x[128 / W], y[128 / W], r[128 / W];                                   \
+    memcpy(x, &a, 16); memcpy(y, &b, 16);                                             \
+    for (unsigned i = 0; i < 128 / W; i++) r[i] = (uint##W##_t)(EXPR);               \
+    v128 out; memcpy(&out, r, 16); return out;                                        \
+  }
+ATLAS_LANES(atlas_add8x16, 8, x[i] + y[i])
+ATLAS_LANES(atlas_add16x8, 16, x[i] + y[i])
+ATLAS_LANES(atlas_add32x4, 32, x[i] + y[i])
+ATLAS_LANES(atlas_add64x2, 64, x[i] + y[i])
+ATLAS_LANES(atlas_sub8x16, 8, x[i] - y[i])
+ATLAS_LANES(atlas_sub16x8, 16, x[i] - y[i])
+ATLAS_LANES(atlas_sub32x4, 32, x[i] - y[i])
+ATLAS_LANES(atlas_sub64x2, 64, x[i] - y[i])
+ATLAS_LANES(atlas_cmpeq8x16, 8, x[i] == y[i] ? 0xff : 0)
+ATLAS_LANES(atlas_cmpeq16x8, 16, x[i] == y[i] ? 0xffff : 0)
+ATLAS_LANES(atlas_cmpeq32x4, 32, x[i] == y[i] ? 0xffffffffu : 0)
+ATLAS_LANES(atlas_cmpeq64x2, 64, x[i] == y[i] ? ~0ULL : 0)
 static inline double atlas_lo_f64(v128 a) { return atlas_reinterp_i64_f64((uint64_t)a); }
 static inline v128 atlas_with_lo_f64(v128 a, double d) { return atlas_setv128lo64(a, atlas_reinterp_f64_i64(d)); }
 static inline v128 atlas_add64f0x2(v128 a, v128 b) { return atlas_with_lo_f64(a, atlas_lo_f64(a) + atlas_lo_f64(b)); }

@@ -7,3 +7,4 @@ tests/fixtures/lua-platforms/build/
 tests/fixtures/lua-toolchains/build/
 tests/fixtures/lua-versions/build/
 tests/fixtures/bench/build/
+__pycache__/

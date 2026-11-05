@@ -52,6 +52,11 @@ RUNTIME_OPS = {
     "Iop_F64toI32S": "atlas_f64toi32s", "Iop_I32StoF64": "atlas_i32stof64", "Iop_F32toF64": "atlas_f32tof64",
     "Iop_F64toF32": "atlas_f64tof32", "Iop_AddF64": "atlas_addf64", "Iop_SubF64": "atlas_subf64",
     "Iop_MulF64": "atlas_mulf64", "Iop_DivF64": "atlas_divf64", "Iop_SqrtF64": "atlas_sqrtf64",
+    "Iop_InterleaveLO64x2": "atlas_interleavelo64x2", "Iop_InterleaveHI64x2": "atlas_interleavehi64x2",
+    "Iop_InterleaveLO32x4": "atlas_interleavelo32x4", "Iop_InterleaveHI32x4": "atlas_interleavehi32x4",
+    **{f"Iop_{op}{w}x{128 // w}": f"atlas_{op.lower()}{w}x{128 // w}" for op in ("Add", "Sub", "CmpEQ")
+       for w in (8, 16, 32, 64)},
+    "Iop_ShlN64x2": "atlas_shln64x2", "Iop_ShrN64x2": "atlas_shrn64x2",
     "Iop_ReinterpF64asI64": "atlas_reinterp_f64_i64", "Iop_ReinterpI64asF64": "atlas_reinterp_i64_f64",
     "Iop_ReinterpF32asI32": "atlas_reinterp_f32_i32", "Iop_ReinterpI32asF32": "atlas_reinterp_i32_f32",
 }
@@ -147,8 +152,12 @@ def unop(op, a):
 
 
 class Function:
-    def __init__(self, arch, address, code, targets=(), thumb=False):
+    def __init__(self, arch, address, code, targets=(), thumb=False, memory=None):
         self.arch, self.address, self.code, self.thumb = arch, address, bytes.fromhex(code), thumb
+        # The loaded binary, when given: a block is decoded from it, since an engine's code window can stop in the
+        # middle of the function's last instruction (Ghidra's for Lua's 0x18190).
+        self.memory = memory
+        self.per_instruction = False
         # Block starts known otherwise: the targets of the function's jump tables (resolved by angr's CFG).
         self.targets = [t for t in targets if address <= t < address + len(self.code)]
         self.end = address + len(self.code)
@@ -198,110 +207,176 @@ class Function:
     def lift_block(self, addr):
         try:
             # Thumb code is lifted at its address with the low bit set, as VEX expects.
-            irsb = pyvex.lift(self.code[addr - self.address:], addr | 1 if self.thumb else addr, self.arch,
-                              opt_level=1, bytes_offset=0)
+            data = self.code[addr - self.address:]
+            if self.memory is not None:
+                # As much as the loaded image holds from there (a load past a segment's end is refused).
+                for size in (4096, 1024, 256, 64):
+                    try:
+                        data = self.memory.load(addr, size)
+                        break
+                    except KeyError:
+                        continue
+            irsb = pyvex.lift(data, addr | 1 if self.thumb else addr, self.arch, opt_level=1, bytes_offset=0,
+                              max_inst=1 if self.per_instruction else None)
         except pyvex.PyVEXError as error:
             raise Unsupported(f"undecodable at {addr:#x}: {error}")
         if irsb.size == 0 or irsb.jumpkind == "Ijk_NoDecode":
             raise Unsupported(f"undecodable at {addr:#x}")
         return irsb
 
-    def translate(self):
+    def has_indirect_jump(self):
+        """Whether a block reachable from the entry jumps through a register (a switch table)."""
         todo, seen = [self.address, *self.targets], set()
-        out = []
         while todo:
             a = todo.pop()
             if a in seen or not (self.address <= a < self.end):
                 continue
             seen.add(a)
             irsb = self.lift_block(a)
-            body = [f"    case {a:#x}ULL: {{"]
-            tmps = irsb.tyenv.types
-            for i, ty in enumerate(tmps):
-                if ty not in CTYPE:
-                    raise Unsupported(f"temporary of type {ty}")
-            if tmps:
-                body.append("      " + " ".join(f"{CTYPE[ty]} t{i};" for i, ty in enumerate(tmps)))
-            for st in irsb.statements:
-                if isinstance(st, (pyvex.stmt.IMark, pyvex.stmt.NoOp, pyvex.stmt.AbiHint)):
+            if irsb.jumpkind == "Ijk_Boring" and not isinstance(irsb.next, pyvex.expr.Const):
+                return True
+            todo.extend(irsb.constant_jump_targets)
+            todo.append(a + irsb.size)
+        return False
+
+    def instruction_starts(self):
+        """Every instruction address of the function by linear sweep (with per-instruction lifting)."""
+        out, a = [], self.address
+        while a < self.end:
+            try:
+                irsb = self.lift_block(a)
+            except Unsupported:
+                # Bytes that are not code (padding, data in the code): skipped one at a time.
+                a += 1
+                continue
+            out.append(a)
+            a += max(irsb.size, 1)
+        return set(out)
+
+    def translate(self):
+        self.per_instruction = False
+        # A switch table the CFG did not resolve would send control to an address with no block: in a function
+        # with an indirect jump, every instruction starts a block (slower dispatch, but any target lands).
+        extra = []
+        if self.has_indirect_jump():
+            self.per_instruction = True
+            extra = self.instruction_starts()
+        todo, seen = [self.address, *self.targets, *extra], set()
+        optional = set(extra) - {self.address, *self.targets}
+        out = []
+        while todo:
+            a = todo.pop()
+            if a in seen or not (self.address <= a < self.end):
+                continue
+            seen.add(a)
+            try:
+                irsb = self.lift_block(a)
+            except Unsupported as reason:
+                if a in optional:
                     continue
-                if isinstance(st, pyvex.stmt.WrTmp):
-                    body.append(f"      t{st.tmp} = {self.expr(st.data, tmps)};")
-                elif isinstance(st, pyvex.stmt.Put):
-                    ty = st.data.result_type(irsb.tyenv)
+                if str(reason).startswith("undecodable"):
+                    # Reached only if the original would fault there too (ud2, padding after a noreturn call):
+                    # a trap at run time, not a refused function.
+                    out.append(f"    case {a:#x}ULL: atlas_trap(s, {a:#x}ULL, 3); return;")
+                    continue
+                raise
+            mark = len(todo)
+            try:
+                body = [f"    case {a:#x}ULL: {{"]
+                tmps = irsb.tyenv.types
+                for i, ty in enumerate(tmps):
                     if ty not in CTYPE:
-                        raise Unsupported(f"register write of {ty}")
-                    body.append(f"      {self.reg(st.offset, ty)} = {self.expr(st.data, tmps)};")
-                elif isinstance(st, pyvex.stmt.Store):
-                    ty = st.data.result_type(irsb.tyenv)
-                    if ty not in MEMORY:
-                        raise Unsupported(f"store of {ty}")
-                    body.append(f"      STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, {self.expr(st.data, tmps)});")
-                elif isinstance(st, pyvex.stmt.LoadG):
-                    # A guarded load (ARM's conditional loads): the converted value if the guard holds, else alt.
-                    loaded = {"ILGop_Ident32": "LOAD32", "ILGop_Ident64": "LOAD64", "ILGop_16Uto32": "LOAD16",
-                              "ILGop_8Uto32": "LOAD8", "ILGop_16Sto32": "LOAD16", "ILGop_8Sto32": "LOAD8"}.get(st.cvt)
-                    if loaded is None:
-                        raise Unsupported(f"guarded load {st.cvt}")
-                    value = f"{loaded}({self.expr(st.addr, tmps)})"
-                    if st.cvt in ("ILGop_16Sto32", "ILGop_8Sto32"):
-                        value = f"(uint32_t)(int{st.cvt[6:8].rstrip('S')}_t){value}"
-                    body.append(f"      t{st.dst} = {self.expr(st.guard, tmps)} ? {value} : {self.expr(st.alt, tmps)};")
-                elif isinstance(st, pyvex.stmt.StoreG):
-                    ty = st.data.result_type(irsb.tyenv)
-                    if ty not in MEMORY:
-                        raise Unsupported(f"guarded store of {ty}")
-                    body.append(f"      if ({self.expr(st.guard, tmps)}) STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, "
-                                f"{self.expr(st.data, tmps)});")
-                elif isinstance(st, pyvex.stmt.Exit):
-                    if st.jumpkind.startswith("Ijk_Sig"):
-                        # A trap the guest raises (division by zero, ud2): the program's atlas_trap decides.
-                        kind = TRAPS.get(st.jumpkind, 0)
-                        body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {a:#x}ULL, {kind}); return; }}")
+                        raise Unsupported(f"temporary of type {ty}")
+                if tmps:
+                    body.append("      " + " ".join(f"{CTYPE[ty]} t{i};" for i, ty in enumerate(tmps)))
+                for st in irsb.statements:
+                    if isinstance(st, (pyvex.stmt.IMark, pyvex.stmt.NoOp, pyvex.stmt.AbiHint)):
                         continue
-                    if st.jumpkind != "Ijk_Boring":
-                        raise Unsupported(f"conditional exit {st.jumpkind}")
-                    target = st.dst.value
-                    todo.append(target)
-                    inside = self.address <= target < self.end
-                    jump = f"pc = {target:#x}ULL; continue;" if inside else f"atlas_call(s, {target:#x}ULL); return;"
-                    body.append(f"      if ({self.expr(st.guard, tmps)}) {{ {jump} }}")
+                    if isinstance(st, pyvex.stmt.WrTmp):
+                        body.append(f"      t{st.tmp} = {self.expr(st.data, tmps)};")
+                    elif isinstance(st, pyvex.stmt.Put):
+                        ty = st.data.result_type(irsb.tyenv)
+                        if ty not in CTYPE:
+                            raise Unsupported(f"register write of {ty}")
+                        body.append(f"      {self.reg(st.offset, ty)} = {self.expr(st.data, tmps)};")
+                    elif isinstance(st, pyvex.stmt.Store):
+                        ty = st.data.result_type(irsb.tyenv)
+                        if ty not in MEMORY:
+                            raise Unsupported(f"store of {ty}")
+                        body.append(f"      STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, {self.expr(st.data, tmps)});")
+                    elif isinstance(st, pyvex.stmt.LoadG):
+                        # A guarded load (ARM's conditional loads): the converted value if the guard holds, else alt.
+                        loaded = {"ILGop_Ident32": "LOAD32", "ILGop_Ident64": "LOAD64", "ILGop_16Uto32": "LOAD16",
+                                  "ILGop_8Uto32": "LOAD8", "ILGop_16Sto32": "LOAD16", "ILGop_8Sto32": "LOAD8"}.get(st.cvt)
+                        if loaded is None:
+                            raise Unsupported(f"guarded load {st.cvt}")
+                        value = f"{loaded}({self.expr(st.addr, tmps)})"
+                        if st.cvt in ("ILGop_16Sto32", "ILGop_8Sto32"):
+                            value = f"(uint32_t)(int{st.cvt[6:8].rstrip('S')}_t){value}"
+                        body.append(f"      t{st.dst} = {self.expr(st.guard, tmps)} ? {value} : {self.expr(st.alt, tmps)};")
+                    elif isinstance(st, pyvex.stmt.StoreG):
+                        ty = st.data.result_type(irsb.tyenv)
+                        if ty not in MEMORY:
+                            raise Unsupported(f"guarded store of {ty}")
+                        body.append(f"      if ({self.expr(st.guard, tmps)}) STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, "
+                                    f"{self.expr(st.data, tmps)});")
+                    elif isinstance(st, pyvex.stmt.Exit):
+                        if st.jumpkind.startswith("Ijk_Sig"):
+                            # A trap the guest raises (division by zero, ud2): the program's atlas_trap decides.
+                            kind = TRAPS.get(st.jumpkind, 0)
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {a:#x}ULL, {kind}); return; }}")
+                            continue
+                        if st.jumpkind != "Ijk_Boring":
+                            raise Unsupported(f"conditional exit {st.jumpkind}")
+                        target = st.dst.value
+                        todo.append(target)
+                        inside = self.address <= target < self.end
+                        jump = f"pc = {target:#x}ULL; continue;" if inside else f"atlas_call(s, {target:#x}ULL); return;"
+                        body.append(f"      if ({self.expr(st.guard, tmps)}) {{ {jump} }}")
+                    else:
+                        raise Unsupported(f"statement {type(st).__name__}")
+                nxt = irsb.next
+                constant = nxt.con.value if isinstance(nxt, pyvex.expr.Const) else None
+                if irsb.jumpkind == "Ijk_Ret":
+                    body.append("      return;")
+                elif irsb.jumpkind == "Ijk_Call":
+                    target = f"{constant:#x}ULL" if constant is not None else self.expr(nxt, tmps)
+                    after = a + irsb.size
+                    # The callee returns to the instruction after the call (the return address the call pushed or the
+                    # link register it set is part of the state the translation already wrote).
+                    # ATLAS_CALL (atlas_lift.h): atlas_call, or what a linked program puts there (setjmp has to run in
+                    # this function's frame, so a link can expand it here).
+                    body.append(f"      ATLAS_CALL({target}); pc = {after:#x}ULL; continue;")
+                    todo.append(after)
+                elif irsb.jumpkind == "Ijk_Boring":
+                    if constant is not None and self.address <= constant < self.end:
+                        todo.append(constant)
+                        body.append(f"      pc = {constant:#x}ULL; continue;")
+                    elif constant is not None:
+                        body.append(f"      atlas_call(s, {constant:#x}ULL); return;  /* tail jump */")
+                    else:
+                        # A jump through a register: a switch table inside the function, or a tail call elsewhere.
+                        body.append(f"      pc = {self.expr(nxt, tmps)}; continue;")
+                elif irsb.jumpkind.startswith("Ijk_Sig"):
+                    body.append(f"      atlas_trap(s, {a:#x}ULL, {TRAPS.get(irsb.jumpkind, 0)}); return;")
                 else:
-                    raise Unsupported(f"statement {type(st).__name__}")
-            nxt = irsb.next
-            constant = nxt.con.value if isinstance(nxt, pyvex.expr.Const) else None
-            if irsb.jumpkind == "Ijk_Ret":
-                body.append("      return;")
-            elif irsb.jumpkind == "Ijk_Call":
-                target = f"{constant:#x}ULL" if constant is not None else self.expr(nxt, tmps)
-                after = a + irsb.size
-                # The callee returns to the instruction after the call (the return address the call pushed or the
-                # link register it set is part of the state the translation already wrote).
-                body.append(f"      atlas_call(s, {target}); pc = {after:#x}ULL; continue;")
-                todo.append(after)
-            elif irsb.jumpkind == "Ijk_Boring":
-                if constant is not None and self.address <= constant < self.end:
-                    todo.append(constant)
-                    body.append(f"      pc = {constant:#x}ULL; continue;")
-                elif constant is not None:
-                    body.append(f"      atlas_call(s, {constant:#x}ULL); return;  /* tail jump */")
-                else:
-                    # A jump through a register: a switch table inside the function, or a tail call elsewhere.
-                    body.append(f"      pc = {self.expr(nxt, tmps)}; continue;")
-            elif irsb.jumpkind.startswith("Ijk_Sig"):
-                body.append(f"      atlas_trap(s, {a:#x}ULL, {TRAPS.get(irsb.jumpkind, 0)}); return;")
-            else:
-                raise Unsupported(f"jump kind {irsb.jumpkind}")
-            body.append("    }")
-            out.append("\n".join(body))
+                    raise Unsupported(f"jump kind {irsb.jumpkind}")
+                body.append("    }")
+                out.append("\n".join(body))
+            except Unsupported:
+                # A block found only by the linear sweep that is not real code (data decoded as x87, say):
+                # skipped, with the targets it added.
+                if a not in optional:
+                    raise
+                del todo[mark:]
         name = f"fn_{self.address:x}"
         return (f"void {name}(atlas_state *s) {{\n  uint64_t pc = {self.address:#x}ULL;\n  for (;;) {{\n"
                 f"    switch (pc) {{\n" + "\n".join(out) + "\n    default: atlas_call(s, pc); return;\n    }\n  }\n}\n")
 
 
-def jump_table_targets(binary):
-    """Every target of an indirect jump angr's CFG resolves (switch tables), from the binary as loaded at 0 if
-    position-independent, as the graph has it."""
+def load(binary):
+    """The binary as angr loads it (at 0 if position-independent, as the graph has it), and every target of an
+    indirect jump its CFG resolves (switch tables)."""
     import angr
     import logging
 
@@ -311,16 +386,17 @@ def jump_table_targets(binary):
     out = set()
     for jump in cfg.indirect_jumps.values():
         out.update(jump.resolved_targets or ())
-    return out
+    return proj.loader.memory, out
 
 
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id(request["arch"], request.get("endness", "any"))
-    targets = sorted(jump_table_targets(request["binary"])) if request.get("binary") else []
+    memory, targets = load(request["binary"]) if request.get("binary") else (None, set())
+    targets = sorted(targets)
     for f in request["functions"]:
         try:
-            c = Function(arch, f["address"], f["code"], targets, bool(f.get("thumb"))).translate()
+            c = Function(arch, f["address"], f["code"], targets, bool(f.get("thumb")), memory).translate()
             print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)
         except Unsupported as reason:
             print(json.dumps({"address": hex(f["address"]), "unsupported": str(reason)}), flush=True)
