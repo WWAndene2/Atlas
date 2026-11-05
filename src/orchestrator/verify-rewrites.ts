@@ -3,6 +3,7 @@
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import type { Toolchain } from "../verify/recompile/recompile-check.js";
 import { verifyRewrite, type VerifyOutcome } from "../verify/recompile/verify-rewrite.js";
+import { checkRewriteEquivalence } from "./check-equivalence.js";
 import { binaryToolchain } from "./detect-toolchain.js";
 import { NotFoundError } from "./function-context.js";
 import { forEachConcurrently } from "./parallel.js";
@@ -24,10 +25,24 @@ function toolchainFor(store: GraphStore, h: Hypothesis, given?: Toolchain): Tool
   return { cc: detected.cc, flags: detected.flags };
 }
 
-export async function verifyOne(store: GraphStore, id: string, given?: Toolchain): Promise<VerifyOutcome> {
+/** With `equivalence`, a rewrite whose bytes differ is then checked for equivalent behaviour (angr, opt-in). */
+export async function verifyOne(
+  store: GraphStore,
+  id: string,
+  given?: Toolchain,
+  equivalence = false,
+): Promise<VerifyOutcome & { equivalence?: string }> {
   const h = store.getHypothesis(id);
   if (h === undefined) throw new NotFoundError(`no hypothesis ${id}`);
-  return verifyRewrite(store, id, toolchainFor(store, h, given));
+  const toolchain = toolchainFor(store, h, given);
+  const outcome = await verifyRewrite(store, id, toolchain);
+  if (!equivalence || outcome.check.result === "pass" || outcome.check.reason !== "mismatch") return outcome;
+  const answer = await checkRewriteEquivalence(store, outcome.hypothesis, toolchain);
+  return {
+    ...outcome,
+    hypothesis: store.getHypothesis(id) ?? outcome.hypothesis,
+    equivalence: `${answer.result}: ${answer.details}`,
+  };
 }
 
 /** Every rewrite not checked yet, in parallel; a missing toolchain is reported before any work starts. */

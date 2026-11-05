@@ -149,6 +149,19 @@ else
   lack "Lua toolchain fixtures" "install the compilers above, then run this again"
 fi
 
+step "angr for the equivalence check (atlas verify --equivalence)"
+# A Python environment of its own in the tools directory, exactly the reviewed version (docs/DEPENDENCY_REVIEWS.md),
+# wheels only. Recommended, not required: without it --equivalence answers that angr is missing.
+ANGR_VERSION=10.0.5
+if [[ -x "$tools/py/bin/python" ]] && "$tools/py/bin/python" -c "import angr; assert angr.__version__ == '$ANGR_VERSION'" 2>/dev/null; then
+  ok "angr $ANGR_VERSION"
+elif have python3 && python3 -m venv "$tools/py" >/dev/null 2>&1 &&
+  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" >/dev/null 2>&1; then
+  ok "angr $ANGR_VERSION in $tools/py"
+else
+  printf '   note: angr not installed, so no equivalence check\n   how: apt install python3-venv, then run this again\n'
+fi
+
 step "atlas command"
 launcher_dir="$HOME/.local/bin"
 mkdir -p "$launcher_dir"

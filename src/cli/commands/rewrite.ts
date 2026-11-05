@@ -100,13 +100,13 @@ export function runProposeRewrite(
 export async function runVerify(
   store: GraphStore,
   args: string[],
-  options: { cc?: string; cflags?: string },
+  options: { cc?: string; cflags?: string; equivalence?: boolean },
 ): Promise<Output> {
   const [id, ...extra] = args;
   if (id === undefined || extra.length > 0) {
     throw new CliError(
       "usage",
-      'usage: atlas verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] (with =: the flags start with a dash; without --cc, the toolchain detected for the binary)',
+      'usage: atlas verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence] (with =: the flags start with a dash; without --cc, the toolchain detected for the binary)',
     );
   }
   const flags = (options.cflags ?? "").split(/\s+/).filter((f) => f !== "");
@@ -120,10 +120,12 @@ export async function runVerify(
         .join(", ")}`;
       return { data: { checked, counts }, text };
     }
-    const { hypothesis, check } = await verifyOne(store, id, given);
+    const { hypothesis, check, equivalence } = await verifyOne(store, id, given, options.equivalence === true);
     return {
-      data: { hypothesis, check },
-      text: `${hypothesis.id}: ${check.result} (${hypothesis.verification?.details ?? ""}) -> ${hypothesis.confidence}`,
+      data: { hypothesis, check, equivalence },
+      text:
+        `${hypothesis.id}: ${check.result} (${hypothesis.verification?.details ?? ""}) -> ${hypothesis.confidence}` +
+        (equivalence === undefined ? "" : `\nequivalence: ${equivalence}`),
     };
   } catch (error) {
     if (error instanceof NoToolchainError) throw new CliError("usage", error.message);

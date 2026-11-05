@@ -68,10 +68,12 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     how the binary was compiled: compiler clues in the file, then a probe
                                     recompiling a sample of Ghidra's C with each candidate; load and
                                     decompile the file first
-  verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
+  verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details;
-                                    without --cc, the toolchain detected for the binary
+                                    without --cc, the toolchain detected for the binary; with
+                                    --equivalence (one hypothesis), different bytes are then checked for
+                                    the same behaviour by symbolic execution (angr; x86-64 leaf functions)
 
   --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)
   --binary <bin_>  with an address, the binary it belongs to when the graph holds several
@@ -104,6 +106,7 @@ async function main(argv: string[]): Promise<number> {
         "last-name": { type: "string" },
         cc: { type: "string" },
         cflags: { type: "string" },
+        equivalence: { type: "boolean" },
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
@@ -226,6 +229,7 @@ async function main(argv: string[]): Promise<number> {
         output = await runVerify(store, rest, {
           ...(values.cc !== undefined ? { cc: values.cc } : {}),
           ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),
+          ...(values.equivalence === true ? { equivalence: true } : {}),
         });
         break;
       case "detect": {

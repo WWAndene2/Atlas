@@ -232,10 +232,19 @@ export function tools(store: GraphStore, graphPath: string) {
     },
     verify: {
       description: "Recompile a rewrite (or all unchecked: all) and compare with the original; records the outcome.",
-      input: { hypothesis: z.string().describe("A hypothesis ID (hyp_...) or all"), ...toolchain },
-      handler: async (a: { hypothesis: string; cc?: string; cflags?: string[] }) => {
+      input: {
+        hypothesis: z.string().describe("A hypothesis ID (hyp_...) or all"),
+        ...toolchain,
+        equivalence: z
+          .boolean()
+          .optional()
+          .describe("One hypothesis: if the bytes differ, check for the same behaviour (angr, x86-64 leaf functions)"),
+      },
+      handler: async (a: { hypothesis: string; cc?: string; cflags?: string[]; equivalence?: boolean }) => {
         const given = a.cc !== undefined ? { cc: a.cc, flags: a.cflags ?? [] } : undefined;
-        return a.hypothesis === "all" ? verifyPending(store, given) : verifyOne(store, a.hypothesis, given);
+        return a.hypothesis === "all"
+          ? verifyPending(store, given)
+          : verifyOne(store, a.hypothesis, given, a.equivalence === true);
       },
     },
     plan_agents: {

@@ -62,7 +62,7 @@ Flawed methods behind those gaps, each answered by a principle below:
     session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
-                      Ghidra, REA, later Rizin, angr, IDA, Frida
+                      Ghidra, REA, angr; later Rizin, IDA, Frida
 ```
 
 ### Tools layer: several engines, cross-checked
@@ -80,7 +80,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
 - **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
-- Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
+- angr (`src/tools/angr/`): symbolic equivalence of two machine codes of one x86-64 function, run by
+  `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-equivalence.ts`): equivalent
+  marks it verified (check `structural`), different records a counterexample, inconclusive (calls, input-bounded
+  loops, symbolic addresses) changes nothing.
+- Later: Rizin directly, IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
 Container formats whose code no engine reads directly are opened by Atlas's own readers before the engines run

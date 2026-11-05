@@ -67,3 +67,20 @@ implausible for the project, so given no weight).
    install, no Frida). Never through REA's `install.sh`.
 2. Started only by `src/tools/rea/`, over stdio, never with `--http`.
 3. Atlas works without it: Ghidra headless is the first engine.
+
+## angr 10.0.5 (with z3-solver 5.3.1) — 5 November 2026
+
+**Scope of the check.** Installed from PyPI wheels only (`--only-binary=:all:`, no source build, no install script)
+into a Python environment of its own in the tools directory. The installed tree was inspected: 43 packages, 63
+native shared objects (among them Z3 and pyvex/VEX), about 500 MB. Not a line-by-line audit.
+
+**Seen:** BSD-2-Clause (angr, claripy, pyvex, cle, archinfo), MIT (Z3); Atlas runs `equivalence.py` as a
+subprocess and links none of it. No
+network use at run time found.
+
+**Conditions:**
+
+1. Exactly 10.0.5, installed by `scripts/setup.sh` from wheels; a bump needs a new entry.
+2. Run only as a subprocess on machine code Atlas extracted itself; target code is executed symbolically, never
+   natively.
+3. Opt-in (`atlas verify --equivalence`): nothing else depends on it.
