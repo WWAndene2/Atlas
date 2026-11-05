@@ -3,7 +3,7 @@
 argv[1]: request JSON {"binary": path, "functions": [int], "max_steps": int, "max_states": int, "seconds": float}
 stdout: one JSON line per function, as it is done:
         {"address": "0x..", "args": {"0": [{"offset": int, "size": int, "read": bool, "write": bool}]},
-         "complete": bool, "error"?: str}
+         "passes": [{"callee": "0x..", "register": int, "arg": int}], "complete": bool, "error"?: str}
 (a function stuck in the solver past every bound loses only itself: the caller keeps the lines already written)
 
 Each function starts from a state where the six integer argument registers (System V x86-64) hold distinct symbolic
@@ -78,6 +78,21 @@ def fields_of(proj, address, max_steps, max_states, seconds):
         entry = found.setdefault(key, {"offset": off, "size": n, "read": False, "write": False})
         entry["write" if write else "read"] = True
 
+    passes = set()
+
+    def on_entry(s):
+        # A state that just took a call stands at the callee's entry with its arguments in place: one equal to an
+        # argument of the function under study points to the same struct (the call inspect event does not fire
+        # for these successors in angr 10, so entries are found from the jump kind).
+        for j, reg in enumerate(ARG_REGS):
+            value = getattr(s.regs, reg)
+            # Exactly the symbol (not an expression of it), compared by its unique name.
+            if value.op != "BVS":
+                continue
+            for i, a in enumerate(args):
+                if value.args[0] == a.args[0]:
+                    passes.add((s.addr, j, i))
+
     state.inspect.b("mem_read", when=angr.BP_BEFORE, action=lambda s: on_access(s, False))
     state.inspect.b("mem_write", when=angr.BP_BEFORE, action=lambda s: on_access(s, True))
     simgr = proj.factory.simulation_manager(state)
@@ -86,6 +101,9 @@ def fields_of(proj, address, max_steps, max_states, seconds):
         if not simgr.active or time.monotonic() - start > seconds:
             break
         simgr.step()
+        for st in simgr.active:
+            if st.history.jumpkind == "Ijk_Call":
+                on_entry(st)
         # Paths that leave mapped code or loop on symbolic data are dropped; too many live paths are cut.
         simgr.drop(stash="errored")
         if len(simgr.active) > max_states:
@@ -93,7 +111,8 @@ def fields_of(proj, address, max_steps, max_states, seconds):
     out = {}
     for (i, _, _), entry in sorted(found.items()):
         out.setdefault(str(i), []).append(entry)
-    return {"args": out, "complete": not simgr.active and not simgr.stashes.get("dropped")}
+    calls = [{"callee": hex(t), "register": j, "arg": i} for t, j, i in sorted(passes)]
+    return {"args": out, "passes": calls, "complete": not simgr.active and not simgr.stashes.get("dropped")}
 
 
 class OutOfTime(Exception):

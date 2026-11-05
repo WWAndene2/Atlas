@@ -1,4 +1,5 @@
-// Struct types assembled from the fields inferred per function (infer-fields.ts): arguments whose accessed fields
+// Struct types assembled from the fields inferred per function (infer-fields.ts). Arguments handed unchanged to a
+// callee are joined with its parameter first; then arguments whose accessed fields
 // mostly coincide (at least half of an argument's fields already in a type, and no field at the same offset with
 // another width) are taken to point to the same struct, whose layout is the union of their fields. Each struct is a
 // type node (ty_) with a type hypothesis (inferred) holding the layout and the arguments using it; an agent writing
@@ -26,18 +27,61 @@ interface Use {
 const key = (f: { offset: number; size: number }) => `${f.offset}:${f.size}`;
 
 export function assembleTypes(store: GraphStore, binary: string): TypesOutcome {
-  const uses: Use[] = [];
+  const all = new Map<string, Use>();
+  const links: [string, string][] = [];
   for (const fn of store.nodesOfKind("function").filter((f) => f.binary === binary)) {
     for (const h of store.hypothesesFor(fn.id, "signature")) {
       if (h.author.agent !== "typer/angr" || h.confidence === "rejected") continue;
-      for (const a of (h.value as { arguments: FieldsArgument[] }).arguments) {
-        const fields = a.fields.filter((f) => f.offset >= 0);
-        // One field says too little to tell one struct from another.
-        if (fields.length >= 2) uses.push({ function: fn.id, register: a.register, fields });
+      const value = h.value as {
+        arguments: FieldsArgument[];
+        passes?: { callee: string; callee_register: string; register: string }[];
+      };
+      for (const a of value.arguments) {
+        all.set(`${fn.id}/${a.register}`, {
+          function: fn.id,
+          register: a.register,
+          fields: a.fields.filter((f) => f.offset >= 0),
+        });
       }
+      for (const p of value.passes ?? []) links.push([`${fn.id}/${p.register}`, `${p.callee}/${p.callee_register}`]);
     }
   }
-  uses.sort((a, b) => b.fields.length - a.fields.length || (a.function < b.function ? -1 : 1));
+  // An argument handed unchanged to a callee points to the struct the callee's parameter points to: such arguments
+  // are joined first (union-find), unless their fields disagree in width at one offset (a union, or a wrong link).
+  const parent = new Map<string, string>();
+  const find = (k: string): string => {
+    const p = parent.get(k) ?? k;
+    if (p === k) return k;
+    const root = find(p);
+    parent.set(k, root);
+    return root;
+  };
+  const groupFields = new Map<string, Use["fields"]>([...all].map(([k, u]) => [k, u.fields]));
+  for (const [a, b] of links) {
+    if (!all.has(a) || !all.has(b)) continue;
+    const [ra, rb] = [find(a), find(b)];
+    if (ra === rb) continue;
+    const fa = groupFields.get(ra) ?? [];
+    const fb = groupFields.get(rb) ?? [];
+    if (fa.some((x) => fb.some((y) => x.offset === y.offset && x.size !== y.size))) continue;
+    parent.set(rb, ra);
+    const merged = new Map([...fa, ...fb].map((f) => [key(f), f]));
+    groupFields.set(ra, [...merged.values()]);
+  }
+  const groups = new Map<string, { fields: Use["fields"]; users: Use[] }>();
+  for (const [k, u] of all) {
+    const root = find(k);
+    const g = groups.get(root) ?? { fields: groupFields.get(root) ?? [], users: [] };
+    g.users.push(u);
+    groups.set(root, g);
+  }
+  // One field says too little to tell one struct from another.
+  const uses = [...groups.values()]
+    .filter((g) => g.fields.length >= 2)
+    .sort(
+      (a, b) =>
+        b.fields.length - a.fields.length || ((a.users[0]?.function ?? "") < (b.users[0]?.function ?? "") ? -1 : 1),
+    );
   const types: {
     layout: Map<string, { offset: number; size: number; access: string }>;
     widths: Map<number, number>;
@@ -64,9 +108,9 @@ export function assembleTypes(store: GraphStore, binary: string): TypesOutcome {
       best.layout.set(key(f), { offset: f.offset, size: f.size, access });
       best.widths.set(f.offset, f.size);
     }
-    best.users.push(use);
+    best.users.push(...use.users);
   }
-  const outcome: TypesOutcome = { binary, arguments: uses.length, types: [] };
+  const outcome: TypesOutcome = { binary, arguments: uses.reduce((n, g) => n + g.users.length, 0), types: [] };
   store.transaction(() => {
     types.forEach((t, n) => {
       const fields = [...t.layout.values()].sort((a, b) => a.offset - b.offset || a.size - b.size);

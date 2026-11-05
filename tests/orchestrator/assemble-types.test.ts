@@ -56,3 +56,31 @@ describe("assembleTypes", () => {
     expect(layout.map((f) => f.offset)).toEqual([0, 8, 16, 24, 32]);
   });
 });
+
+describe("assembleTypes through calls", () => {
+  it("joins a parameter with the caller's argument handed to it, though they share no field", () => {
+    const store = new GraphStore(join(mkdtempSync(join(tmpdir(), "atlas-types-")), "g.sqlite"));
+    store.putNode({ schema_version: 1, id: BIN, kind: "binary", architecture: "x86_64" });
+    withFields(store, 1, [
+      [0, 8],
+      [8, 8],
+    ]);
+    withFields(store, 2, [
+      [40, 8],
+      [48, 8],
+    ]);
+    const caller = store.hypothesesFor("fn_00000000000000aa_1", "signature")[0];
+    store.restoreHypothesis({
+      ...(caller as NonNullable<typeof caller>),
+      value: {
+        ...(caller?.value as object),
+        passes: [{ callee: "fn_00000000000000aa_2", callee_register: "rdi", register: "rdi" }],
+      },
+    });
+    const o = assembleTypes(store, BIN);
+    expect(o.types).toHaveLength(1);
+    const layout = (store.hypothesesFor(o.types[0]?.id as string, "type")[0]?.value as { layout: { offset: number }[] })
+      .layout;
+    expect(layout.map((f) => f.offset)).toEqual([0, 8, 40, 48]);
+  });
+});

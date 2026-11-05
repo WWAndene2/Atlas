@@ -85,6 +85,12 @@ export async function inferFields(
         f.generated === undefined &&
         (options.only === undefined || options.only.includes(f.id)),
     );
+  const byAddress = new Map(
+    store
+      .nodesOfKind("function")
+      .filter((f) => f.binary === binary && f.address !== undefined)
+      .map((f) => [BigInt(f.address as string), f]),
+  );
   const batches: GraphNode[][] = [];
   for (let i = 0; i < functions.length; i += BATCH) batches.push(functions.slice(i, i + BATCH));
   const python = locateAngr();
@@ -117,7 +123,18 @@ export async function inferFields(
         const args = asArguments(r.args);
         if (args.length === 0) continue;
         outcome.withFields++;
-        const value = { arguments: args, complete: r.complete };
+        // Arguments handed on to a known function: the struct assembly joins the two parameters.
+        const passes = (r.passes ?? [])
+          .map((p) => ({
+            callee: byAddress.get(BigInt(p.callee))?.id,
+            callee_register: REGISTERS[p.register] as string,
+            register: REGISTERS[p.arg] as string,
+          }))
+          .filter(
+            (p): p is { callee: string; callee_register: string; register: string } =>
+              p.callee !== undefined && args.some((a) => a.register === p.register),
+          );
+        const value = { arguments: args, ...(passes.length > 0 ? { passes } : {}), complete: r.complete };
         const id = `hyp_${createHash("sha256")
           .update(`${fn.id}\nsignature\nfields\n${JSON.stringify(value)}`)
           .digest("hex")

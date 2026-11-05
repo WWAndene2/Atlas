@@ -16,6 +16,8 @@ export interface FieldAccess {
 export interface FunctionFields {
   /** Argument index (0 = rdi) to the accesses through it. */
   args: Record<string, FieldAccess[]>;
+  /** Arguments handed unchanged to a callee: its parameter (register index) is the caller's argument `arg`. */
+  passes?: { callee: string; register: number; arg: number }[];
   /** Every path returned within the bounds; else the accesses may be only some of them. */
   complete: boolean;
   error?: string;
