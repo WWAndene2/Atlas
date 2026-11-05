@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runClusterSystems, runGetSystem, runProposeSummary } from "./commands/systems.js";
-import { runInferFields } from "./commands/infer.js";
+import { runInferFields, runInferTypes } from "./commands/infer.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
@@ -91,6 +91,8 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   infer fields <program> [--function <fn|0x>]...
                                     the fields each function reads or writes through its pointer arguments
                                     (angr, symbolic; x86-64 ELF), checked against traces when there are some
+  infer types [--binary <bin_>]     struct types assembled from the inferred fields: arguments that access
+                                    mostly the same fields share one struct (ty_ nodes, type hypotheses)
   trace <program> [--stdin <text>] [-- <arguments>]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
@@ -276,7 +278,10 @@ async function main(argv: string[]): Promise<number> {
         });
         break;
       case "infer":
-        output = await runInferFields(store, rest, values.function ?? []);
+        output =
+          rest[0] === "types"
+            ? runInferTypes(store, rest, values.binary)
+            : await runInferFields(store, rest, values.function ?? []);
         break;
       case "trace":
         output = await runTrace(store, rest, values.stdin !== undefined ? { stdin: values.stdin } : {});

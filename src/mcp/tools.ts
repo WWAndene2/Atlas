@@ -23,6 +23,7 @@ import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
 import { clusterSystems, proposeSummary, systemContext } from "../orchestrator/cluster-systems.js";
+import { assembleTypes } from "../orchestrator/assemble-types.js";
 import { inferFields } from "../orchestrator/infer-fields.js";
 import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
@@ -214,6 +215,12 @@ export function tools(store: GraphStore, graphPath: string) {
       handler: async (a: { system: string; name: string; summary: string; agent?: string }) => ({
         hypothesis: proposeSummary(store, a.system, a.name, a.summary, a.agent ?? "agent"),
       }),
+    },
+    infer_types: {
+      description:
+        "Struct types assembled from the inferred fields: arguments that access mostly the same fields share one struct.",
+      input: { binary },
+      handler: async (a: { binary?: string }) => assembleTypes(store, singleBinary(store, a.binary)),
     },
     check_functions: {
       description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",

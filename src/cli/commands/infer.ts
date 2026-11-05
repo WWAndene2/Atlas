@@ -3,10 +3,32 @@ import { existsSync } from "node:fs";
 import type { GraphStore } from "../../graph/index.js";
 import { fileSha256 } from "../../orchestrator/file-hash.js";
 import { NotFoundError, resolveFunction } from "../../orchestrator/function-context.js";
+import { assembleTypes } from "../../orchestrator/assemble-types.js";
 import { inferFields } from "../../orchestrator/infer-fields.js";
 import { binaryId } from "../../orchestrator/load-binary.js";
 import { AngrUnavailableError } from "../../tools/angr/index.js";
 import { CliError, type Output } from "../output.js";
+
+export function runInferTypes(store: GraphStore, args: string[], binary: string | undefined): Output {
+  if (args[0] !== "types" || args.length > 1) throw new CliError("usage", "usage: atlas infer types [--binary <bin_>]");
+  const binaries = store.nodesOfKind("binary").filter((b) => binary === undefined || b.id === binary);
+  if (binaries.length !== 1) {
+    throw new CliError(
+      "usage",
+      binaries.length === 0 ? `no binary ${binary ?? ""}` : "several binaries: name one with --binary",
+    );
+  }
+  const o = assembleTypes(store, (binaries[0] as { id: string }).id);
+  return {
+    data: o,
+    text: [
+      `${o.types.length} struct types from ${o.arguments} pointer arguments (run atlas infer fields first)`,
+      ...o.types
+        .slice(0, 40)
+        .map((t) => `${t.id}  ${t.fields} fields, at least ${t.size} bytes, used by ${t.used_by} arguments`),
+    ].join("\n"),
+  };
+}
 
 export async function runInferFields(store: GraphStore, args: string[], functions: string[]): Promise<Output> {
   const [what, path, ...extra] = args;
