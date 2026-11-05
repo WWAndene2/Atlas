@@ -11,6 +11,12 @@ export interface Claim {
   expires: number;
 }
 
+/** What an agent found on a task it gave back, for the next agent that takes it. */
+export interface ReleaseNote {
+  agent: string;
+  note: string;
+}
+
 export class TaskClaims {
   private readonly db: DatabaseSync;
 
@@ -23,6 +29,10 @@ export class TaskClaims {
     );
     // Tasks given back, and how often: they go behind every task not yet tried.
     this.db.exec("CREATE TABLE IF NOT EXISTS released (task TEXT PRIMARY KEY, times INTEGER NOT NULL)");
+    // What agents found before giving a task back (near misses, layouts, causes), so the next one starts from there.
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS release_notes (task TEXT NOT NULL, agent TEXT NOT NULL, note TEXT NOT NULL)",
+    );
   }
 
   close(): void {
@@ -33,7 +43,13 @@ export class TaskClaims {
    * Claims the first of `candidates` (in their order) that nobody holds, for `agent`, until `now + leaseMs`.
    * Atomic across processes: the read and the write happen under one write lock.
    */
-  claimFirst(candidates: string[], agent: string, leaseMs: number, now = Date.now()): Claim | undefined {
+  claimFirst(
+    candidates: string[],
+    agent: string,
+    leaseMs: number,
+    now = Date.now(),
+    onlyReleased = false,
+  ): Claim | undefined {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare("DELETE FROM claims WHERE expires <= ?").run(now);
@@ -50,7 +66,8 @@ export class TaskClaims {
         .map((c, i) => ({ c, i, t: times.get(c) ?? 0 }))
         .sort((a, b) => a.t - b.t || a.i - b.i)
         .map((x) => x.c);
-      const task = order.find((c) => !held.has(c));
+      // onlyReleased: an agent for the hard cases (a stronger model) takes only tasks others gave back.
+      const task = order.find((c) => !held.has(c) && (!onlyReleased || (times.get(c) ?? 0) > 0));
       let claim: Claim | undefined;
       if (task !== undefined) {
         claim = { task, agent, expires: now + leaseMs };
@@ -65,14 +82,24 @@ export class TaskClaims {
   }
 
   /** Gives a task back. Only its holder can (another agent's release is ignored and reported false). */
-  release(task: string, agent: string): boolean {
+  release(task: string, agent: string, note?: string): boolean {
     const released = this.db.prepare("DELETE FROM claims WHERE task = ? AND agent = ?").run(task, agent).changes > 0;
+    if (released && note !== undefined && note.trim() !== "") {
+      this.db.prepare("INSERT INTO release_notes (task, agent, note) VALUES (?, ?, ?)").run(task, agent, note.trim());
+    }
     if (released) {
       this.db
         .prepare("INSERT INTO released (task, times) VALUES (?, 1) ON CONFLICT(task) DO UPDATE SET times = times + 1")
         .run(task);
     }
     return released;
+  }
+
+  /** The notes left on a task by the agents that gave it back, oldest first. */
+  notes(task: string): ReleaseNote[] {
+    return this.db
+      .prepare("SELECT agent, note FROM release_notes WHERE task = ? ORDER BY rowid")
+      .all(task) as unknown as ReleaseNote[];
   }
 
   /** The claims in force. */

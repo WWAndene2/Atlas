@@ -173,6 +173,68 @@ describe("atlas CLI", () => {
       { encoding: "utf8" },
     );
     expect(JSON.parse(release.stdout)).toEqual({ released: true });
+    // A note left on release reaches the next agent, in claim and in get task; --released takes only that task.
+    const noteRelease = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        cli,
+        "claim",
+        "task",
+        "rewrite",
+        "--agent",
+        "first",
+        "--graph",
+        own,
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    const held = (JSON.parse(noteRelease.stdout) as { claim: { task: string } }).claim.task;
+    spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        cli,
+        "release",
+        "task",
+        held,
+        "--agent",
+        "first",
+        "--note",
+        "near miss at offset 8",
+        "--graph",
+        own,
+      ],
+      { encoding: "utf8" },
+    );
+    const strong = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        cli,
+        "claim",
+        "task",
+        "rewrite",
+        "--agent",
+        "strong",
+        "--released",
+        "--graph",
+        own,
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    const answer = JSON.parse(strong.stdout) as { claim: { task: string }; notes: { note: string }[] };
+    expect([someone, held]).toContain(answer.claim.task);
+    const task = spawnSync(
+      process.execPath,
+      ["--disable-warning=ExperimentalWarning", cli, "get", "task", "rewrite", held, "--graph", own, "--json"],
+      { encoding: "utf8" },
+    );
+    expect((JSON.parse(task.stdout) as { notes: { note: string }[] }).notes).toEqual([
+      { agent: "first", note: "near miss at offset 8" },
+    ]);
   });
 
   it("answers errors in JSON with an exit code", () => {

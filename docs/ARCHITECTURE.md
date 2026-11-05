@@ -278,7 +278,10 @@ is an error result holding `{"error": {"message"}}`. Built on the official MCP T
 Atlas calls no model: the operator's AI session starts subagents, and Atlas coordinates them. `atlas claim task
 rewrite --agent <name>` gives the next open task nobody holds, callees first, with its full context, under a lease
 (30 minutes by default) recorded in a `claims` table beside the graph (`src/graph/task-claims.ts`, never exported);
-a verified task leaves the queue, a released or lapsed one returns to it. Several processes share one graph file:
+a verified task leaves the queue, a lapsed one returns to it, and a released one returns behind every task not yet
+tried, with the note its agent left (`release --note`; shown in the next claim and in `get task`). `claim --released`
+takes only given-back tasks: one stronger model for the hard cases, smaller ones for the bulk. Proposals carry the
+proposing agent's name (`--agent`), so each agent's (and model's) work can be measured. Several processes share one graph file:
 WAL journaling, a 30-second lock wait and immediate transactions keep it consistent (checked with eight claims at
 the same moment: eight different tasks). The protocol for sessions is in `AGENTS.md` 1.8.
 

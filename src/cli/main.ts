@@ -31,11 +31,12 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     attempts' instructions, toolchain, callees' prototypes, the commands
   list tasks rewrite [--binary <bin_>]
                                     the functions still to rewrite, callees before callers
-  claim task rewrite --agent <name> [--lease <seconds>]
-                                    the next open task nobody holds, callees first, with its full context,
-                                    held for the agent until the lease ends (30 minutes by default)
-  release task <fn_id> --agent <name>
-                                    give a claimed task back
+  claim task rewrite --agent <name> [--released] [--lease <seconds>]
+                                    the next open task nobody holds, callees first, with its full context
+                                    and the notes earlier agents left, held until the lease ends (30
+                                    minutes by default); --released: only tasks others gave back
+  release task <fn_id> --agent <name> [--note "<what was found>"]
+                                    give a claimed task back, with what was found for the next agent
   list callers <fn_id|0xaddress>    the functions calling it
   list callees <fn_id|0xaddress>    the functions it calls
   list functions                    every function in the graph
@@ -69,6 +70,15 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   --binary <bin_>  with an address, the binary it belongs to when the graph holds several
   --json           machine-readable output`;
 
+async function withClaims<T>(graphPath: string, work: (claims: TaskClaims) => Promise<T>): Promise<T> {
+  const claims = new TaskClaims(graphPath);
+  try {
+    return await work(claims);
+  } finally {
+    claims.close();
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   let parsed;
   try {
@@ -90,6 +100,8 @@ async function main(argv: string[]): Promise<number> {
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
+        released: { type: "boolean", default: false },
+        note: { type: "string" },
         goal: { type: "string" },
         report: { type: "string" },
         library: { type: "string", multiple: true },
@@ -121,7 +133,7 @@ async function main(argv: string[]): Promise<number> {
       case "get":
         output =
           rest[0] === "task"
-            ? await runGetTask(store, rest.slice(1), values.binary)
+            ? await withClaims(graphPath, (claims) => runGetTask(store, claims, rest.slice(1), values.binary))
             : runGetFunction(store, rest, values.binary);
         break;
       case "list":
@@ -152,8 +164,9 @@ async function main(argv: string[]): Promise<number> {
                   ...(values.agent !== undefined ? { agent: values.agent } : {}),
                   ...(values.lease !== undefined ? { lease: values.lease } : {}),
                   ...(values.binary !== undefined ? { binary: values.binary } : {}),
+                  released: values.released === true,
                 })
-              : runReleaseTask(claims, rest, values.agent);
+              : runReleaseTask(claims, rest, values.agent, values.note);
         } finally {
           claims.close();
         }

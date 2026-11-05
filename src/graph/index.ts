@@ -4,4 +4,4 @@ export { GraphStore, GraphIntegrityError, type VerificationRecord } from "./grap
 export { exportJsonl, importJsonl } from "./graph-jsonl.js";
 export { SchemaError, assertEdge, assertEvidence, assertHypothesis, assertNode } from "./schema-validators.js";
 export { repositoryPath } from "./repository-path.js";
-export { TaskClaims, type Claim } from "./task-claims.js";
+export { TaskClaims, type Claim, type ReleaseNote } from "./task-claims.js";

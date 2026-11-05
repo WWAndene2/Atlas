@@ -32,4 +32,17 @@ describe("TaskClaims", () => {
     expect(claims.claimFirst(["stuck", "b", "c"], "agent-3", 60_000)?.task).toBe("stuck");
     claims.close();
   });
+
+  it("keeps the notes of agents that gave a task back, and gives only released tasks to an agent that asks", () => {
+    const claims = new TaskClaims(":memory:");
+    claims.claimFirst(["hard", "easy"], "small-model", 60_000);
+    claims.release("hard", "small-model", "struct offsets right; 1 byte differs at a test operand order");
+    // An agent for hard cases skips "easy", never released, and gets "hard".
+    expect(claims.claimFirst(["hard", "easy"], "strong-model", 60_000, Date.now(), true)?.task).toBe("hard");
+    expect(claims.claimFirst(["hard", "easy"], "strong-model-2", 60_000, Date.now(), true)).toBeUndefined();
+    expect(claims.notes("hard")).toEqual([
+      { agent: "small-model", note: "struct offsets right; 1 byte differs at a test operand order" },
+    ]);
+    claims.close();
+  });
 });

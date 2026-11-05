@@ -70,8 +70,13 @@ There are two kinds of work:
    The main session runs `atlas run <file> --goal "..."`, then starts N subagents, each given a distinct name and
    this loop: `atlas claim task rewrite --agent <name> --json` (the next open task nobody holds, callees first, with
    its full context, held 30 minutes); work it as in 7; propose and verify; then claim the next. A verified task
-   leaves the queue by itself; one given up is released (`atlas release task <fn> --agent <name>`), and one left
-   by a stopped agent returns when its lease ends. Stop when a claim answers `"claim": null`. All agents share one
+   leaves the queue by itself; one given up is released with what was found (`atlas release task <fn> --agent
+<name> --note "..."`: the next agent sees the notes in its claim and in `get task`), and one left by a stopped
+   agent returns when its lease ends. Models can be tiered to save cost: smaller models for the bulk, and one
+   stronger model claiming only what they gave back (`atlas claim task rewrite --released`). Measured on Lua, same
+   rules (5 claims, 3 proposals each): Opus verified 20 of 21 claims, Sonnet 3 of 6, Haiku 5 of 10 (the easy ones,
+   on the first or second proposal; it released the largest without trying). Every result is checked byte for byte,
+   so a weaker model can only fail, never pass wrong code. Stop when a claim answers `"claim": null`. All agents share one
    graph file (`--graph`), which Atlas keeps consistent across processes. The main session then reruns
    `atlas run` for the report.
 

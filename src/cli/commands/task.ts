@@ -1,16 +1,22 @@
 // atlas get task rewrite <fn_id|0xaddress>, atlas list tasks rewrite [--binary <bin_>]
-import type { GraphStore } from "../../graph/index.js";
+import type { GraphStore, TaskClaims } from "../../graph/index.js";
 import { resolveFunction } from "../../orchestrator/function-context.js";
 import { rewriteQueue } from "../../orchestrator/rewrite-queue.js";
 import { rewriteTask } from "../../orchestrator/rewrite-task.js";
 import { CliError, type Output } from "../output.js";
 
-export async function runGetTask(store: GraphStore, args: string[], binary: string | undefined): Promise<Output> {
+export async function runGetTask(
+  store: GraphStore,
+  claims: TaskClaims,
+  args: string[],
+  binary: string | undefined,
+): Promise<Output> {
   const [kind, ref, ...extra] = args;
   if (kind !== "rewrite" || ref === undefined || extra.length > 0) {
     throw new CliError("usage", "usage: atlas get task rewrite <fn_id|0xaddress>");
   }
   const task = await rewriteTask(store, resolveFunction(store, ref, binary));
+  const notes = claims.notes(task.function.id);
   const lines = [
     `${task.function.id} at ${task.function.address ?? "?"} (${task.function.size ?? "?"} bytes), ${task.status}`,
     `toolchain: ${task.toolchain === undefined ? "not detected (atlas detect toolchain)" : `${task.toolchain.cc} ${task.toolchain.flags.join(" ")}`}`,
@@ -28,9 +34,10 @@ export async function runGetTask(store: GraphStore, args: string[], binary: stri
         ]),
     `callees: ${task.callees.map((c) => c.prototype ?? c.label ?? c.id).join("; ") || "none"}`,
     `strings: ${task.strings.map((s) => JSON.stringify(s.value)).join(", ") || "none"}`,
+    ...notes.map((n) => `note from ${n.agent}: ${n.note}`),
     task.answer,
   ];
-  return { data: task, text: lines.join("\n") };
+  return { data: { ...task, notes }, text: lines.join("\n") };
 }
 
 export function runListTasks(store: GraphStore, args: string[], binary: string | undefined): Output {

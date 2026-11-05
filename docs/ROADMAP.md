@@ -179,6 +179,11 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   more once the recompile check stopped taking a function's cold part (`.text.unlikely.<name>`) for its body: 20 of
   21, functions of 29 to 503 bytes, in about 2.5 minutes of wall time for four subagents. Open tasks: 702 to 658.
   The one left: a 1-byte operand-order difference in `test` that 15 source variants did not move.
+- Models compared, same target and rules (5 claims, 3 proposals each): Opus 20 of 21 claims verified, Sonnet 3 of 6
+  (one agent broke the limits), Haiku 5 of 10 (easy functions, first or second proposal; the largest released
+  untried). Token counts per agent: Opus 77k to 122k, Sonnet 72k and 116k, Haiku 144k and 177k; cost per verified
+  function not measured (it needs each model's price). Done for tiering: `release --note` (what was found, shown to
+  the next agent), `claim --released` (a stronger model takes only what smaller ones gave back).
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 
