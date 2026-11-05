@@ -288,7 +288,10 @@ rewrite --agent <name>` gives the next open task nobody holds, callees first, wi
 (30 minutes by default) recorded in a `claims` table beside the graph (`src/graph/task-claims.ts`, never exported);
 a verified task leaves the queue, a lapsed one returns to it, and a released one returns behind every task not yet
 tried, with the note its agent left (`release --note`; shown in the next claim and in `get task`). `claim --released`
-takes only given-back tasks. Agents of different models are routed by **level** (`src/orchestrator/task-levels.ts`):
+takes only given-back tasks. A task given back at the top level has nowhere to go: each such release counts against a
+retry budget (`release-task.ts`; two different agents by default, `release --budget`), and when it runs out the
+function's rewrite is recorded as an `unknown` node (`unk_rewrite_<function>`, its label saying so, the agents'
+notes kept with its claims) and the function leaves the queue. Agents of different models are routed by **level** (`src/orchestrator/task-levels.ts`):
 a task's level is its size tier (bounds 160 and 400 bytes by default, from what each model verified on Lua) plus the
 times it was given back, capped at the top; an agent at level k (`claim --level k --of n --bounds ...`) takes only
 level-k tasks, so small functions go to the cheapest model and what a level gives back moves up. `atlas plan agents

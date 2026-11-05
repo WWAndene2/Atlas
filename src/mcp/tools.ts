@@ -15,6 +15,7 @@ import { loadTarget } from "../orchestrator/load-target.js";
 import { matchLibraries } from "../orchestrator/match-libraries.js";
 import { proposeName } from "../orchestrator/propose-name.js";
 import { proposeRewrite } from "../orchestrator/propose-rewrite.js";
+import { releaseTask } from "../orchestrator/release-task.js";
 import { resolveTarget } from "../orchestrator/resolve-target.js";
 import { rewriteQueue } from "../orchestrator/rewrite-queue.js";
 import { rewriteTask } from "../orchestrator/rewrite-task.js";
@@ -280,12 +281,33 @@ export function tools(store: GraphStore, graphPath: string) {
       },
     },
     release_task: {
-      description: "Give a claimed task back, with what was found for the next agent.",
-      input: { function: z.string(), agent: z.string(), note: z.string().optional() },
-      handler: async (a: { function: string; agent: string; note?: string }) => {
+      description:
+        "Give a claimed task back, with what was found for the next agent; give of and bounds as in the claim. At the top level, once budget agents (2 by default) gave it up, it is closed as an unknown.",
+      input: {
+        function: z.string(),
+        agent: z.string(),
+        note: z.string().optional(),
+        of: z.number().int().min(1).optional(),
+        bounds: z.array(z.number()).optional(),
+        budget: z.number().int().min(1).optional(),
+      },
+      handler: async (a: {
+        function: string;
+        agent: string;
+        note?: string;
+        of?: number;
+        bounds?: number[];
+        budget?: number;
+      }) => {
         const claims = new TaskClaims(graphPath);
         try {
-          return { released: claims.release(a.function, a.agent, a.note) };
+          return releaseTask(store, claims, {
+            task: a.function,
+            agent: a.agent,
+            ...(a.note !== undefined ? { note: a.note } : {}),
+            ...(a.of !== undefined ? { levels: parseLevels(String(a.of), (a.bounds ?? []).join(",")) } : {}),
+            ...(a.budget !== undefined ? { budget: a.budget } : {}),
+          });
         } finally {
           claims.close();
         }

@@ -194,8 +194,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   106k to 121k, Opus 155k. Wall time not measured: a usage limit paused the run for hours; after it, each agent
   worked 2.5 to 4.7 minutes, in parallel. Fixed from the run: notes kept on a release after a lapsed lease, an agent
   never handed its own release (it looped at the top level), C runtime startup code matched as library code
-  (`_start` had been rewritten in assembly), fortified builds reported to agents. Next: a retry budget at the top
-  level, after which a task becomes an unknown; each mode measured the same way.
+  (`_start` had been rewritten in assembly), fortified builds reported to agents. Then the retry budget at the top
+  level: once two different top-level agents gave a task up, it is closed as an unknown. Next: each mode measured
+  the same way.
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 

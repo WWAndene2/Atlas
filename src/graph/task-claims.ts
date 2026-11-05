@@ -35,6 +35,10 @@ export class TaskClaims {
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS released_by (task TEXT NOT NULL, agent TEXT NOT NULL, PRIMARY KEY (task, agent))",
     );
+    // Top-level agents (none stronger above) that gave a task up: past a retry budget, the task becomes an unknown.
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS top_releases (task TEXT NOT NULL, agent TEXT NOT NULL, PRIMARY KEY (task, agent))",
+    );
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS release_notes (task TEXT NOT NULL, agent TEXT NOT NULL, note TEXT NOT NULL)",
     );
@@ -114,6 +118,22 @@ export class TaskClaims {
         .run(task);
     }
     return released;
+  }
+
+  /** How many times a task was given back, at any level. */
+  releases(task: string): number {
+    const row = this.db.prepare("SELECT times FROM released WHERE task = ?").get(task) as { times: number } | undefined;
+    return row?.times ?? 0;
+  }
+
+  /**
+   * Records that `agent` gave `task` up at the top level (no stronger agent above), and returns how many different
+   * agents have now done so: the count a retry budget is checked against.
+   */
+  recordTopRelease(task: string, agent: string): number {
+    this.db.prepare("INSERT OR IGNORE INTO top_releases (task, agent) VALUES (?, ?)").run(task, agent);
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM top_releases WHERE task = ?").get(task) as { n: number };
+    return row.n;
   }
 
   /** The notes left on a task by the agents that gave it back, oldest first. */

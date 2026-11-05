@@ -172,7 +172,7 @@ describe("atlas CLI", () => {
       ],
       { encoding: "utf8" },
     );
-    expect(JSON.parse(release.stdout)).toEqual({ released: true });
+    expect(JSON.parse(release.stdout)).toMatchObject({ released: true }); // topReleases too: without levels every agent is top level
     // A note left on release reaches the next agent, in claim and in get task; --released takes only that task.
     const noteRelease = spawnSync(
       process.execPath,
@@ -279,6 +279,34 @@ describe("atlas CLI", () => {
       routed,
     ]);
     expect(run("claim", "task", "rewrite", "--agent", "s", "--level", "1", ...levels).claim?.task).toBe(small);
+    // The large one, given up at the top level with a budget of one agent, is closed as an unknown.
+    const large = run("claim", "task", "rewrite", "--agent", "o2", "--level", "2", ...levels).claim?.task;
+    expect(large).toBeUndefined(); // "o" already holds it
+    const closed = JSON.parse(
+      spawnSync(
+        process.execPath,
+        [
+          "--disable-warning=ExperimentalWarning",
+          cli,
+          "release",
+          "task",
+          "fn_" + "d".repeat(16) + "_2000",
+          "--agent",
+          "o",
+          "--of",
+          "3",
+          "--bounds",
+          "160,400",
+          "--budget",
+          "1",
+          "--graph",
+          routed,
+          "--json",
+        ],
+        { encoding: "utf8" },
+      ).stdout,
+    ) as { unknown?: string };
+    expect(closed.unknown).toBe("unk_rewrite_" + "d".repeat(16) + "_2000");
   });
 
   it("answers errors in JSON with an exit code", () => {

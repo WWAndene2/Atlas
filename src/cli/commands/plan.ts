@@ -26,7 +26,9 @@ export function runPlanAgents(
   }
   const lines = [
     `Mode ${plan.mode}: ${plan.tiers.reduce((n, t) => n + t.agents.length, 0)} subagents`,
-    ...plan.tiers.map((t) => `- ${t.agents.length} x ${t.model} (${t.agents.join(", ")}): ${t.takes}\n    ${t.claim}`),
+    ...plan.tiers.map(
+      (t) => `- ${t.agents.length} x ${t.model} (${t.agents.join(", ")}): ${t.takes}\n    ${t.claim}\n    ${t.release}`,
+    ),
     `Each subagent's loop: ${plan.loop}`,
   ];
   return { data: plan, text: lines.join("\n") };

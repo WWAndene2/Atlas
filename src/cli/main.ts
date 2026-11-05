@@ -40,8 +40,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     the next open task nobody holds, callees first, with its full context
                                     and the notes earlier agents left, held until the lease ends (30
                                     minutes by default); --released: only tasks others gave back
-  release task <fn_id> --agent <name> [--note "<what was found>"]
-                                    give a claimed task back, with what was found for the next agent
+  release task <fn_id> --agent <name> [--note "<what was found>"] [--of <n> --bounds <b1,b2>] [--budget <n>]
+                                    give a claimed task back, with what was found for the next agent; at
+                                    the top level, once --budget agents (2 by default) gave it up, it is
+                                    closed as an unknown
   list callers <fn_id|0xaddress>    the functions calling it
   list callees <fn_id|0xaddress>    the functions it calls
   list functions                    every function in the graph
@@ -111,6 +113,7 @@ async function main(argv: string[]): Promise<number> {
         bounds: { type: "string" },
         mode: { type: "string" },
         agents: { type: "string" },
+        budget: { type: "string" },
         note: { type: "string" },
         goal: { type: "string" },
         report: { type: "string" },
@@ -179,7 +182,13 @@ async function main(argv: string[]): Promise<number> {
                   ...(values.of !== undefined ? { of: values.of } : {}),
                   ...(values.bounds !== undefined ? { bounds: values.bounds } : {}),
                 })
-              : runReleaseTask(claims, rest, values.agent, values.note);
+              : runReleaseTask(store, claims, rest, {
+                  ...(values.agent !== undefined ? { agent: values.agent } : {}),
+                  ...(values.note !== undefined ? { note: values.note } : {}),
+                  ...(values.of !== undefined ? { of: values.of } : {}),
+                  ...(values.bounds !== undefined ? { bounds: values.bounds } : {}),
+                  ...(values.budget !== undefined ? { budget: values.budget } : {}),
+                });
         } finally {
           claims.close();
         }

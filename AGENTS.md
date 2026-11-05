@@ -72,7 +72,9 @@ There are two kinds of work:
    its full context, held 30 minutes); work it as in 7; propose and verify; then claim the next. A verified task
    leaves the queue by itself; one given up is released with what was found (`atlas release task <fn> --agent
 <name> --note "..."`: the next agent sees the notes in its claim and in `get task`), and one left by a stopped
-   agent returns when its lease ends. **Choose a mode** with `atlas plan agents --mode <mode> --agents <n>`: it
+   agent returns when its lease ends. Release with the same `--of`/`--bounds` as the claim (the plan's release
+   command does): at the top level, once two different agents (`--budget`) gave a task up, Atlas closes it as an
+   `unknown` (`unk_rewrite_...`) and it leaves the queue. **Choose a mode** with `atlas plan agents --mode <mode> --agents <n>`: it
    names the model of each subagent and the claim command it loops on. `adaptive` (Haiku for small functions,
    Sonnet for middling ones and what Haiku gives back, Opus for large ones and what Sonnet gives back: the most
    verified for the least spent), `high` (all Opus: the most precise, the most expensive), `medium` (Sonnet, then
