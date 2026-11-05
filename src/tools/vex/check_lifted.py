@@ -38,6 +38,7 @@ RETURN = 0xDEAD0000
 BUF_BASE = 0x10000000
 BUF_STRIDE = 0x100000
 PAGE = 4096
+HEAP = 0x30000000
 EDGES = [0, 1, 2, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000]
 
 # Guest-memory versions of common C library functions: what the C side runs for an import of that name.
@@ -61,6 +62,11 @@ BRIDGE = {
     "strrchr": "uint64_t r = 0; for (uint64_t i = 0;; i++) { uint8_t c = LOAD8(A0 + i); "
                "if (c == (uint8_t)A1) r = A0 + i; if (!c) RET(r); }",
     "strcpy": "uint64_t i = 0; uint8_t c; do { c = LOAD8(A1 + i); STORE8(A0 + i, c); i++; } while (c); RET(A0);",
+    # The allocator: the same bump allocator on both sides (angr gets it as hooks, see Heap), so addresses agree.
+    "malloc": "RET(heap_alloc(s, A0));",
+    "calloc": "RET(heap_alloc(s, A0 * A1));",
+    "realloc": "RET(heap_realloc(s, A0, A1));",
+    "free": "RET(0);",
     "toupper": "RET((A0 >= 'a' && A0 <= 'z') ? A0 - 32 : A0);",
     "tolower": "RET((A0 >= 'A' && A0 <= 'Z') ? A0 + 32 : A0);",
     "abs": "RET((uint64_t)(int64_t)abs((int)A0));",
@@ -90,6 +96,7 @@ def glue(functions, imports, offsets):
 #define A2 REG(uint64_t, {regs['rdx']})
 #define RET(v) do {{ REG(uint64_t, {regs['rax']}) = (uint64_t)(v); return; }} while (0)
 /* Pages: an open-addressing table from page number to a 4 KiB block, made on first use. */
+#define HEAP {HEAP:#x}ULL
 #define SLOTS (1 << 20)
 static uint64_t keys[SLOTS];
 static uint8_t *blocks[SLOTS];
@@ -104,6 +111,19 @@ void atlas_poke(atlas_state *s, uint64_t a, const uint8_t *src, uint64_t n) {{
 }}
 void atlas_peek(atlas_state *s, uint64_t a, uint8_t *dst, uint64_t n) {{
   for (uint64_t i = 0; i < n; i++) dst[i] = atlas_page(s, a + i)[(a + i) & 0xfff];
+}}
+static uint64_t heap = HEAP;
+static uint64_t heap_alloc(atlas_state *s, uint64_t n) {{
+  uint64_t p = heap + 16;
+  STORE64(p - 8, n);
+  heap = p + ((n + 15) & ~15ULL);
+  return p;
+}}
+static uint64_t heap_realloc(atlas_state *s, uint64_t old, uint64_t n) {{
+  if (n == 0) return 0;
+  uint64_t p = heap_alloc(s, n), keep = old ? LOAD64(old - 8) : 0;
+  for (uint64_t i = 0; i < (keep < n ? keep : n); i++) STORE8(p + i, LOAD8(old + i));
+  return p;
 }}
 {chr(10).join(bridges)}
 jmp_buf atlas_escape;
@@ -203,6 +223,44 @@ def run_c(lib, State, offsets, entry, case, timeout=2):
     return out
 
 
+class Heap(angr.SimProcedure):
+    """The C side's bump allocator, for angr: same addresses, same size headers."""
+
+    def __init__(self, kind, **kwargs):
+        super().__init__(**kwargs)
+        self.kind = kind
+
+    def run(self, a, b):
+        kind = self.kind
+        def alloc(n):
+            p = self.state.globals.get("heap", HEAP) + 16
+            self.state.memory.store(p - 8, claripy.BVV(n, 64), endness="Iend_LE")
+            self.state.globals["heap"] = p + ((n + 15) & ~15)
+            return p
+
+        ev = self.state.solver.eval
+        if kind == "free":
+            return 0
+        if kind == "malloc":
+            return alloc(ev(a))
+        if kind == "calloc":
+            return alloc(ev(a) * ev(b))
+        old, n = ev(a), ev(b)
+        if n == 0:
+            return 0
+        p = alloc(n)
+        keep = self.state.solver.eval(self.state.memory.load(old - 8, 8, endness="Iend_LE")) if old else 0
+        if min(keep, n):
+            self.state.memory.store(p, self.state.memory.load(old, min(keep, n)))
+        return p
+
+
+def hook_heap(proj):
+    for name, address in proj.loader.main_object.plt.items():
+        if name in ("malloc", "calloc", "realloc", "free"):
+            proj.hook(address, Heap(kind=name), replace=True)
+
+
 def run_original(proj, entry, case, max_steps=4000):
     state = proj.factory.blank_state(addr=entry, add_options={angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
                                                                angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS})
@@ -261,6 +319,7 @@ def main():
     functions = [int(a) for a in request["functions"]]
     translated = [int(a) for a in request.get("translated", functions)]
     proj = angr.Project(request["binary"], auto_load_libs=False, main_opts={"base_addr": 0})
+    hook_heap(proj)
     work = tempfile.mkdtemp(prefix="atlas-lifted-")
     lib = ctypes.CDLL(build(request["c"], request["runtime"], translated, dict(proj.loader.main_object.plt), offsets, work))
     lib.atlas_run.restype = ctypes.c_int

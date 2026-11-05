@@ -35,6 +35,9 @@ function capture(address, ctx) {
   const regs = {};
   const pages = {};
   const page = (v) => {
+    // Code is not captured: both sides of a check load it from the binary, and data written over it misleads them.
+    const range = Process.findRangeByAddress(v);
+    if (range === null || range.protection.includes("x")) return;
     const base = v.and(ptr("0xfffffffffffff000"));
     const key = base.toString();
     if (key in pages) return;
@@ -48,6 +51,17 @@ function capture(address, ctx) {
   }
   page(ctx.rsp);
   page(ctx.rsp.add(4096));
+  // One level further: the pages that pointers inside those pages point into (a struct's fields, a function
+  // pointer read from it), at most 48 pages per call.
+  for (const key of Object.keys(pages)) {
+    const words = new BigUint64Array(pages[key]);
+    for (const w of words) {
+      if (Object.keys(pages).length >= 48) break;
+      if (w < 0x1000n) continue;
+      const v = ptr("0x" + w.toString(16));
+      if (Process.findRangeByAddress(v) !== null) page(v);
+    }
+  }
   const keys = Object.keys(pages);
   send({ capture: { address, regs, pages: keys } }, concat(keys.map((k) => pages[k])));
 }
