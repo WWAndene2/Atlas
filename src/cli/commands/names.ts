@@ -5,13 +5,14 @@ import { proposeName } from "../../orchestrator/propose-name.js";
 import { scoreNames } from "../../orchestrator/score-names.js";
 import { CliError, type Output } from "../output.js";
 
-export function runProposeName(store: GraphStore, args: string[], binary: string | undefined): Output {
+export function runProposeName(store: GraphStore, args: string[], binary: string | undefined, agent?: string): Output {
   const [, ref, name, ...extra] = args;
   if (ref === undefined || name === undefined || extra.length > 0) {
     throw new CliError("usage", "usage: atlas propose name <fn_id|0xaddress> <name>");
   }
   const fn = resolveFunction(store, ref, binary);
-  const hypothesis = proposeName(store, fn.id, name, "agent");
+  // The proposing agent's name, so its work can be told apart (and measured) among parallel agents.
+  const hypothesis = proposeName(store, fn.id, name, agent ?? "agent");
   return { data: { hypothesis }, text: `${hypothesis.id}: ${fn.id} named ${name}` };
 }
 

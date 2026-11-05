@@ -185,6 +185,7 @@ export function tools(store: GraphStore) {
         prelude: z.enum(["ghidra"]).optional().describe("ghidra: the source uses Ghidra's built-in types"),
         last: fn.optional().describe("The run's last function"),
         last_name: z.string().optional().describe("Its name in the source"),
+        agent: z.string().optional().describe("Who proposes it, to tell parallel agents' work apart"),
         binary,
       },
       handler: async (a: {
@@ -194,6 +195,7 @@ export function tools(store: GraphStore) {
         prelude?: "ghidra";
         last?: string;
         last_name?: string;
+        agent?: string;
         binary?: string;
       }) => {
         const f = resolveFunction(store, a.function, a.binary);
@@ -213,16 +215,16 @@ export function tools(store: GraphStore) {
               ...(a.prelude !== undefined ? { prelude: a.prelude } : {}),
               ...(last !== undefined ? { last } : {}),
             },
-            "agent",
+            a.agent ?? "agent",
           ),
         };
       },
     },
     propose_name: {
       description: "An agent's name for a function.",
-      input: { function: fn, name: z.string(), binary },
-      handler: async (a: { function: string; name: string; binary?: string }) => ({
-        hypothesis: proposeName(store, resolveFunction(store, a.function, a.binary).id, a.name, "agent"),
+      input: { function: fn, name: z.string(), agent: z.string().optional(), binary },
+      handler: async (a: { function: string; name: string; agent?: string; binary?: string }) => ({
+        hypothesis: proposeName(store, resolveFunction(store, a.function, a.binary).id, a.name, a.agent ?? "agent"),
       }),
     },
     verify: {

@@ -47,11 +47,12 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   match libraries [--library <file.a>]...
                                     recognise functions of static libraries (the detected toolchain's own,
                                     and any given): matched code is linked, not rewritten
-  propose name <fn|0x> <name>       an agent's name for a function
+  propose name <fn|0x> <name> [--agent <name>]
+                                    an agent's name for a function (--agent: who proposes it)
   score names --truth <unstripped file>
                                     score the names proposed against the unstripped build's symbols
                                     (ground-truth targets only); records each as verified or rejected
-  propose rewrite <fn|0x> --source <file.c> --name <function> [--prelude ghidra]
+  propose rewrite <fn|0x> --source <file.c> --name <function> [--prelude ghidra] [--agent <name>]
                   [--last <fn|0x> --last-name <function>]
                                     an agent's C for a function, or with --last for the run of neighbouring
                                     functions up to that one (when they jump to each other)
@@ -166,7 +167,7 @@ async function main(argv: string[]): Promise<number> {
         break;
       case "propose":
         if (rest[0] === "name") {
-          output = runProposeName(store, rest, values.binary);
+          output = runProposeName(store, rest, values.binary, values.agent);
           break;
         }
         output = runProposeRewrite(store, rest, {
@@ -176,6 +177,7 @@ async function main(argv: string[]): Promise<number> {
           ...(values.binary !== undefined ? { binary: values.binary } : {}),
           ...(values.last !== undefined ? { last: values.last } : {}),
           ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
+          ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
         break;
       case "verify":

@@ -51,7 +51,15 @@ export async function runDecompile(
 export function runProposeRewrite(
   store: GraphStore,
   args: string[],
-  options: { source?: string; name?: string; prelude?: string; binary?: string; last?: string; lastName?: string },
+  options: {
+    source?: string;
+    name?: string;
+    prelude?: string;
+    binary?: string;
+    last?: string;
+    lastName?: string;
+    agent?: string;
+  },
 ): Output {
   const [what, ref, ...extra] = args;
   if (what !== "rewrite" || ref === undefined || extra.length > 0 || !options.source || !options.name) {
@@ -84,7 +92,7 @@ export function runProposeRewrite(
       ...(options.prelude === "ghidra" ? { prelude: "ghidra" as const } : {}),
       ...(last !== undefined ? { last } : {}),
     },
-    "agent",
+    options.agent ?? "agent",
   );
   return { data: { hypothesis }, text: `${hypothesis.id} proposed for ${fn.id}` };
 }
