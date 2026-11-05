@@ -15,7 +15,7 @@ export class NoToolchainError extends Error {
   }
 }
 
-function toolchainFor(store: GraphStore, h: Hypothesis, given?: Toolchain): Toolchain {
+export function toolchainFor(store: GraphStore, h: Hypothesis, given?: Toolchain): Toolchain {
   if (given !== undefined) return given;
   const binary = store.getNode(h.node)?.binary;
   const detected = binary === undefined ? undefined : binaryToolchain(store, binary);

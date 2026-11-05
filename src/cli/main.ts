@@ -6,6 +6,7 @@ import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runClusterSystems, runGetSystem, runProposeSummary } from "./commands/systems.js";
 import { runInferFields, runInferTypes } from "./commands/infer.js";
+import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
@@ -97,6 +98,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
                                     integers, recorded as observed signatures (x86-64 Linux)
+  repair rewrite <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
+                                    before an agent: try the usual fixes (static, noreturn, attributes,
+                                    types, operand order) on rewrites that compile to different bytes, keep
+                                    the edits that bring the code closer; a better source is proposed and
+                                    verified (all: each function's closest near miss)
   verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence] [--differential]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details;
@@ -246,6 +252,13 @@ async function main(argv: string[]): Promise<number> {
         break;
       case "score":
         output = await runScoreNames(store, rest, values.truth, values.binary);
+        break;
+      case "repair":
+        output = await runRepair(store, rest, {
+          ...(values.cc !== undefined ? { cc: values.cc } : {}),
+          ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),
+          ...(values.binary !== undefined ? { binary: values.binary } : {}),
+        });
         break;
       case "cluster":
         output = runClusterSystems(store, rest, values.binary);
