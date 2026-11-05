@@ -143,26 +143,36 @@ public class AtlasDecompile extends GhidraScript {
     for (ParameterDefinition p : sig.getArguments()) collect(p.getDataType(), types);
   }
 
-  /** Types that need a definition: structures, unions, enums, typedefs and function types, behind pointers or arrays. */
+  /**
+   * Types that need a definition: structures, unions, enums, typedefs and function types, behind pointers or arrays.
+   * Dependencies come first (the writer keeps this order): DataTypeWriter writes what a structure's members need,
+   * but a typedef of an array such as jmp_buf it leaves out, or writes after its use (with DWARF, 680 of 706 of Lua
+   * 5.4.6's rewrites failed on it), so members and typedef targets are collected here, before the type itself.
+   */
   private static void collect(DataType dt, Set<DataType> types) {
+    collect(dt, types, new java.util.HashSet<>());
+  }
+
+  private static void collect(DataType dt, Set<DataType> types, Set<DataType> visiting) {
     DataType base = dt;
     while (base instanceof Pointer || base instanceof Array) {
       base = base instanceof Pointer ? ((Pointer) base).getDataType() : ((Array) base).getDataType();
     }
     if (base == null || base instanceof BuiltInDataType || PRELUDE.contains(base.getName())) return;
-    if (base instanceof TypeDef && ((TypeDef) base).getBaseDataType() instanceof BuiltInDataType
-        && PRELUDE.contains(base.getName())) return;
-    if (!types.add(base)) return;
-    // DataTypeWriter writes what a structure's members need, but not a typedef of an array such as jmp_buf (seen with
-    // DWARF: 680 of 706 Lua 5.4.6 rewrites failed on it), so members and typedef targets are collected here too.
+    if (types.contains(base) || !visiting.add(base)) return;
     if (base instanceof Composite) {
-      for (DataTypeComponent c : ((Composite) base).getDefinedComponents()) collect(c.getDataType(), types);
+      for (DataTypeComponent c : ((Composite) base).getDefinedComponents()) {
+        // Through a pointer a member needs only the forward declaration the writer always emits.
+        if (!(c.getDataType() instanceof Pointer)) collect(c.getDataType(), types, visiting);
+      }
     }
-    if (base instanceof TypeDef) collect(((TypeDef) base).getDataType(), types);
+    if (base instanceof TypeDef) collect(((TypeDef) base).getDataType(), types, visiting);
     if (base instanceof FunctionDefinition) {
       FunctionDefinition fd = (FunctionDefinition) base;
-      for (ParameterDefinition p : fd.getArguments()) collect(p.getDataType(), types);
+      for (ParameterDefinition p : fd.getArguments()) collect(p.getDataType(), types, visiting);
+      collect(fd.getReturnType(), types, visiting);
     }
+    types.add(base);
   }
 
   /** A declaration of `name` with type `dt`, arrays written C's way (char name[16], not char[16] name). */
