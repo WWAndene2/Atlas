@@ -42,8 +42,9 @@ describe("Ghidra's C for Lua, recompiled", () => {
     expect(runnable || process.env.ATLAS_REQUIRE_FIXTURES !== "1").toBe(true);
   });
 
-  // The baseline the rewrite loop starts from. Measured on 4 November 2026 (Ghidra 12.1.4, GCC 13.3 -O2): of 709
-  // functions, 19 recompile byte for byte as Ghidra wrote them, 439 compile but differ, 251 do not compile.
+  // The baseline the rewrite loop starts from (Ghidra 12.1.4, GCC 13.3 -O2), of 709 functions: the body alone
+  // (4 November 2026) 19 verified, 251 not compiling; whole units with types, globals and callee prototypes
+  // (5 November) 20 verified, 127 not compiling. Most of the unit form must compile.
   it.runIf(runnable)(
     "decompiles every function and verifies those that recompile as written",
     { timeout: 20 * 60 * 1000 },
@@ -53,12 +54,15 @@ describe("Ghidra's C for Lua, recompiled", () => {
       const { proposed } = await decompileFunctions(store, { path: stripped });
       expect(proposed.length).toBeGreaterThan(690);
       let verified = 0;
+      let compiled = 0;
       for (const h of proposed as Hypothesis[]) {
         const { check } = await verifyRewrite(store, h.id, { cc: "gcc", flags: ["-std=gnu99", "-O2"] });
         if (check.result === "pass") verified++;
+        if (check.result === "pass" || check.reason === "mismatch") compiled++;
       }
       store.close();
       expect(verified).toBeGreaterThanOrEqual(15);
+      expect(compiled / proposed.length).toBeGreaterThan(0.75);
     },
   );
 });
