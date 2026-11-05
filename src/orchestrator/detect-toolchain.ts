@@ -30,6 +30,27 @@ export interface ToolchainValue extends Toolchain {
   ties: string[][];
   /** Compiler version strings found in the binary (untrusted target data). */
   clues: string[];
+  /** What else the binary shows about how it was built, for agents writing its C (e.g. fortified library calls). */
+  notes?: string[];
+}
+
+/**
+ * Build settings visible in the binary's imports. A fortified build (_FORTIFY_SOURCE) calls the C library's checked
+ * variants (__memcpy_chk, __snprintf_chk...) instead of the plain ones, and so must the C rewritten for it; Ubuntu's
+ * GCC enables it by default at -O2. Subagents found this by themselves in the benchmark run.
+ */
+export function buildNotes(store: GraphStore, binary: string): string[] {
+  const checked = store
+    .nodesOfKind("function")
+    .filter((n) => n.binary === binary && n.label !== undefined && /^__\w+_chk$/.test(n.label))
+    .map((n) => n.label as string);
+  if (checked.length === 0) return [];
+  const names = [...new Set(checked)].sort().slice(0, 6).join(", ");
+  return [
+    `built with _FORTIFY_SOURCE: the binary calls fortified C library functions (${names}); the C must be compiled ` +
+      "the same way (Ubuntu's GCC does it by default at -O2; elsewhere add -D_FORTIFY_SOURCE=2 or 3 and include the " +
+      "library headers)",
+  ];
 }
 
 export interface BinaryFacts {
@@ -293,6 +314,7 @@ export async function detectToolchain(
     sample: sample.length,
     ties: tried.filter((t) => t !== best && tiedWith(t, best)).map((t) => [t.toolchain.cc, ...t.toolchain.flags]),
     clues: facts.clues,
+    ...(buildNotes(store, binary).length > 0 ? { notes: buildNotes(store, binary) } : {}),
   };
   const id = `hyp_${createHash("sha256")
     .update(`${binary}\ntoolchain\n${JSON.stringify(value)}`)

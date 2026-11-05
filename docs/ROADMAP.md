@@ -184,8 +184,18 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   untried). Token counts per agent: Opus 77k to 122k, Sonnet 72k and 116k, Haiku 144k and 177k; cost per verified
   function not measured (it needs each model's price). Done for tiering: `release --note` (what was found, shown to
   the next agent), `claim --released` (a stronger model takes only what smaller ones gave back). Then four modes (`atlas plan agents
---mode adaptive|high|medium|low`), routed by level (size tier plus times given back). Next: measure each mode on
-  the rest of Lua (functions verified, wall time, tokens per verified function).
+--mode adaptive|high|medium|low`), routed by level (size tier plus times given back).
+- Benchmark (`tests/fixtures/bench/`, a 34-function program written for Atlas: structs, bit fields, hash table,
+  bytecode interpreter, recursion, callbacks, variadics, doubles, globals, libc), adaptive mode, 3 Haiku + 2 Sonnet +
+  1 Opus, then a second Sonnet for what Haiku gave back: 28 of 31 functions verified (90%): Haiku 11 (25 to 114
+  bytes), Sonnet 9 (38 to 267, four of them given back by Haiku and verified at the first proposal from its notes),
+  Opus 3 (410, 863 and 2,074 bytes), Ghidra's C 5. Open: the interpreter (1,079 bytes), a string join (318), a
+  58-byte loop, each a register or block-layout difference with notes. Tokens per agent: Haiku 145k to 156k, Sonnet
+  106k to 121k, Opus 155k. Wall time not measured: a usage limit paused the run for hours; after it, each agent
+  worked 2.5 to 4.7 minutes, in parallel. Fixed from the run: notes kept on a release after a lapsed lease, an agent
+  never handed its own release (it looped at the top level), C runtime startup code matched as library code
+  (`_start` had been rewritten in assembly), fortified builds reported to agents. Next: a retry budget at the top
+  level, after which a task becomes an unknown; each mode measured the same way.
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 

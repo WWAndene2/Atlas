@@ -132,7 +132,10 @@ export async function rewriteTask(store: GraphStore, fn: GraphNode): Promise<Rew
   const previous = at > 0 ? siblings[at - 1] : undefined;
   const next = at >= 0 ? siblings[at + 1] : undefined;
 
-  const cflags = toolchain === undefined ? "" : ` (checked with ${toolchain.cc} ${toolchain.flags.join(" ")})`;
+  const cflags =
+    toolchain === undefined
+      ? ""
+      : ` (checked with ${toolchain.cc} ${toolchain.flags.join(" ")}${(toolchain.notes ?? []).map((n) => `; ${n}`).join("")})`;
   return {
     function: {
       id: fn.id,

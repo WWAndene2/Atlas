@@ -4,7 +4,26 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { Toolchain } from "../verify/recompile/recompile-check.js";
 
-const NAMES = ["libgcc.a", "libc.a", "libm.a", "libmingwex.a", "libmsvcrt.a", "libmingw32.a"];
+// The libraries linked by default, and the startup objects the linker adds to every program (_start, the
+// constructor and destructor walkers, register_tm_clones...): code of the toolchain, not of the program. Without the
+// startup objects, subagents rewrote _start in assembly in the benchmark run.
+const NAMES = [
+  "libgcc.a",
+  "libc.a",
+  "libm.a",
+  "libmingwex.a",
+  "libmsvcrt.a",
+  "libmingw32.a",
+  "crt1.o",
+  "Scrt1.o",
+  "crti.o",
+  "crtn.o",
+  "crtbegin.o",
+  "crtbeginS.o",
+  "crtend.o",
+  "crtendS.o",
+  "crt2.o",
+];
 
 export function toolchainLibraries(toolchain: Toolchain): string[] {
   const found: string[] = [];

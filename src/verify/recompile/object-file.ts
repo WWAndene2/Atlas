@@ -52,7 +52,14 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
     const m = /^([0-9a-f]+)\s+[0-9a-f]+\s+(R_\S+)/.exec(line.trim());
     if (m && current !== undefined) {
       const list = holes.get(current) ?? [];
-      list.push({ offset: parseInt(m[1] ?? "0", 16), width: elfRelocationWidth(m[2] ?? "") });
+      const offset = parseInt(m[1] ?? "0", 16);
+      const type = m[2] ?? "";
+      // x86-64 GOTPCRELX relocations let the linker relax the instruction itself, not only the field: a load from the
+      // GOT becomes a lea (8b -> 8d), an indirect call through it a direct one. The two bytes before the field are
+      // therefore holes too; measured on _start in Scrt1.o against a linked program.
+      if (/GOTPCRELX$/.test(type) && offset >= 2)
+        list.push({ offset: offset - 2, width: elfRelocationWidth(type) + 2 });
+      else list.push({ offset, width: elfRelocationWidth(type) });
       holes.set(current, list);
     }
   }
@@ -196,7 +203,8 @@ export function functionRun(
   const following = object.symbols
     .filter((s) => s.section === end.section && s.value > end.value)
     .reduce((min, s) => Math.min(min, s.value), section.bytes.length);
-  const stop = end.size !== undefined ? end.value + end.size : following;
+  // A function written in assembly can carry no size (0, as crtstuff's do): it runs to the next symbol, as in COFF.
+  const stop = end.size !== undefined && end.size > 0 ? end.value + end.size : following;
   return {
     bytes: section.bytes.subarray(start.value, stop),
     relocations: section.relocations

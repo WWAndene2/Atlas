@@ -49,4 +49,54 @@ describe("matchLibraries", () => {
     expect(rewriteQueue(store, binaryId(sha256)).map((q) => q.id)).toEqual([functionId(sha256, "0x2000")]);
     store.close();
   });
+
+  it("matches through linker relaxation, with a relocation in the first bytes", async () => {
+    // Each global is loaded through the GOT (-fPIC): the first instruction holds a relocation at offset 3, and the
+    // linker relaxes every such load (mov, 8b) into a lea (8d), rewriting a byte outside the relocated field.
+    const dir = mkdtempSync(join(tmpdir(), "atlas-match-"));
+    writeFileSync(join(dir, "lib.c"), "extern int a, b;\nint blend(int x) { return a * 3 + b + x; }\n");
+    execFileSync("gcc", ["-O2", "-fPIC", "-fcf-protection=none", "-c", join(dir, "lib.c"), "-o", join(dir, "lib.o")]);
+    execFileSync("ar", ["rcs", join(dir, "libb.a"), join(dir, "lib.o")]);
+    const relocations = execFileSync("readelf", ["-rW", join(dir, "lib.o")], { encoding: "utf8" })
+      .split("\n")
+      .filter((l) => l.includes("GOTPCRELX"))
+      .map((l) => parseInt(l.trim().split(/\s+/)[0] ?? "0", 16));
+    expect(relocations[0]).toBe(3); // the very first instruction is relocated
+    const linked = new Uint8Array(compiledBytesPic());
+    for (const at of relocations) {
+      expect(linked[at - 2]).toBe(0x8b);
+      linked[at - 2] = 0x8d; // mov -> lea, as the linker does
+      linked.set([0x40, 0x30, 0x20, 0x00], at);
+    }
+
+    const store = new GraphStore(":memory:");
+    const sha256 = "0".repeat(64);
+    loadAnalysis(store, "game", {
+      tool: { name: "test", version: "1" },
+      sha256,
+      functions: [
+        {
+          address: "0x1000",
+          size: linked.length,
+          label: "FUN_1000",
+          thunk: false,
+          code: Buffer.from(linked).toString("hex"),
+        },
+      ],
+      calls: [],
+      strings: [],
+      limitations: [],
+    });
+    const outcome = await matchLibraries(store, binaryId(sha256), [join(dir, "libb.a")]);
+    expect(outcome).toMatchObject({ matched: 1, named: 1 });
+    store.close();
+
+    function compiledBytesPic(): Uint8Array {
+      return compiledBytes("extern int a, b;\nint blend(int x) { return a * 3 + b + x; }\n", "blend", [
+        "-O2",
+        "-fPIC",
+        "-fcf-protection=none",
+      ]);
+    }
+  });
 });

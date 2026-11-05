@@ -239,13 +239,21 @@ description; the parser generated from it must read every file of that kind in t
 `atlas match libraries` (`src/orchestrator/match-libraries.ts`) finds the functions of a binary that are code of a
 static library: the detected toolchain's own (`libgcc`, the C and maths libraries, MinGW's; found with
 `-print-file-name` under the detected flags, so multilib toolchains answer for the right CPU) and any `--library`
-given. Each library function is its bytes in its object with relocation holes masked (`src/tools/archive/` reads
-`ar` archives); a binary's function matches when its code equals those bytes outside the holes (looked up by its
-first 8 bytes; functions under 12 bytes are not matched). A match is a `match` hypothesis, plus a name when one
+given, and the startup objects the linker adds to every program (`crt1.o`/`Scrt1.o`, `crti.o`, `crtbegin*.o`...).
+Each library function is its bytes in its object with relocation holes masked (`src/tools/archive/` reads `ar`
+archives); x86-64 `GOTPCRELX` relocations also mask the two bytes before the field, which the linker rewrites when
+it relaxes a GOT load into a `lea`. A binary's function matches when its code equals those bytes outside the holes,
+looked up by its first 8 bytes with the relocated ones zeroed (grouped by which of the 8 are relocated, so a
+function starting with an address is found); functions under 12 bytes are not matched; a function with no recorded
+size (hand-written assembly) runs to the next symbol. A match is a `match` hypothesis, plus a name when one
 library name fits, and takes the function out of the rewrite queue: library code is linked, not rewritten.
 Measured: raw ARMv6K Lua (newlib linked statically) 198 functions matched, 153 named, all right; Windows Lua (MinGW
 runtime) 100 matched, 96 named, 95 right (the other: two byte-identical trivial functions with different names);
-Android Lua 1 (its C library is dynamic: nothing to find). A later toolchain detection supersedes an earlier one.
+Android Lua 1 (its C library is dynamic: nothing to find); with the startup objects and the index on relocated
+prefixes, ARM Lua 206 matched, 159 named, all right, and the benchmark's `_start`, `deregister_tm_clones`,
+`register_tm_clones` and `__do_global_dtors_aux` found. A later toolchain detection supersedes an earlier one. The
+detection also notes what the imports show of the build: calls to the C library's checked variants (`__memcpy_chk`,
+...) mean `_FORTIFY_SOURCE`, which the rewrite task tells agents (`buildNotes`).
 
 ### Name scoring
 

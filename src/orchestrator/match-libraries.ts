@@ -4,7 +4,7 @@
 //
 // A library function is its bytes in the library's object file with the bytes relocations fill masked; a binary's
 // function matches when its code equals those bytes outside the mask. Functions are looked up by their first 8
-// bytes (when no relocation falls there), then compared in full. Short functions (under 12 bytes) are not matched:
+// bytes (relocated ones zeroed), then compared in full. Short functions (under 12 bytes) are not matched:
 // too many unrelated ones are identical. Libraries are read whole, so a few thousand objects take a minute or two.
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -56,7 +56,9 @@ export async function libraryFunctions(path: string): Promise<LibraryFunction[]>
   return out;
 }
 
-const prefixKey = (bytes: Uint8Array): string => Buffer.from(bytes.subarray(0, 8)).toString("hex");
+/** The first 8 bytes with the relocated ones (per `mask`, a string of 8 "0"/"1") zeroed: the lookup key. */
+const prefixKey = (bytes: Uint8Array, mask: string): string =>
+  Array.from(bytes.subarray(0, 8), (b, i) => (mask[i] === "1" ? "00" : b.toString(16).padStart(2, "0"))).join("");
 
 function matches(code: Uint8Array, f: LibraryFunction): boolean {
   if (code.length < f.bytes.length) return false;
@@ -72,16 +74,20 @@ export interface MatchOutcome {
 }
 
 export async function matchLibraries(store: GraphStore, binary: string, libraries: string[]): Promise<MatchOutcome> {
-  const index = new Map<string, LibraryFunction[]>();
+  // Indexed by the first 8 bytes with their relocated bytes zeroed, grouped by which of those 8 are relocated: a
+  // function starting with a relocated address (crtstuff's deregister_tm_clones begins with a lea) is found too. A
+  // binary's function is looked up once per pattern; there are few.
+  const index = new Map<string, Map<string, LibraryFunction[]>>();
   const outcome: MatchOutcome = { matched: 0, named: 0, libraries: [] };
   for (const path of libraries) {
     const functions = await libraryFunctions(path);
     outcome.libraries.push({ path, functions: functions.length });
     for (const f of functions) {
-      // Functions with a relocation in their first 8 bytes cannot be found by prefix; they are left out.
-      if (f.mask.subarray(0, 8).some((b) => b === 1)) continue;
-      const key = prefixKey(f.bytes);
-      index.set(key, [...(index.get(key) ?? []), f]);
+      const pattern = Array.from(f.mask.subarray(0, 8), String).join("");
+      const byKey = index.get(pattern) ?? new Map<string, LibraryFunction[]>();
+      const key = prefixKey(f.bytes, pattern);
+      byKey.set(key, [...(byKey.get(key) ?? []), f]);
+      index.set(pattern, byKey);
     }
   }
   const functions = store.nodesOfKind("function").filter((n) => n.binary === binary && n.code !== undefined);
@@ -89,7 +95,8 @@ export async function matchLibraries(store: GraphStore, binary: string, librarie
     for (const fn of functions) {
       const code = Buffer.from(fn.code ?? "", "hex");
       // The longest match wins: a short library function can be a prefix of a longer one.
-      const found = (index.get(prefixKey(code)) ?? [])
+      const found = [...index]
+        .flatMap(([pattern, byKey]) => byKey.get(prefixKey(code, pattern)) ?? [])
         .filter((f) => matches(code, f))
         .sort((a, b) => b.bytes.length - a.bytes.length);
       const best = found[0];
