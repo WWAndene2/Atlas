@@ -4,6 +4,8 @@
 import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runClusterSystems, runGetSystem, runProposeSummary } from "./commands/systems.js";
+import { runInferFields } from "./commands/infer.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
@@ -82,6 +84,13 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   check format <file.ksy> <files...> [--agent <name>] [--binary <bin_>]
                                     a file format described in Kaitai Struct (.ksy), as a format node and
                                     hypothesis; verified when its parser reads every file given
+  cluster systems                   group the functions into systems (the source modules they came from)
+  get system <sys_id>               a system's functions, strings and calls out, and its summaries
+  propose summary <sys_id> "<what it does>" --name <name> [--agent <name>]
+                                    an agent's name and summary for a system
+  infer fields <program> [--function <fn|0x>]...
+                                    the fields each function reads or writes through its pointer arguments
+                                    (angr, symbolic; x86-64 ELF), checked against traces when there are some
   trace <program> [--stdin <text>] [-- <arguments>]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
@@ -171,7 +180,9 @@ async function main(argv: string[]): Promise<number> {
         output =
           rest[0] === "task"
             ? await withClaims(graphPath, (claims) => runGetTask(store, claims, rest.slice(1), values.binary))
-            : runGetFunction(store, rest, values.binary);
+            : rest[0] === "system"
+              ? runGetSystem(store, rest.slice(1))
+              : runGetFunction(store, rest, values.binary);
         break;
       case "list":
         output =
@@ -234,7 +245,14 @@ async function main(argv: string[]): Promise<number> {
       case "score":
         output = await runScoreNames(store, rest, values.truth, values.binary);
         break;
+      case "cluster":
+        output = runClusterSystems(store, rest, values.binary);
+        break;
       case "propose":
+        if (rest[0] === "summary") {
+          output = runProposeSummary(store, rest, values.name, values.agent);
+          break;
+        }
         if (rest[0] === "name") {
           output = runProposeName(store, rest, values.binary, values.agent);
           break;
@@ -256,6 +274,9 @@ async function main(argv: string[]): Promise<number> {
           ...(values.equivalence === true ? { equivalence: true } : {}),
           ...(values.differential === true ? { differential: true } : {}),
         });
+        break;
+      case "infer":
+        output = await runInferFields(store, rest, values.function ?? []);
         break;
       case "trace":
         output = await runTrace(store, rest, values.stdin !== undefined ? { stdin: values.stdin } : {});

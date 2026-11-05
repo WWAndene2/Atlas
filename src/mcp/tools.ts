@@ -22,6 +22,8 @@ import { rewriteTask } from "../orchestrator/rewrite-task.js";
 import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
+import { clusterSystems, proposeSummary, systemContext } from "../orchestrator/cluster-systems.js";
+import { inferFields } from "../orchestrator/infer-fields.js";
 import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
@@ -185,6 +187,33 @@ export function tools(store: GraphStore, graphPath: string) {
           source.close();
         }
       },
+    },
+    infer_fields: {
+      description:
+        "The fields each function reads or writes through its pointer arguments (angr; x86-64 ELF), checked against traces when there are some.",
+      input: { path: z.string(), functions: z.array(z.string()).optional() },
+      handler: async (a: { path: string; functions?: string[] }) => {
+        const id = binaryId(await fileSha256(a.path));
+        const only = a.functions?.map((f) => resolveFunction(store, f, id).id);
+        return inferFields(store, id, a.path, only !== undefined ? { only } : {});
+      },
+    },
+    cluster_systems: {
+      description: "Group a binary's functions into systems (the source modules they came from).",
+      input: { binary },
+      handler: async (a: { binary?: string }) => clusterSystems(store, singleBinary(store, a.binary)),
+    },
+    get_system: {
+      description: `A system's functions, the strings they use, calls leaving it, and its summaries. ${UNTRUSTED}`,
+      input: { system: z.string() },
+      handler: async (a: { system: string }) => systemContext(store, a.system),
+    },
+    propose_summary: {
+      description: "An agent's name and summary for a system.",
+      input: { system: z.string(), name: z.string(), summary: z.string(), agent: z.string().optional() },
+      handler: async (a: { system: string; name: string; summary: string; agent?: string }) => ({
+        hypothesis: proposeSummary(store, a.system, a.name, a.summary, a.agent ?? "agent"),
+      }),
     },
     check_functions: {
       description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",

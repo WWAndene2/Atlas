@@ -104,6 +104,14 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   second by 0.05), proposes a match, the documented name and any verified rewrite, which the recompile check then
   settles. Measured on Lua x86-64, GCC 11 build with symbols to the stripped GCC 13 build: 380 names, 379 right.
   Across compilers (Clang 17 to GCC 13) it finds little (28 names, 24 right): same compiler family only for now.
+- Fields (`src/orchestrator/infer-fields.ts`, `src/tools/angr/fields.py`): `atlas infer fields <program>` runs
+  each function in angr from symbolic arguments (callees followed, bounded per function) and records, per pointer
+  argument, the fields accessed (offset, width, read/write) as a `signature` hypothesis (inferred, typer/angr);
+  checked against Frida traces when present (check `trace_types`).
+- Systems (`src/orchestrator/cluster-systems.ts`): `atlas cluster systems` cuts the functions, in address order,
+  into contiguous runs maximising modularity over calls plus a link between neighbours (exact dynamic programming);
+  each run is a `sys_` node, each member gets a `system` hypothesis (inferred). `atlas get system` gives an agent
+  the members, strings and calls out; `atlas propose summary` records its name and summary (`summary` hypothesis).
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 

@@ -165,15 +165,24 @@ on first download, since the release publishes no checksum). `atlas check functi
 - Typer agent, checked against every observed access.
 - **Done when:** measured share of correct struct layouts on Lua's known types.
 - **In progress.** Done: `atlas trace` (Frida 17.25.2): calls and per-register pointer/integer observations projected
-  as observed signature hypotheses; first argument right for all 173 traced Lua functions. Next: memory accesses
-  per pointer argument (field offsets and widths), then the typer agent checked against them.
+  as observed signature hypotheses; first argument right for all 173 traced Lua functions. Then `atlas infer fields`
+  (angr over the whole binary, callees followed): per pointer argument, the offsets and widths read or written,
+  checked against traces (an argument with fields never seen holding a pointer contradicts it). Scored against
+  DWARF on a random sample of Lua functions taking struct pointers (first 60 of 120 measured): 166 accesses at a
+  member's exact offset and width, 5 inside a member, 4 matching none (all in one function). Next: struct types
+  assembled from the fields across functions, and the typer agent.
 
 ### M5 — Systems · 2–3 weeks
 
 - Clustering functions into systems; a summary per system.
 - Format agent: file format inferred from its loader, Kaitai parser checked on every file of that kind.
 - **Done when:** Lua's modules recovered as systems, scored against its source files.
-- **In progress.** Done: the format check (`atlas check format`, Kaitai Struct 0.11). Next: clustering into systems.
+- **In progress.** Done: the format check (`atlas check format`, Kaitai Struct 0.11); systems (`atlas cluster
+systems`: functions in address order cut into runs maximising call modularity plus a neighbour link, `atlas get
+system`, `atlas propose summary`). Scored against the source files (DWARF): x86-64 Lua, on which the two weights
+  were chosen, 29 systems for 31 files, purity 0.79, inverse purity 0.79 (F 0.79); ARM64 Android Lua, unseen, 19
+  systems for 30 files, purity 0.81, inverse 0.94 (F 0.87). Small neighbouring files tend to share a system. Next:
+  agents' summaries scored, and binaries built with LTO (no contiguity).
 
 ### M6 — Orchestrator: many agents at once · 2–3 weeks
 

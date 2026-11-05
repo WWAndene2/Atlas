@@ -6,4 +6,5 @@ export {
   type CodeVersion,
   type EquivalenceAnswer,
 } from "./angr-equivalence.js";
+export { functionFields, type FieldAccess, type FunctionFields } from "./angr-fields.js";
 export { runDifferential, type DifferentialAnswer } from "./angr-differential.js";
