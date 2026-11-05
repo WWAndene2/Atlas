@@ -183,7 +183,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   (one agent broke the limits), Haiku 5 of 10 (easy functions, first or second proposal; the largest released
   untried). Token counts per agent: Opus 77k to 122k, Sonnet 72k and 116k, Haiku 144k and 177k; cost per verified
   function not measured (it needs each model's price). Done for tiering: `release --note` (what was found, shown to
-  the next agent), `claim --released` (a stronger model takes only what smaller ones gave back).
+  the next agent), `claim --released` (a stronger model takes only what smaller ones gave back). Then four modes (`atlas plan agents
+--mode adaptive|high|medium|low`), routed by level (size tier plus times given back). Next: measure each mode on
+  the rest of Lua (functions verified, wall time, tokens per verified function).
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 

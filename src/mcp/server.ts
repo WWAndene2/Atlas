@@ -8,10 +8,11 @@ import { GraphStore } from "../graph/index.js";
 import { tools } from "./tools.js";
 
 const { values } = parseArgs({ options: { graph: { type: "string" } } });
-const store = new GraphStore(values.graph ?? process.env.ATLAS_GRAPH ?? "atlas.sqlite");
+const graphPath = values.graph ?? process.env.ATLAS_GRAPH ?? "atlas.sqlite";
+const store = new GraphStore(graphPath);
 const server = new McpServer({ name: "atlas", version: "0.0.0" });
 
-for (const [name, tool] of Object.entries(tools(store))) {
+for (const [name, tool] of Object.entries(tools(store, graphPath))) {
   server.registerTool(name, { description: tool.description, inputSchema: tool.input }, (async (args: never) => {
     try {
       const result = await (tool.handler as (a: never) => Promise<unknown>)(args);

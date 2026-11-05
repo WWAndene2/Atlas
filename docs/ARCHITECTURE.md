@@ -280,7 +280,13 @@ rewrite --agent <name>` gives the next open task nobody holds, callees first, wi
 (30 minutes by default) recorded in a `claims` table beside the graph (`src/graph/task-claims.ts`, never exported);
 a verified task leaves the queue, a lapsed one returns to it, and a released one returns behind every task not yet
 tried, with the note its agent left (`release --note`; shown in the next claim and in `get task`). `claim --released`
-takes only given-back tasks: one stronger model for the hard cases, smaller ones for the bulk. Proposals carry the
+takes only given-back tasks. Agents of different models are routed by **level** (`src/orchestrator/task-levels.ts`):
+a task's level is its size tier (bounds 160 and 400 bytes by default, from what each model verified on Lua) plus the
+times it was given back, capped at the top; an agent at level k (`claim --level k --of n --bounds ...`) takes only
+level-k tasks, so small functions go to the cheapest model and what a level gives back moves up. `atlas plan agents
+--mode adaptive|high|medium|low` (`agent-plan.ts`; MCP `plan_agents`, with `claim_task_rewrite` and `release_task`)
+gives the session the model and claim command of each subagent: adaptive Haiku/Sonnet/Opus, high Opus, medium
+Sonnet/Opus, low Haiku with Opus for what Haiku gives back. Proposals carry the
 proposing agent's name (`--agent`), so each agent's (and model's) work can be measured. Several processes share one graph file:
 WAL journaling, a 30-second lock wait and immediate transactions keep it consistent (checked with eight claims at
 the same moment: eight different tasks). The protocol for sessions is in `AGENTS.md` 1.8.

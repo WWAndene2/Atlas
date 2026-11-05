@@ -38,8 +38,12 @@ describe("TaskClaims", () => {
     claims.claimFirst(["hard", "easy"], "small-model", 60_000);
     claims.release("hard", "small-model", "struct offsets right; 1 byte differs at a test operand order");
     // An agent for hard cases skips "easy", never released, and gets "hard".
-    expect(claims.claimFirst(["hard", "easy"], "strong-model", 60_000, Date.now(), true)?.task).toBe("hard");
-    expect(claims.claimFirst(["hard", "easy"], "strong-model-2", 60_000, Date.now(), true)).toBeUndefined();
+    expect(
+      claims.claimFirst(["hard", "easy"], "strong-model", 60_000, Date.now(), (_task, releases) => releases > 0)?.task,
+    ).toBe("hard");
+    expect(
+      claims.claimFirst(["hard", "easy"], "strong-model-2", 60_000, Date.now(), (_task, releases) => releases > 0),
+    ).toBeUndefined();
     expect(claims.notes("hard")).toEqual([
       { agent: "small-model", note: "struct offsets right; 1 byte differs at a test operand order" },
     ]);

@@ -3,19 +3,28 @@
 import type { GraphStore, TaskClaims } from "../../graph/index.js";
 import { rewriteQueue } from "../../orchestrator/rewrite-queue.js";
 import { rewriteTask } from "../../orchestrator/rewrite-task.js";
+import { parseLevels, taskLevel } from "../../orchestrator/task-levels.js";
 import { CliError, type Output } from "../output.js";
 
 export async function runClaimTask(
   store: GraphStore,
   claims: TaskClaims,
   args: string[],
-  options: { agent?: string; lease?: string; binary?: string; released?: boolean },
+  options: {
+    agent?: string;
+    lease?: string;
+    binary?: string;
+    released?: boolean;
+    level?: string;
+    of?: string;
+    bounds?: string;
+  },
 ): Promise<Output> {
   const [what, kind, ...extra] = args;
   if (what !== "task" || kind !== "rewrite" || extra.length > 0 || options.agent === undefined) {
     throw new CliError(
       "usage",
-      "usage: atlas claim task rewrite --agent <name> [--released] [--lease <seconds>] [--binary <bin_>]",
+      "usage: atlas claim task rewrite --agent <name> [--level <k> --of <n> --bounds <b1,b2>] [--released] [--lease <seconds>]",
     );
   }
   const seconds = Number(options.lease ?? "1800");
@@ -24,12 +33,31 @@ export async function runClaimTask(
   if (binaries.length !== 1) {
     throw new CliError("usage", binaries.length === 0 ? "no binary" : "several binaries: name one with --binary");
   }
-  const queue = rewriteQueue(store, (binaries[0] as { id: string }).id).map((q) => q.id);
-  const claim = claims.claimFirst(queue, options.agent, seconds * 1000, Date.now(), options.released === true);
+  const tasks = rewriteQueue(store, (binaries[0] as { id: string }).id);
+  const queue = tasks.map((q) => q.id);
+  const size = new Map(tasks.map((q) => [q.id, q.size ?? 0]));
+  // --level: this agent's level among --of levels split by --bounds (orchestrator/task-levels.ts); --released alone:
+  // only tasks given back, at any size.
+  let accept: (task: string, releases: number) => boolean = () => true;
+  if (options.level !== undefined) {
+    let levels;
+    try {
+      levels = parseLevels(options.of, options.bounds);
+    } catch (error) {
+      throw new CliError("usage", (error as Error).message);
+    }
+    const level = Number(options.level);
+    if (!Number.isInteger(level) || level < 0 || level >= levels.of)
+      throw new CliError("usage", "--level is 0 to --of minus 1");
+    accept = (task, releases) => taskLevel(size.get(task) ?? 0, releases, levels) === level;
+  } else if (options.released === true) {
+    accept = (_task, releases) => releases > 0;
+  }
+  const claim = claims.claimFirst(queue, options.agent, seconds * 1000, Date.now(), accept);
   if (claim === undefined) {
     return {
       data: { claim: null, open: queue.length },
-      text: options.released === true ? "no released task left to claim" : "no open task left to claim",
+      text: "no open task left for this agent",
     };
   }
   const task = await rewriteTask(store, store.getNode(claim.task) as never);

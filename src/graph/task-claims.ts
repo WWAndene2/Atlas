@@ -48,7 +48,7 @@ export class TaskClaims {
     agent: string,
     leaseMs: number,
     now = Date.now(),
-    onlyReleased = false,
+    accept: (task: string, releases: number) => boolean = () => true,
   ): Claim | undefined {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -66,8 +66,9 @@ export class TaskClaims {
         .map((c, i) => ({ c, i, t: times.get(c) ?? 0 }))
         .sort((a, b) => a.t - b.t || a.i - b.i)
         .map((x) => x.c);
-      // onlyReleased: an agent for the hard cases (a stronger model) takes only tasks others gave back.
-      const task = order.find((c) => !held.has(c) && (!onlyReleased || (times.get(c) ?? 0) > 0));
+      // accept: which tasks this agent may take, by how often they were given back (a stronger model takes what
+      // others released; see orchestrator/task-levels.ts).
+      const task = order.find((c) => !held.has(c) && accept(c, times.get(c) ?? 0));
       let claim: Claim | undefined;
       if (task !== undefined) {
         claim = { task, agent, expires: now + leaseMs };

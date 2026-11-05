@@ -237,6 +237,50 @@ describe("atlas CLI", () => {
     ]);
   });
 
+  it("routes claims by level: small to the first level, large to the last, given back one level up", () => {
+    const routed = join(dirname(graph), "levels.sqlite");
+    const store = new GraphStore(routed);
+    loadAnalysis(store, "target", {
+      tool: { name: "test", version: "1" },
+      sha256: "d".repeat(64),
+      functions: [
+        { address: "0x1000", size: 50, label: "small", thunk: false, code: "90".repeat(50) },
+        { address: "0x2000", size: 900, label: "large", thunk: false, code: "90".repeat(900) },
+      ],
+      calls: [],
+      strings: [],
+      limitations: [],
+    });
+    store.close();
+    const run = (...args: string[]): { claim: { task: string } | null } =>
+      JSON.parse(
+        spawnSync(
+          process.execPath,
+          ["--disable-warning=ExperimentalWarning", cli, ...args, "--graph", routed, "--json"],
+          {
+            encoding: "utf8",
+          },
+        ).stdout,
+      );
+    const levels = ["--of", "3", "--bounds", "160,400"];
+    const small = run("claim", "task", "rewrite", "--agent", "h", "--level", "0", ...levels).claim?.task ?? "";
+    expect(small).toMatch(/_1000$/);
+    expect(run("claim", "task", "rewrite", "--agent", "o", "--level", "2", ...levels).claim?.task).toMatch(/_2000$/);
+    expect(run("claim", "task", "rewrite", "--agent", "s", "--level", "1", ...levels).claim).toBeNull();
+    spawnSync(process.execPath, [
+      "--disable-warning=ExperimentalWarning",
+      cli,
+      "release",
+      "task",
+      small,
+      "--agent",
+      "h",
+      "--graph",
+      routed,
+    ]);
+    expect(run("claim", "task", "rewrite", "--agent", "s", "--level", "1", ...levels).claim?.task).toBe(small);
+  });
+
   it("answers errors in JSON with an exit code", () => {
     expect(atlas("get", "function", "0x9")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });
     expect(atlas("load", "/nonexistent")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });

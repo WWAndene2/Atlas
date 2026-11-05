@@ -2,7 +2,9 @@
 // get_function), each answering one JSON document. Target content in answers (labels, strings, C from the target)
 // is data: the descriptions say so, as AGENTS.md 1.6 asks of every agent.
 import { z } from "zod";
-import { exportJsonl, type GraphStore } from "../graph/index.js";
+import { exportJsonl, TaskClaims, type GraphStore } from "../graph/index.js";
+import { agentPlan, MODES } from "../orchestrator/agent-plan.js";
+import { parseLevels, taskLevel } from "../orchestrator/task-levels.js";
 import { binaryFacts } from "../orchestrator/binary-facts.js";
 import { decompileFunctions } from "../orchestrator/decompile-functions.js";
 import { detectToolchain } from "../orchestrator/detect-toolchain.js";
@@ -55,7 +57,7 @@ function singleBinary(store: GraphStore, id: string | undefined): string {
 }
 
 /** Every tool: name, description, input shape, handler. */
-export function tools(store: GraphStore) {
+export function tools(store: GraphStore, graphPath: string) {
   return {
     run: {
       description: `The whole job on a file: load, decompile, detect the toolchain, match libraries, verify, report. ${UNTRUSTED}`,
@@ -233,6 +235,60 @@ export function tools(store: GraphStore) {
       handler: async (a: { hypothesis: string; cc?: string; cflags?: string[] }) => {
         const given = a.cc !== undefined ? { cc: a.cc, flags: a.cflags ?? [] } : undefined;
         return a.hypothesis === "all" ? verifyPending(store, given) : verifyOne(store, a.hypothesis, given);
+      },
+    },
+    plan_agents: {
+      description:
+        "Which model each subagent gets, and the claim command each loops on: adaptive (Haiku, Sonnet, Opus by difficulty), high (Opus), medium (Sonnet, Opus), low (Haiku, Opus for what Haiku gives back).",
+      input: { mode: z.enum(MODES), agents: z.number().int().min(1).optional() },
+      handler: async (a: { mode: (typeof MODES)[number]; agents?: number }) =>
+        agentPlan(a.mode, a.agents ?? 4, graphPath),
+    },
+    claim_task_rewrite: {
+      description: `The next open task for this agent, nobody else holding it, with its full context and earlier agents' notes; held 30 minutes. ${UNTRUSTED}`,
+      input: {
+        agent: z.string(),
+        level: z.number().int().min(0).optional().describe("This agent's level (from plan_agents)"),
+        of: z.number().int().min(1).optional(),
+        bounds: z.array(z.number()).optional(),
+        binary,
+      },
+      handler: async (a: { agent: string; level?: number; of?: number; bounds?: number[]; binary?: string }) => {
+        const id = singleBinary(store, a.binary);
+        const queue = rewriteQueue(store, id);
+        const size = new Map(queue.map((q) => [q.id, q.size ?? 0]));
+        const levels = parseLevels(String(a.of ?? 1), (a.bounds ?? []).join(","));
+        const claims = new TaskClaims(graphPath);
+        try {
+          const claim = claims.claimFirst(
+            queue.map((q) => q.id),
+            a.agent,
+            30 * 60 * 1000,
+            Date.now(),
+            (task, releases) =>
+              a.level === undefined ? true : taskLevel(size.get(task) ?? 0, releases, levels) === a.level,
+          );
+          if (claim === undefined) return { claim: null, open: queue.length };
+          return {
+            claim,
+            task: await rewriteTask(store, store.getNode(claim.task) as never),
+            notes: claims.notes(claim.task),
+          };
+        } finally {
+          claims.close();
+        }
+      },
+    },
+    release_task: {
+      description: "Give a claimed task back, with what was found for the next agent.",
+      input: { function: z.string(), agent: z.string(), note: z.string().optional() },
+      handler: async (a: { function: string; agent: string; note?: string }) => {
+        const claims = new TaskClaims(graphPath);
+        try {
+          return { released: claims.release(a.function, a.agent, a.note) };
+        } finally {
+          claims.close();
+        }
       },
     },
     export: {

@@ -72,8 +72,11 @@ There are two kinds of work:
    its full context, held 30 minutes); work it as in 7; propose and verify; then claim the next. A verified task
    leaves the queue by itself; one given up is released with what was found (`atlas release task <fn> --agent
 <name> --note "..."`: the next agent sees the notes in its claim and in `get task`), and one left by a stopped
-   agent returns when its lease ends. Models can be tiered to save cost: smaller models for the bulk, and one
-   stronger model claiming only what they gave back (`atlas claim task rewrite --released`). Measured on Lua, same
+   agent returns when its lease ends. **Choose a mode** with `atlas plan agents --mode <mode> --agents <n>`: it
+   names the model of each subagent and the claim command it loops on. `adaptive` (Haiku for small functions,
+   Sonnet for middling ones and what Haiku gives back, Opus for large ones and what Sonnet gives back: the most
+   verified for the least spent), `high` (all Opus: the most precise, the most expensive), `medium` (Sonnet, then
+   Opus), `low` (all Haiku, Opus only for what Haiku gives back: the least spent, the slowest). Measured on Lua, same
    rules (5 claims, 3 proposals each): Opus verified 20 of 21 claims, Sonnet 3 of 6, Haiku 5 of 10 (the easy ones,
    on the first or second proposal; it released the largest without trying). Every result is checked byte for byte,
    so a weaker model can only fail, never pass wrong code. Stop when a claim answers `"claim": null`. All agents share one

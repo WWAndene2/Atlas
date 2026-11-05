@@ -9,6 +9,7 @@ import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
 import { runClaimTask, runReleaseTask } from "./commands/claim.js";
+import { runPlanAgents } from "./commands/plan.js";
 import { runMatchLibraries } from "./commands/libraries.js";
 import { runRun } from "./commands/run.js";
 import { runProposeName, runScoreNames } from "./commands/names.js";
@@ -31,7 +32,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     attempts' instructions, toolchain, callees' prototypes, the commands
   list tasks rewrite [--binary <bin_>]
                                     the functions still to rewrite, callees before callers
-  claim task rewrite --agent <name> [--released] [--lease <seconds>]
+  plan agents --mode adaptive|high|medium|low [--agents <n>]
+                                    which model each subagent gets and the claim command it loops on:
+                                    adaptive (Haiku, Sonnet, Opus by difficulty), high (all Opus),
+                                    medium (Sonnet, Opus), low (Haiku, Opus for what Haiku gives back)
+  claim task rewrite --agent <name> [--level <k> --of <n> --bounds <b1,b2>] [--released] [--lease <seconds>]
                                     the next open task nobody holds, callees first, with its full context
                                     and the notes earlier agents left, held until the lease ends (30
                                     minutes by default); --released: only tasks others gave back
@@ -101,6 +106,11 @@ async function main(argv: string[]): Promise<number> {
         agent: { type: "string" },
         lease: { type: "string" },
         released: { type: "boolean", default: false },
+        level: { type: "string" },
+        of: { type: "string" },
+        bounds: { type: "string" },
+        mode: { type: "string" },
+        agents: { type: "string" },
         note: { type: "string" },
         goal: { type: "string" },
         report: { type: "string" },
@@ -165,6 +175,9 @@ async function main(argv: string[]): Promise<number> {
                   ...(values.lease !== undefined ? { lease: values.lease } : {}),
                   ...(values.binary !== undefined ? { binary: values.binary } : {}),
                   released: values.released === true,
+                  ...(values.level !== undefined ? { level: values.level } : {}),
+                  ...(values.of !== undefined ? { of: values.of } : {}),
+                  ...(values.bounds !== undefined ? { bounds: values.bounds } : {}),
                 })
               : runReleaseTask(claims, rest, values.agent, values.note);
         } finally {
@@ -172,6 +185,13 @@ async function main(argv: string[]): Promise<number> {
         }
         break;
       }
+      case "plan":
+        output = runPlanAgents(rest, graphPath, {
+          ...(values.mode !== undefined ? { mode: values.mode } : {}),
+          ...(values.agents !== undefined ? { agents: values.agents } : {}),
+          ...(values.bounds !== undefined ? { bounds: values.bounds } : {}),
+        });
+        break;
       case "match":
         output = await runMatchLibraries(store, rest, values.library ?? [], values.binary);
         break;
