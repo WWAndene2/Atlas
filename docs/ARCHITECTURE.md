@@ -234,6 +234,15 @@ arrives partly named.
 The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
 description; the parser generated from it must read every file of that kind in the target.
 
+### Name scoring
+
+`atlas propose name <fn> <name>` adds a name hypothesis. On a ground-truth target, `atlas score names --truth
+<unstripped build>` checks every proposed name against the build's symbols (`src/verify/symbols/`, symbols read by
+`src/tools/symbols/`: ELF and PE): verified when equal once compiler additions are removed (leading underscores,
+`.isra`, `.constprop`, `.part`, `.cold`), rejected otherwise, inconclusive where the key has no symbol. Functions whose
+true name is already their label (exported symbols left in a stripped binary: 155 of 706 on Lua) are counted apart,
+so the accuracy measures naming, not reading.
+
 ### Command line
 
 `atlas <command> [--graph <file>] [--json]` (`src/cli/`, built to `dist/src/cli/main.js`): `load`, `get function`,

@@ -93,6 +93,16 @@ describe("atlas CLI", () => {
     expect((task.out as { answer: string }).answer).toContain("atlas propose rewrite");
   });
 
+  it("takes an agent's name for a function", () => {
+    const named = atlas("propose", "name", "0x1000", "lua_main");
+    expect(named).toMatchObject({
+      code: 0,
+      out: { hypothesis: { kind: "name", value: "lua_main", confidence: "guessed" } },
+    });
+    expect(atlas("propose", "name", "0x1000", "not a name")).toMatchObject({ code: 1 });
+    expect(atlas("score", "names")).toMatchObject({ code: 2, out: { error: { code: "usage" } } });
+  });
+
   it("answers errors in JSON with an exit code", () => {
     expect(atlas("get", "function", "0x9")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });
     expect(atlas("load", "/nonexistent")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });

@@ -118,7 +118,8 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 ### M2 — First agent, scoring, MCP · 1–2 weeks
 
 - CLI commands to propose hypotheses (`atlas propose name ...`) and to read a task's context from the graph.
-- Symbol checker: names scored against the symbol build, the result written by the verification path.
+- Symbol checker: names scored against the symbol build, the result written by the verification path. Done:
+  `atlas propose name`, `atlas score names --truth` (free answers counted apart).
 - An outside AI (Claude Code first, then another vendor) names Lua's functions through the CLI.
 - MCP server (`src/mcp/`) over the same commands.
 - **Done when:** a measured accuracy (share of correct names) on Lua, for at least two AI vendors, through the CLI;

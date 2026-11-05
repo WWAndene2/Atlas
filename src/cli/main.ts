@@ -8,6 +8,7 @@ import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
+import { runProposeName, runScoreNames } from "./commands/names.js";
 import { runGetTask, runListTasks } from "./commands/task.js";
 import { runDecompile, runDetectToolchain, runProposeRewrite, runVerify } from "./commands/rewrite.js";
 import { CliError, fail, print, type Output } from "./output.js";
@@ -32,6 +33,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   decompile <file> [--arch <a> --base <0x..>] [--function <fn|0x>]...
                                     Ghidra's C for the binary's functions (all without --function), added
                                     as rewrite hypotheses; load the file first
+  propose name <fn|0x> <name>       an agent's name for a function
+  score names --truth <unstripped file>
+                                    score the names proposed against the unstripped build's symbols
+                                    (ground-truth targets only); records each as verified or rejected
   propose rewrite <fn|0x> --source <file.c> --name <function> [--prelude ghidra]
                   [--last <fn|0x> --last-name <function>]
                                     an agent's C for a function, or with --last for the run of neighbouring
@@ -67,6 +72,7 @@ async function main(argv: string[]): Promise<number> {
         "last-name": { type: "string" },
         cc: { type: "string" },
         cflags: { type: "string" },
+        truth: { type: "string" },
         base: { type: "string" },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -106,7 +112,14 @@ async function main(argv: string[]): Promise<number> {
         output = await runDecompile(store, rest, raw, values.function ?? [], values.binary);
         break;
       }
+      case "score":
+        output = await runScoreNames(store, rest, values.truth, values.binary);
+        break;
       case "propose":
+        if (rest[0] === "name") {
+          output = runProposeName(store, rest, values.binary);
+          break;
+        }
         output = runProposeRewrite(store, rest, {
           ...(values.source !== undefined ? { source: values.source } : {}),
           ...(values.name !== undefined ? { name: values.name } : {}),
