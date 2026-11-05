@@ -57,6 +57,7 @@ RUNTIME_OPS = {
     **{f"Iop_{op}{w}x{128 // w}": f"atlas_{op.lower()}{w}x{128 // w}" for op in ("Add", "Sub", "CmpEQ")
        for w in (8, 16, 32, 64)},
     "Iop_ShlN64x2": "atlas_shln64x2", "Iop_ShrN64x2": "atlas_shrn64x2",
+    "Iop_PRemF64": "atlas_premf64", "Iop_PRemC3210F64": "atlas_premc3210f64",
     "Iop_ReinterpF64asI64": "atlas_reinterp_f64_i64", "Iop_ReinterpI64asF64": "atlas_reinterp_i64_f64",
     "Iop_ReinterpF32asI32": "atlas_reinterp_f32_i32", "Iop_ReinterpI32asF32": "atlas_reinterp_i32_f32",
 }
@@ -164,6 +165,13 @@ class Function:
         self.lines = []
         self.blocks = {}
 
+    def indexed(self, descr, ix, bias, tmps):
+        """The offset of an element of a register array (x87's stack: the index wraps around nElems)."""
+        size = {"Ity_F64": 8, "Ity_I8": 1, "Ity_I64": 8, "Ity_I32": 4}.get(descr.elemTy)
+        if size is None:
+            raise Unsupported(f"register array of {descr.elemTy}")
+        return f"({descr.base} + (((int64_t)({self.expr(ix, tmps)}) + {bias}) & {descr.nElems - 1}) * {size})"
+
     def reg(self, offset, ty):
         return f"REG({CTYPE[ty]}, {offset})"
 
@@ -186,6 +194,8 @@ class Function:
             if e.ty not in CTYPE:
                 raise Unsupported(f"register of type {e.ty}")
             return self.reg(e.offset, e.ty)
+        if isinstance(e, pyvex.expr.GetI):
+            return f"REG({CTYPE[e.descr.elemTy]}, {self.indexed(e.descr, e.ix, e.bias, tmps)})"
         if isinstance(e, pyvex.expr.Load):
             name = MEMORY.get(e.ty)
             if name is None:
@@ -294,6 +304,11 @@ class Function:
                         continue
                     if isinstance(st, pyvex.stmt.WrTmp):
                         body.append(f"      t{st.tmp} = {self.expr(st.data, tmps)};")
+                    elif isinstance(st, pyvex.stmt.PutI):
+                        if st.descr.nElems & (st.descr.nElems - 1):
+                            raise Unsupported("register array not a power of two long")
+                        body.append(f"      REG({CTYPE[st.descr.elemTy]}, "
+                                    f"{self.indexed(st.descr, st.ix, st.bias, tmps)}) = {self.expr(st.data, tmps)};")
                     elif isinstance(st, pyvex.stmt.Put):
                         ty = st.data.result_type(irsb.tyenv)
                         if ty not in CTYPE:

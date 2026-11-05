@@ -39,6 +39,7 @@ BUF_BASE = 0x10000000
 BUF_STRIDE = 0x100000
 PAGE = 4096
 HEAP = 0x30000000
+DEFAULTS = []
 EDGES = [0, 1, 2, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000]
 
 # Guest-memory versions of common C library functions: what the C side runs for an import of that name.
@@ -187,6 +188,8 @@ def run_c(lib, State, offsets, entry, case, timeout=2):
         os.close(read)
         signal.alarm(timeout)
         state = State()
+        for off, size, value in DEFAULTS:
+            state.r[off:off + size] = list(value.to_bytes(8, "little")[:size])
         for base, content in case["pages"].items():
             lib.atlas_poke(ctypes.byref(state), ctypes.c_uint64(base), content, len(content))
         for r, v in case["regs"].items():
@@ -338,6 +341,9 @@ def load_captures(path):
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id(request["arch"])
+    # The guest state's reset values (x86's direction flag d = 1...), as on the original's side.
+    DEFAULTS.extend((arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
+                    if n in arch.registers and n not in ("rsp", "esp", "sp", "xsp", "gpr1", "fs", "fpcr"))
     offsets = {r: arch.registers[r] for r in ARG_REGS + SAVED + ["rsp", "rax"]}
     functions = [int(a) for a in request["functions"]]
     translated = [int(a) for a in request.get("translated", functions)]

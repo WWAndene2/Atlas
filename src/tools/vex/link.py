@@ -78,6 +78,10 @@ def main():
         elif kind.endswith("COPY") and r.symbol is not None:
             copies.append((r.relative_addr, index[r.symbol.name], r.symbol.size))
     translated = [int(a) for a in request["translated"]]
+    # The guest state's values at reset (x86's direction flag d = 1, the x87 stack top...): zero would make VEX's
+    # rep stos store every word at one address (seen as Lua's string table left uncleared).
+    defaults = [(arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
+                if n in arch.registers and n not in ("rsp", "esp", "sp", "xsp", "gpr1", "fs", "fpcr")]
     plt = {a: index[n] for n, a in obj.plt.items()}
     names = ",".join(f'"{n}"' for n in imports)
     c = f"""#define _GNU_SOURCE
@@ -101,12 +105,13 @@ static void call_host(atlas_state *s, void *fn) {{
   struct atlas_native_frame f;
   static const int gp[6] = {{RDI, RSI, RDX, RCX, R8, R9}};
   for (int i = 0; i < 6; i++) f.gp[i] = REG(uint64_t, gp[i]);
-  for (int i = 0; i < 8; i++) memcpy(f.xmm[i], s->r + XMM0 + 32 * i, 16);
+  static const int xmm[8] = {{{", ".join(str(off(f"xmm{i}")) for i in range(8))}}};
+  for (int i = 0; i < 8; i++) memcpy(f.xmm[i], s->r + xmm[i], 16);
   /* Stack arguments start above the return address the guest's call pushed. */
   for (int i = 0; i < 16; i++) f.stack[i] = LOAD64(REG(uint64_t, RSP) + 8 + 8 * i);
   atlas_native(fn, &f);
   REG(uint64_t, RAX) = f.rax; REG(uint64_t, RDX) = f.rdx;
-  memcpy(s->r + XMM0, f.xmm0, 16); memcpy(s->r + XMM0 + 32, f.xmm1, 16);
+  memcpy(s->r + xmm[0], f.xmm0, 16); memcpy(s->r + xmm[1], f.xmm1, 16);
   REG(uint64_t, RSP) += 8; /* the import returns: pop the guest's return address */
 }}
 
@@ -231,6 +236,7 @@ int main(int argc, char **argv, char **envp) {{
   for (int i = 0; i < envc; i++) p[2 + argc + i] = (uint64_t)(uintptr_t)envp[i];
   p[2 + argc + envc] = 0;
   REG(uint64_t, RSP) = sp;
+{chr(10).join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
   uint64_t fs; __asm__ volatile("mov %%fs:0, %0" : "=r"(fs)); REG(uint64_t, FS) = fs;
   atlas_call(s, {obj.entry:#x}ULL);
   return 0;

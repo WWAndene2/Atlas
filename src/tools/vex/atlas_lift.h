@@ -199,6 +199,15 @@ static inline double atlas_addf64(uint32_t rm, double a, double b) { (void)rm; r
 static inline double atlas_subf64(uint32_t rm, double a, double b) { (void)rm; return a - b; }
 static inline double atlas_mulf64(uint32_t rm, double a, double b) { (void)rm; return a * b; }
 static inline double atlas_divf64(uint32_t rm, double a, double b) { (void)rm; return a / b; }
+/* x87 fprem: the partial remainder (complete in one step here: C2 clear) and its condition bits as the FPU status
+ * word holds them (C0 bit 8, C1 bit 9, C2 bit 10, C3 bit 14) from the quotient's low three bits. */
+static inline double atlas_premf64(uint32_t rm, double a, double b) { (void)rm; return fmod(a, b); }
+static inline uint32_t atlas_premc3210f64(uint32_t rm, double a, double b) {
+  (void)rm;
+  if (isnan(a) || isnan(b) || isinf(a) || b == 0) return 0;
+  uint64_t q = (uint64_t)(int64_t)trunc(fabs(a / b));
+  return (uint32_t)(((q >> 2) & 1) << 8 | (q & 1) << 9 | ((q >> 1) & 1) << 14);
+}
 static inline double atlas_sqrtf64(uint32_t rm, double a) { (void)rm; return sqrt(a); }
 
 /* ---- x86-64 condition codes, from VEX's lazy flags thunk (cc_op, dep1, dep2, ndep), as in VEX's
