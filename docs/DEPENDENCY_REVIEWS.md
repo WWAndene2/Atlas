@@ -100,3 +100,19 @@ built in; no network use seen in the analysis commands Atlas runs (`aaa`, `aflj`
 1. Exactly 0.9.1, installed by `scripts/setup.sh` only after the SHA-256 above matches; a bump needs a new entry.
 2. Run with `-N` (no user scripts or plugins) and only the analysis commands in `src/tools/rizin/`; never `-d`
    (debugging runs the target).
+
+## Frida 17.25.2 — 5 November 2026
+
+**Scope of the check.** The PyPI wheel (`frida==17.25.2`, `--only-binary=:all:`), installed in the same tools
+environment as angr; no other package pulled in. Its native core (`_frida`, with the injected agent) cannot be
+audited from the wheel. Run on Atlas's fixtures.
+
+**Seen:** wxWindows Library Licence 3.1 (LGPL with a binary exception; compatible with distributing Atlas under MIT,
+since Atlas does not ship Frida). Local device only: no network use in what Atlas runs.
+
+**Conditions:**
+
+1. Exactly 17.25.2, installed by `scripts/setup.sh` from the wheel; a bump needs a new entry.
+2. `atlas trace` runs the target natively under the operator's account: only on a program the operator asked to
+   run, which the CLI help and MCP description say. Only the script in `src/tools/frida/trace.py` is injected.
+3. Local device only (`frida.get_local_device()`); no remote or USB devices without a new review.

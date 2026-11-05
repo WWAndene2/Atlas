@@ -173,17 +173,19 @@ else
   rm -rf "$work"
 fi
 
-step "angr for the equivalence check (atlas verify --equivalence)"
-# A Python environment of its own in the tools directory, exactly the reviewed version (docs/DEPENDENCY_REVIEWS.md),
-# wheels only. Recommended, not required: without it --equivalence answers that angr is missing.
+step "Python tools: angr (verify --equivalence, --differential) and Frida (atlas trace)"
+# One Python environment of its own in the tools directory, exactly the reviewed versions (docs/DEPENDENCY_REVIEWS.md),
+# wheels only. Recommended, not required: without it those commands say what is missing.
 ANGR_VERSION=10.0.5
-if [[ -x "$tools/py/bin/python" ]] && "$tools/py/bin/python" -c "import angr; assert angr.__version__ == '$ANGR_VERSION'" 2>/dev/null; then
-  ok "angr $ANGR_VERSION"
+FRIDA_VERSION=17.25.2
+py="$tools/py/bin/python"
+if [[ -x "$py" ]] && "$py" -c "import angr, frida; assert angr.__version__ == '$ANGR_VERSION' and frida.__version__ == '$FRIDA_VERSION'" 2>/dev/null; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION"
 elif have python3 && python3 -m venv "$tools/py" >/dev/null 2>&1 &&
-  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" >/dev/null 2>&1; then
-  ok "angr $ANGR_VERSION in $tools/py"
+  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" "frida==$FRIDA_VERSION" >/dev/null 2>&1; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION in $tools/py"
 else
-  printf '   note: angr not installed, so no equivalence check\n   how: apt install python3-venv, then run this again\n'
+  printf '   note: angr and Frida not installed, so no equivalence, differential test or trace\n   how: apt install python3-venv, then run this again\n'
 fi
 
 step "atlas command"

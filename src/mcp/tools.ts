@@ -22,6 +22,7 @@ import { rewriteTask } from "../orchestrator/rewrite-task.js";
 import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
+import { traceTarget } from "../orchestrator/trace-target.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { verifyOne, verifyPending } from "../orchestrator/verify-rewrites.js";
 import { ARCHITECTURES, type EngineInput } from "../tools/engine-analysis.js";
@@ -152,6 +153,13 @@ export function tools(store: GraphStore, graphPath: string) {
           await target.dispose();
         }
       },
+    },
+    trace: {
+      description:
+        "RUN a loaded native program under Frida (only one the operator chose to run): which functions ran, and observed signatures (pointer or integer arguments).",
+      input: { path: z.string(), argv: z.array(z.string()).optional(), stdin: z.string().optional() },
+      handler: async (a: { path: string; argv?: string[]; stdin?: string }) =>
+        traceTarget(store, a.path, a.argv ?? [], a.stdin !== undefined ? { stdin: a.stdin } : {}),
     },
     check_functions: {
       description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",

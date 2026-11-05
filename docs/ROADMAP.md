@@ -162,6 +162,9 @@ on first download, since the release publishes no checksum). `atlas check functi
 - Frida traces projected onto the graph (calls, arguments, memory accesses).
 - Typer agent, checked against every observed access.
 - **Done when:** measured share of correct struct layouts on Lua's known types.
+- **In progress.** Done: `atlas trace` (Frida 17.25.2): calls and per-register pointer/integer observations projected
+  as observed signature hypotheses; first argument right for all 173 traced Lua functions. Next: memory accesses
+  per pointer argument (field offsets and widths), then the typer agent checked against them.
 
 ### M5 — Systems · 2–3 weeks
 

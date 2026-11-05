@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runTrace } from "./commands/trace.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
@@ -72,6 +73,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   check functions <file> [--arch <a> --base <0x..>]
                                     a second engine (Rizin) lists the functions too: how many entries both
                                     engines agree on, which only one finds; recorded as evidence
+  trace <program> [--stdin <text>] [-- <arguments>]
+                                    RUN the program under Frida (only one you chose to run): which functions
+                                    ran, and per function whether its argument registers held pointers or
+                                    integers, recorded as observed signatures (x86-64 Linux)
   verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence] [--differential]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details;
@@ -113,6 +118,7 @@ async function main(argv: string[]): Promise<number> {
         cflags: { type: "string" },
         equivalence: { type: "boolean" },
         differential: { type: "boolean" },
+        stdin: { type: "string" },
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
@@ -238,6 +244,9 @@ async function main(argv: string[]): Promise<number> {
           ...(values.equivalence === true ? { equivalence: true } : {}),
           ...(values.differential === true ? { differential: true } : {}),
         });
+        break;
+      case "trace":
+        output = await runTrace(store, rest, values.stdin !== undefined ? { stdin: values.stdin } : {});
         break;
       case "check": {
         const { raw } = parseRaw(values.arch, values.base);

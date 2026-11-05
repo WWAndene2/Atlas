@@ -62,7 +62,7 @@ Flawed methods behind those gaps, each answered by a principle below:
     session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
-                      Ghidra, REA, Rizin, angr; later IDA, Frida
+                      Ghidra, REA, Rizin, angr, Frida; later IDA
 ```
 
 ### Tools layer: several engines, cross-checked
@@ -89,6 +89,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
 - Rizin (`src/tools/rizin/`): second engine. `atlas check functions <file>` sets the function entries it finds
   beside the graph's and records the agreement as engine evidence (`src/orchestrator/cross-check-functions.ts`).
   Measured on Lua x86-64: Rizin finds 588 of Ghidra's 805 entries and none Ghidra misses.
+- Frida (`src/tools/frida/`): `atlas trace <program> -- <arguments>` runs a loaded x86-64 Linux program and
+  hooks every function (`src/orchestrator/trace-target.ts`): one `trace` evidence per run, and per function that
+  ran a `signature` hypothesis at `observed` (calls; per argument register pointer, integer or mixed; return).
+  Measured on Lua running a script: 256 functions ran, the first argument of 173 Lua functions classified right
+  (the three non-pointers are `void`, `unsigned` and a NULL state). Registers past the real arity hold leftovers.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
