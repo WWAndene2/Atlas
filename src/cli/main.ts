@@ -8,6 +8,7 @@ import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
+import { runGetTask, runListTasks } from "./commands/task.js";
 import { runDecompile, runDetectToolchain, runProposeRewrite, runVerify } from "./commands/rewrite.js";
 import { CliError, fail, print, type Output } from "./output.js";
 
@@ -18,6 +19,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     --arch and --base for raw bytes with no header (a 3DS code.bin), where
                                     <a> is one of ${ARCHITECTURES.join(", ")}
   get function <fn_id|0xaddress>    a function with its callers, callees, strings and hypotheses
+  get task rewrite <fn_id|0xaddress>
+                                    everything an agent needs to rewrite the function: original and
+                                    attempts' instructions, toolchain, callees' prototypes, the commands
+  list tasks rewrite [--binary <bin_>]
+                                    the functions still to rewrite, callees before callers
   list callers <fn_id|0xaddress>    the functions calling it
   list callees <fn_id|0xaddress>    the functions it calls
   list functions                    every function in the graph
@@ -86,10 +92,14 @@ async function main(argv: string[]): Promise<number> {
         output = await runLoad(store, rest, values.arch, values.base);
         break;
       case "get":
-        output = runGetFunction(store, rest, values.binary);
+        output =
+          rest[0] === "task"
+            ? await runGetTask(store, rest.slice(1), values.binary)
+            : runGetFunction(store, rest, values.binary);
         break;
       case "list":
-        output = runList(store, rest, values.binary);
+        output =
+          rest[0] === "tasks" ? runListTasks(store, rest.slice(1), values.binary) : runList(store, rest, values.binary);
         break;
       case "decompile": {
         const { raw } = parseRaw(values.arch, values.base);

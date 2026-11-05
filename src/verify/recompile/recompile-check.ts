@@ -53,6 +53,8 @@ export type RecompileResult =
       originalSize: number;
       firstDifference: number;
       differing: number;
+      /** The candidate's machine code, to show the agent next to the original. */
+      compiled: Uint8Array;
     };
 
 export async function recompileCheck(request: RecompileRequest): Promise<RecompileResult> {
@@ -110,6 +112,7 @@ export async function recompileCheck(request: RecompileRequest): Promise<Recompi
       originalSize: Math.max(request.minimumSize, Math.min(original.length, compiled.length)),
       firstDifference: firstDifference < 0 ? Math.min(compiled.length, original.length) : firstDifference,
       differing: differing + (sizeOk ? 0 : 1),
+      compiled: new Uint8Array(compiled),
     };
   } finally {
     await rm(work, { recursive: true, force: true });

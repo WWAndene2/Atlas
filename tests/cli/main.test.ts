@@ -85,6 +85,14 @@ describe("atlas CLI", () => {
     });
   });
 
+  it("lists the functions to rewrite and gives an agent's task for one", () => {
+    const list = atlas("list", "tasks", "rewrite");
+    expect(list).toMatchObject({ code: 0, out: { open: expect.any(Number) } });
+    const task = atlas("get", "task", "rewrite", "0x1000");
+    expect(task).toMatchObject({ code: 0, out: { function: { address: "0x1000" }, status: "open" } });
+    expect((task.out as { answer: string }).answer).toContain("atlas propose rewrite");
+  });
+
   it("answers errors in JSON with an exit code", () => {
     expect(atlas("get", "function", "0x9")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });
     expect(atlas("load", "/nonexistent")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });

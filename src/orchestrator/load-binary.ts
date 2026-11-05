@@ -54,7 +54,12 @@ export function loadAnalysis(
 
   store.transaction(() => {
     store.putEvidence(evidence);
-    if (store.getNode(binary) === undefined) {
+    const existing = store.getNode(binary);
+    if (existing !== undefined && existing.architecture === undefined && architecture !== undefined) {
+      // A graph loaded before binaries recorded their architecture gets it on the next load.
+      store.putNode({ ...existing, architecture });
+    }
+    if (existing === undefined) {
       store.putNode({
         schema_version: 1,
         id: binary,

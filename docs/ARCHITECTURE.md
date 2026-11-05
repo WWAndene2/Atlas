@@ -146,6 +146,12 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
 - In place today: loading a target with every engine that can run here (`load-target.ts`, the engine list in
   `engines.ts`): an engine that is missing or fails is skipped and reported, and loading fails only when none
   succeeds. A function's context (`function-context.ts`): callers, callees, strings read, hypotheses.
+- The rewrite work handed to agents: `rewrite-queue.ts` lists a binary's functions not yet covered by a verified
+  rewrite (alone or in a run), callees before callers, so callees' prototypes are known when their callers' turn
+  comes; `rewrite-task.ts` gives one function's task, self-contained so agents can work in parallel: the original
+  instructions (`src/tools/objdump/`, GNU objdump of the architecture), every attempt and its outcome, the closest
+  failed attempt's compiled instructions, the toolchain, callers' and callees' verified prototypes, strings,
+  neighbours in memory, and the commands to answer with. About 0.25 s per task.
 
 Agent roles: **namer**, **typer**, **rewriter** (function to C), **summariser** (per system), **format reader**
 (infers a file format from its loader, emits a Kaitai description).

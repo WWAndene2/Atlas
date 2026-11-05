@@ -141,7 +141,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   the baseline of Ghidra's C as written: Linux x86-64 19 of 709, Windows x86-64 67 of 819, Android AArch64 51 of 686,
   raw ARMv6K 61 of 872, each checked in about 20 s. Runs of neighbouring functions remove the
   same-file jump limit (all 30 Lua source files reproduce whole). Toolchain detection finds the compiler and flags
-  with no hint (right on all four Lua builds). Next: the agent loop over a whole binary, larger
+  with no hint (right on all four Lua builds). Agents' work is prepared: `atlas list tasks rewrite` (callees first)
+  and `atlas get task rewrite` (one self-contained task per function, original and attempt instructions side by
+  side), the input M6's parallel agents will take. Next: the agent loop over a whole binary, larger
   functions, and the share verified and the time it takes.
 
 ### M4 — Types and traces · 2–3 weeks
@@ -167,6 +169,8 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
 
 - Fuzzy matching against documented binaries (other versions, open-source libraries); matches imported as
   hypotheses and checked.
+- Functions of the compiler's runtime and C library (seen on Windows Lua: `___chkstk_ms`, hand-written assembly that no
+  C reproduces) recognised as such, and linked from the library instead of rewritten.
 - **Done when:** a second Lua version starts from the first one's graph, with the gain in cost measured.
 
 ### M8 — Scale
