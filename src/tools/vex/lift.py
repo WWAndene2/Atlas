@@ -1,7 +1,8 @@
 """Static recompilation: one function's machine code to C, through VEX (the IR of angr's lifter, pyvex), so one
 translator serves every architecture VEX decodes (x86, x86-64, ARM, ARM64, MIPS, PowerPC).
 
-argv[1]: request JSON {"arch": archinfo name, "binary"?: path, "functions": [{"address": int, "code": hex}]}
+argv[1]: request JSON {"arch": archinfo name, "endness"?: "Iend_LE" | "Iend_BE", "binary"?: path,
+                       "functions": [{"address": int, "code": hex, "thumb"?: bool}]}
 (with the binary, angr's CFG resolves jump tables so their targets become blocks of the translation)
 stdout: one JSON line per function: {"address": "0x..", "c": str} or {"address": "0x..", "unsupported": str}
 
@@ -97,6 +98,15 @@ def binop(op, a, b):
         dt = SIGNED[m[3]] if m[1] == "S" else UNSIGNED[m[3]]
         return (f"({UNSIGNED[m[2]]})((({UNSIGNED[m[2]]})({UNSIGNED[m[3]]})(({wt}){a} % ({dt}){b}) << {half}) "
                 f"| ({UNSIGNED[m[3]]})(({wt}){a} / ({dt}){b}))")
+    m = re.fullmatch(r"CmpORD(32|64)(S|U)", name)
+    if m:
+        # PowerPC's compare: 8 when less, 4 when greater, 2 when equal.
+        t = (SIGNED if m[2] == "S" else UNSIGNED)[m[1]]
+        return f"({UNSIGNED[m[1]]})((({t}){a} < ({t}){b}) ? 8 : (({t}){a} > ({t}){b}) ? 4 : 2)"
+    m = re.fullmatch(r"DivMod(S|U)32to32", name)
+    if m:
+        t = (SIGNED if m[1] == "S" else UNSIGNED)["32"]
+        return f"(((uint64_t)(uint32_t)(({t}){a} % ({t}){b}) << 32) | (uint32_t)(({t}){a} / ({t}){b}))"
     m = re.fullmatch(r"Div(S|U)(32|64)", name)
     if m:
         t = (SIGNED if m[1] == "S" else UNSIGNED)[m[2]]
@@ -122,6 +132,13 @@ def unop(op, a):
     m = re.fullmatch(r"Not(1|8|16|32|64)", name)
     if m:
         return f"(uint8_t)!{a}" if m[1] == "1" else f"({UNSIGNED[m[1]]})~{a}"
+    m = re.fullmatch(r"(Clz|Ctz)Nat(32|64)", name)
+    if m:
+        f = {"Clz": "__builtin_clz", "Ctz": "__builtin_ctz"}[m[1]] + ("ll" if m[2] == "64" else "")
+        return f"({UNSIGNED[m[2]]})({a} ? {f}({a}) : {m[2]})"
+    m = re.fullmatch(r"(Neg|Abs)F(32|64)", name)
+    if m:
+        return f"(-({a}))" if m[1] == "Neg" else f"{'fabs' if m[2] == '64' else 'fabsf'}({a})"
     m = re.fullmatch(r"(Clz|Ctz)(32|64)", name)
     if m:
         f = {"Clz": "__builtin_clz", "Ctz": "__builtin_ctz"}[m[1]] + ("ll" if m[2] == "64" else "")
@@ -130,8 +147,8 @@ def unop(op, a):
 
 
 class Function:
-    def __init__(self, arch, address, code, targets=()):
-        self.arch, self.address, self.code = arch, address, bytes.fromhex(code)
+    def __init__(self, arch, address, code, targets=(), thumb=False):
+        self.arch, self.address, self.code, self.thumb = arch, address, bytes.fromhex(code), thumb
         # Block starts known otherwise: the targets of the function's jump tables (resolved by angr's CFG).
         self.targets = [t for t in targets if address <= t < address + len(self.code)]
         self.end = address + len(self.code)
@@ -180,7 +197,9 @@ class Function:
 
     def lift_block(self, addr):
         try:
-            irsb = pyvex.lift(self.code[addr - self.address:], addr, self.arch, opt_level=1)
+            # Thumb code is lifted at its address with the low bit set, as VEX expects.
+            irsb = pyvex.lift(self.code[addr - self.address:], addr | 1 if self.thumb else addr, self.arch,
+                              opt_level=1, bytes_offset=0)
         except pyvex.PyVEXError as error:
             raise Unsupported(f"undecodable at {addr:#x}: {error}")
         if irsb.size == 0 or irsb.jumpkind == "Ijk_NoDecode":
@@ -218,6 +237,22 @@ class Function:
                     if ty not in MEMORY:
                         raise Unsupported(f"store of {ty}")
                     body.append(f"      STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, {self.expr(st.data, tmps)});")
+                elif isinstance(st, pyvex.stmt.LoadG):
+                    # A guarded load (ARM's conditional loads): the converted value if the guard holds, else alt.
+                    loaded = {"ILGop_Ident32": "LOAD32", "ILGop_Ident64": "LOAD64", "ILGop_16Uto32": "LOAD16",
+                              "ILGop_8Uto32": "LOAD8", "ILGop_16Sto32": "LOAD16", "ILGop_8Sto32": "LOAD8"}.get(st.cvt)
+                    if loaded is None:
+                        raise Unsupported(f"guarded load {st.cvt}")
+                    value = f"{loaded}({self.expr(st.addr, tmps)})"
+                    if st.cvt in ("ILGop_16Sto32", "ILGop_8Sto32"):
+                        value = f"(uint32_t)(int{st.cvt[6:8].rstrip('S')}_t){value}"
+                    body.append(f"      t{st.dst} = {self.expr(st.guard, tmps)} ? {value} : {self.expr(st.alt, tmps)};")
+                elif isinstance(st, pyvex.stmt.StoreG):
+                    ty = st.data.result_type(irsb.tyenv)
+                    if ty not in MEMORY:
+                        raise Unsupported(f"guarded store of {ty}")
+                    body.append(f"      if ({self.expr(st.guard, tmps)}) STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, "
+                                f"{self.expr(st.data, tmps)});")
                 elif isinstance(st, pyvex.stmt.Exit):
                     if st.jumpkind.startswith("Ijk_Sig"):
                         # A trap the guest raises (division by zero, ud2): the program's atlas_trap decides.
@@ -281,11 +316,11 @@ def jump_table_targets(binary):
 
 def main():
     request = json.load(open(sys.argv[1]))
-    arch = archinfo.arch_from_id(request["arch"])
+    arch = archinfo.arch_from_id(request["arch"], request.get("endness", "any"))
     targets = sorted(jump_table_targets(request["binary"])) if request.get("binary") else []
     for f in request["functions"]:
         try:
-            c = Function(arch, f["address"], f["code"], targets).translate()
+            c = Function(arch, f["address"], f["code"], targets, bool(f.get("thumb"))).translate()
             print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)
         except Unsupported as reason:
             print(json.dumps({"address": hex(f["address"]), "unsupported": str(reason)}), flush=True)
