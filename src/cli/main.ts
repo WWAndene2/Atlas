@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
 import { runCheckFunctions } from "./commands/check.js";
@@ -58,6 +59,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   match libraries [--library <file.a>]...
                                     recognise functions of static libraries (the detected toolchain's own,
                                     and any given): matched code is linked, not rewritten
+  match graph <documented graph.sqlite>
+                                    carry knowledge over from a related binary's graph (earlier version,
+                                    build with symbols): similar functions get its names and verified
+                                    rewrites as hypotheses (rewrites are then checked: atlas verify all)
   propose name <fn|0x> <name> [--agent <name>]
                                     an agent's name for a function (--agent: who proposes it)
   score names --truth <unstripped file>
@@ -221,7 +226,10 @@ async function main(argv: string[]): Promise<number> {
         });
         break;
       case "match":
-        output = await runMatchLibraries(store, rest, values.library ?? [], values.binary);
+        output =
+          rest[0] === "graph"
+            ? await runMatchGraph(store, rest, values.binary)
+            : await runMatchLibraries(store, rest, values.library ?? [], values.binary);
         break;
       case "score":
         output = await runScoreNames(store, rest, values.truth, values.binary);

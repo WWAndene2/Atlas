@@ -98,6 +98,12 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   format node (`fmt_<binary>_<id>`) and a format hypothesis holding the .ksy, then compiles it to a Python parser
   and runs it on every file given (`src/orchestrator/check-format.ts`): all read makes it verified (check
   `parser_run`); a failure records the file and the error; trailing bytes are reported.
+- Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
+  fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
+  similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the
+  second by 0.05), proposes a match, the documented name and any verified rewrite, which the recompile check then
+  settles. Measured on Lua x86-64, GCC 11 build with symbols to the stripped GCC 13 build: 380 names, 379 right.
+  Across compilers (Clang 17 to GCC 13) it finds little (28 names, 24 right): same compiler family only for now.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 

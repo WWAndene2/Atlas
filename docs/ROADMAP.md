@@ -46,7 +46,7 @@ pinned, with its licence checked when added (AGENTS.md section 8).
 | MCP server                              | Official MCP TypeScript SDK 1.32.2    | Second door (`src/mcp/`)                       | M2        |
 | Graph storage                           | SQLite (`node:sqlite`)                | `src/graph/`                                   | M0        |
 | Schema validation                       | Ajv                                   | Records checked against `schema/`              | M0        |
-| Code comparison                         | objdiff                               | Rewrite checker                                | M3        |
+| Code comparison                         | Atlas's recompile check (not objdiff) | Rewrite checker                                | M3        |
 | Equivalence of small functions          | Z3, angr                              | Structural checker                             | M3        |
 | Execution traces                        | Frida                                 | Dynamic data                                   | M4        |
 | File formats                            | Kaitai Struct                         | Output of the format agent                     | M5        |
@@ -130,7 +130,9 @@ on first download, since the release publishes no checksum). `atlas check functi
 ### M3 — Verification loop · 2–4 weeks
 
 - Rewriter agent: function to C.
-- Checks: recompile and compare (objdiff); differential testing on generated inputs; equivalence (Z3, angr) for
+- Checks: recompile and compare (Atlas's own check: byte-exact with relocations masked, and the instruction-level
+  difference in each task; objdiff not adopted, decided 5 November 2026, since it would duplicate both and adds a
+  Rust toolchain); differential testing on generated inputs; equivalence (Z3, angr) for
   small functions. Failures go back to the agent with the diff, up to a retry budget, then become unknowns.
 - **Done when:** a measured share of Lua's functions rewritten and verified, and no hypothesis marked `verified`
   that the symbol build contradicts.
@@ -218,6 +220,11 @@ on first download, since the release publishes no checksum). `atlas check functi
   C reproduces) recognised as such, and linked from the library instead of rewritten. Done for static libraries
   (`atlas match libraries`: 153 of 153 names right on ARM Lua, 95 of 96 on Windows Lua). Next: libraries the
   toolchain does not ship (a game's engine, SDKs), from a documented build of them.
+- Fuzzy matching done (`atlas match graph`): from a documented graph, names (379 of 380 right, GCC 11 to GCC 13
+  Lua: 53% of the functions to name) and verified rewrites carried over as hypotheses. Thresholds measured on that
+  pair: 0.1 similarity gives 517 names with 26 wrong, 0.3 gives 285 with none wrong. Weak across compilers (Clang
+  17 to GCC 13: 28 names, 4 wrong). Next: a second Lua version, and features that survive a compiler change
+  (call graph, constants, strings).
 - **Done when:** a second Lua version starts from the first one's graph, with the gain in cost measured.
 
 ### M8 — Scale

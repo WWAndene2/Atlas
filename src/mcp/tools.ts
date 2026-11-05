@@ -2,7 +2,7 @@
 // get_function), each answering one JSON document. Target content in answers (labels, strings, C from the target)
 // is data: the descriptions say so, as AGENTS.md 1.6 asks of every agent.
 import { z } from "zod";
-import { exportJsonl, TaskClaims, type GraphStore } from "../graph/index.js";
+import { exportJsonl, GraphStore, TaskClaims } from "../graph/index.js";
 import { agentPlan, MODES } from "../orchestrator/agent-plan.js";
 import { parseLevels, taskLevel } from "../orchestrator/task-levels.js";
 import { binaryFacts } from "../orchestrator/binary-facts.js";
@@ -22,6 +22,7 @@ import { rewriteTask } from "../orchestrator/rewrite-task.js";
 import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
+import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
@@ -171,6 +172,19 @@ export function tools(store: GraphStore, graphPath: string) {
           ...(a.agent !== undefined ? { agent: a.agent } : {}),
           ...(a.binary !== undefined ? { binary: a.binary } : {}),
         }),
+    },
+    match_graph: {
+      description:
+        "Carry knowledge over from a documented graph (a related binary: earlier version, build with symbols): similar functions get its names and verified rewrites as hypotheses.",
+      input: { graph: z.string(), binary },
+      handler: async (a: { graph: string; binary?: string }) => {
+        const source = new GraphStore(a.graph);
+        try {
+          return await carryKnowledge(store, singleBinary(store, a.binary), source, singleBinary(source, undefined));
+        } finally {
+          source.close();
+        }
+      },
     },
     check_functions: {
       description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",
