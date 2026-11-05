@@ -5,3 +5,4 @@ tests/fixtures/lua/build/
 tests/fixtures/lua-arm/build/
 tests/fixtures/lua-platforms/build/
 tests/fixtures/lua-toolchains/build/
+tests/fixtures/bench/build/
