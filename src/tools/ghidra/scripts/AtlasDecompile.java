@@ -127,7 +127,7 @@ public class AtlasDecompile extends GhidraScript {
       definitions.write("/* type definitions unavailable: " + e.getMessage() + " */\n");
     }
     StringBuilder unit = new StringBuilder();
-    for (String line : definitions.toString().split("\n")) {
+    for (String line : hoistArrayTypedefs(definitions.toString()).split("\n")) {
       // The writer also emits the built-in typedefs it depends on, which the prelude defines already.
       String t = line.trim();
       // The writer names some built-ins alone on a line (float10 on Windows Lua): not C.
@@ -176,6 +176,31 @@ public class AtlasDecompile extends GhidraScript {
       collect(fd.getReturnType(), types, visiting);
     }
     types.add(base);
+  }
+
+  /**
+   * The writer puts a typedef of an array of structures (glibc's `typedef struct __jmp_buf_tag jmp_buf[1];`) at the
+   * end, after structures using it by value: with DWARF, 679 of 706 Lua 5.4.6 rewrites failed on it. Such a typedef
+   * needs only its structure's definition, so it is moved right after that definition.
+   */
+  static String hoistArrayTypedefs(String text) {
+    java.util.List<String> lines = new java.util.ArrayList<>(java.util.Arrays.asList(text.split("\n", -1)));
+    java.util.regex.Pattern arrayTypedef =
+        java.util.regex.Pattern.compile("^typedef (struct|union) (\\w+) \\w+(\\[\\d+\\])+;\\s*$");
+    for (int i = 0; i < lines.size(); i++) {
+      java.util.regex.Matcher m = arrayTypedef.matcher(lines.get(i));
+      if (!m.matches()) continue;
+      String opening = m.group(1) + " " + m.group(2) + " {";
+      int start = -1;
+      for (int k = 0; k < i; k++) if (lines.get(k).trim().equals(opening)) start = k;
+      if (start < 0) continue;
+      int end = start;
+      while (end < i && !lines.get(end).startsWith("}")) end++;
+      if (end >= i - 1) continue;
+      String typedef = lines.remove(i);
+      lines.add(end + 1, typedef);
+    }
+    return String.join("\n", lines);
   }
 
   /** A declaration of `name` with type `dt`, arrays written C's way (char name[16], not char[16] name). */
