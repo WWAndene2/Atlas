@@ -122,7 +122,7 @@ public class AtlasDecompile extends GhidraScript {
       // One type at a time, in the collected order (dependencies first): given the whole list, the writer
       // reorders it and can put a typedef such as jmp_buf after the structure that uses it.
       DataTypeWriter writer = new DataTypeWriter(currentProgram.getDataTypeManager(), definitions);
-      for (DataType t : types) writer.write(t, monitor);
+      for (DataType t : types) writer.write(java.util.List.of(t), monitor);
     } catch (Exception e) {
       definitions.write("/* type definitions unavailable: " + e.getMessage() + " */\n");
     }
