@@ -190,8 +190,14 @@ that matter (ARM or Thumb, float ABI, PIC for libraries), and the candidate repr
 `toolchain` hypothesis on the binary, with its score and the candidates it tied with. `atlas verify` uses it when no
 `--cc` is given. Measured on Lua with no hint: correct compiler and level on all four builds (Linux gcc -O2, Windows
 MinGW -O2, Android AArch64 -fPIC -O2, raw ARMv6K -marm -mfloat-abi=hard -O2), in 0.5 to 2.5 minutes; -O3 and the
-soft-float variants tie, since most functions compile the same with them. Limit: only compilers installed locally
-are candidates (MSVC, console SDKs and old GCC releases are not, yet).
+soft-float variants tie, since most functions compile the same with them. Candidates are every installed release
+(setup installs GCC 9 to 14, Clang 14 to 19, and cross compilers for 32-bit Windows, ARM, MIPS and PowerPC); a
+compiler named by a version string in the file is preferred, the probe then choosing its flags. Ranking is by exact
+matches, then by closeness of code size (near misses count); candidates within 1% are reported as ties and the
+conventional choice wins (-O2 before -O3, the base variant first). Measured on eight Lua builds with nothing given
+but the file: all right but one, where Clang 15 and 17 tie (no version string, near-identical code; the level is
+right), 23 to 96 s each with compiles run in parallel. Limit: only installed compilers are candidates (not MSVC
+or console SDKs).
 
 `atlas decompile` adds Ghidra's C for each function as a rewrite with
 `prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.

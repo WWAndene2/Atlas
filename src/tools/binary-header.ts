@@ -7,12 +7,17 @@ export function headerArchitecture(bytes: Uint8Array): Architecture | undefined 
   const u16 = (at: number): number => (at + 2 <= bytes.length ? view.getUint16(at, true) : -1);
   const u32 = (at: number): number => (at + 4 <= bytes.length ? view.getUint32(at, true) : -1);
   if (u32(0) === 0x464c457f) {
-    // ELF e_machine. 32-bit ARM's exact revision is not in e_machine; v7 is the common case on phones and PCs.
-    const machine = u16(18);
+    // ELF e_machine, in the file's own byte order (EI_DATA: 1 little-endian, 2 big-endian; MIPS and PowerPC files are
+    // often big-endian). 32-bit ARM's exact revision is not in e_machine; v7 is the common case on phones and PCs.
+    const bigEndian = bytes[5] === 2;
+    const machine = bytes.length >= 20 ? view.getUint16(18, !bigEndian) : -1;
     if (machine === 62) return "x86_64";
     if (machine === 3) return "x86";
     if (machine === 183) return "arm64";
     if (machine === 40) return "arm-v7";
+    if (machine === 8) return bigEndian ? "mips" : "mipsel";
+    if (machine === 20) return "ppc";
+    if (machine === 21) return "ppc64";
     return undefined;
   }
   if (u16(0) === 0x5a4d) {
@@ -43,16 +48,24 @@ export function isSharedLibrary(bytes: Uint8Array): boolean {
   if (bytes.length < 64 || bytes[0] !== 0x7f || bytes[1] !== 0x45 || bytes[2] !== 0x4c || bytes[3] !== 0x46)
     return false;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint16(16, true) !== 3) return false; // ET_DYN: a library, or a position-independent executable
+  const le = bytes[5] !== 2; // the file's byte order
+  if (view.getUint16(16, le) !== 3) return false; // ET_DYN: a library, or a position-independent executable
   // A PIE has a program interpreter (PT_INTERP, type 3); a library has none.
   const is64 = bytes[4] === 2;
-  const phoff = is64 ? Number(view.getBigUint64(32, true)) : view.getUint32(28, true);
-  const phentsize = view.getUint16(is64 ? 54 : 42, true);
-  const phnum = view.getUint16(is64 ? 56 : 44, true);
+  const phoff = is64 ? Number(view.getBigUint64(32, le)) : view.getUint32(28, le);
+  const phentsize = view.getUint16(is64 ? 54 : 42, le);
+  const phnum = view.getUint16(is64 ? 56 : 44, le);
   for (let i = 0; i < phnum; i++) {
     const at = phoff + i * phentsize;
     if (at + 4 > bytes.length) return false;
-    if (view.getUint32(at, true) === 3) return false;
+    if (view.getUint32(at, le) === 3) return false;
   }
   return true;
+}
+
+/** An ELF file of type ET_DYN: position-independent (a library or a PIE), loadable at any address. */
+export function isPositionIndependentElf(bytes: Uint8Array): boolean {
+  if (bytes.length < 18 || bytes[0] !== 0x7f || bytes[1] !== 0x45 || bytes[2] !== 0x4c || bytes[3] !== 0x46)
+    return false;
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(16, bytes[5] !== 2) === 3;
 }

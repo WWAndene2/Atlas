@@ -4,9 +4,9 @@
 // to (to set beside the original), the neighbours in the call graph with their prototypes when known, the strings it
 // uses, the functions next to it in memory (for a run), and the commands to answer with.
 import type { GraphNode, GraphStore, Hypothesis } from "../graph/index.js";
-import { repositoryPath } from "../graph/index.js";
 import { disassemble, type Instruction } from "../tools/objdump/index.js";
 import { recompileCheck } from "../verify/recompile/recompile-check.js";
+import { ghidraPreludeFlags } from "../verify/recompile/ghidra-prelude.js";
 import { isRewriteValue, type RewriteValue } from "../verify/recompile/rewrite-value.js";
 import { binaryToolchain, type ToolchainValue } from "./detect-toolchain.js";
 import { functionContext, NotFoundError } from "./function-context.js";
@@ -107,10 +107,7 @@ export async function rewriteTask(store: GraphStore, fn: GraphNode): Promise<Rew
     fn.code !== undefined
   ) {
     const value = candidate.value as RewriteValue;
-    const flags =
-      value.prelude === "ghidra"
-        ? [...toolchain.flags, "-include", repositoryPath("src", "verify", "recompile", "ghidra-types.h")]
-        : toolchain.flags;
+    const flags = value.prelude === "ghidra" ? [...toolchain.flags, ...ghidraPreludeFlags()] : toolchain.flags;
     const check = await recompileCheck({
       source: value.source,
       name: value.name,

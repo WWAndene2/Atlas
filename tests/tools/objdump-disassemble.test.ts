@@ -19,4 +19,11 @@ describe("disassemble", () => {
     );
     expect((await disassemble(Uint8Array.from([0xc0, 0x03, 0x5f, 0xd6]), "arm64", "0x0"))[0]?.text).toBe("ret");
   });
+
+  it("disassembles MIPS and PowerPC in their byte order", async () => {
+    // jr ra: 03e00008, big-endian for mips, little-endian for mipsel; blr: 4e800020, big-endian.
+    expect((await disassemble(Uint8Array.from([0x03, 0xe0, 0x00, 0x08]), "mips", "0x80000000"))[0]?.text).toBe("jr ra");
+    expect((await disassemble(Uint8Array.from([0x08, 0x00, 0xe0, 0x03]), "mipsel", "0x0"))[0]?.text).toBe("jr ra");
+    expect((await disassemble(Uint8Array.from([0x4e, 0x80, 0x00, 0x20]), "ppc", "0x80003100"))[0]?.text).toBe("blr");
+  });
 });

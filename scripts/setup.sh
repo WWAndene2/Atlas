@@ -119,6 +119,36 @@ else
   lack "Lua platform fixtures" "apt install zip gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu, then run this again"
 fi
 
+step "Compilers for toolchain detection (more installed, more targets detected)"
+# Detection can only find a compiler that is installed: several GCC and Clang releases, and cross compilers for the
+# architectures Atlas names (32-bit Windows, ARM Linux, MIPS, PowerPC). Recommended, not required.
+compilers=(gcc-9 gcc-10 gcc-11 gcc-12 gcc-14 clang-14 clang-15 clang-17 clang-19 gcc-mingw-w64-i686
+  gcc-arm-linux-gnueabihf gcc-mips-linux-gnu gcc-mipsel-linux-gnu gcc-powerpc-linux-gnu gcc-powerpc64-linux-gnu
+  gcc-11-aarch64-linux-gnu)
+drivers=(gcc-9 gcc-10 gcc-11 gcc-12 gcc-14 clang-14 clang-15 clang-17 clang-19 i686-w64-mingw32-gcc
+  arm-linux-gnueabihf-gcc mips-linux-gnu-gcc mipsel-linux-gnu-gcc powerpc-linux-gnu-gcc powerpc64-linux-gnu-gcc
+  aarch64-linux-gnu-gcc-11)
+absent=()
+for d in "${drivers[@]}"; do have "$d" || absent+=("$d"); done
+if [[ ${#absent[@]} -gt 0 ]] && have apt-get; then
+  as_root apt-get install -y -qq "${compilers[@]}" >/dev/null 2>&1 ||
+    { as_root apt-get update -qq >/dev/null 2>&1 && as_root apt-get install -y -qq "${compilers[@]}" >/dev/null 2>&1; } || true
+  absent=()
+  for d in "${drivers[@]}"; do have "$d" || absent+=("$d"); done
+fi
+if [[ ${#absent[@]} -eq 0 ]]; then
+  ok "${#drivers[@]} compilers"
+else
+  printf '   note: not installed, so not detectable: %s\n   how: apt install %s\n' "${absent[*]}" "${compilers[*]}"
+fi
+
+step "Toolchain ground-truth fixtures (GCC 11, Clang 17, MIPS, PowerPC)"
+if "$repo/tests/fixtures/lua-toolchains/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-toolchains/build"
+else
+  lack "Lua toolchain fixtures" "install the compilers above, then run this again"
+fi
+
 step "atlas command"
 launcher_dir="$HOME/.local/bin"
 mkdir -p "$launcher_dir"

@@ -75,4 +75,24 @@ describe("Ghidra on PC and mobile targets", () => {
       expect(precision).toBeGreaterThan(0.9);
     },
   );
+
+  // A fixed-address executable (PowerPC, linked at 0x10000000): Atlas once moved such files to address 0, which made
+  // every address wrong (recall 0). Measured since the fix: PowerPC recall 0.960, precision 1.000; MIPS 0.804, 0.979.
+  const ppc = fileURLToPath(new URL("../../fixtures/lua-toolchains/build/", import.meta.url));
+  it.runIf(runnable && existsSync(join(ppc, "ppc-Os.stripped")))(
+    "keeps a fixed-address executable at its own addresses",
+    { timeout: 10 * 60 * 1000 },
+    async () => {
+      const store = new GraphStore(":memory:");
+      await loadTarget(store, { path: join(ppc, "ppc-Os.stripped") });
+      const found = new Set(store.nodesOfKind("function").map((n) => n.address));
+      store.close();
+      const truth = execFileSync("readelf", ["-sW", join(ppc, "ppc-Os.symbols")], { encoding: "utf8" })
+        .split("\n")
+        .map((l) => l.trim().split(/\s+/))
+        .filter((f) => f[3] === "FUNC" && f[6] !== "UND")
+        .map((f) => `0x${parseInt(f[1] ?? "0", 16).toString(16)}`);
+      expect(truth.filter((a) => found.has(a)).length / truth.length).toBeGreaterThan(0.9);
+    },
+  );
 });

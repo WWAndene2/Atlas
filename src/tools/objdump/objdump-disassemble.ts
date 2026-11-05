@@ -18,13 +18,18 @@ export interface Instruction {
   text: string;
 }
 
-const TOOL: Record<Architecture, { command: string; machine: string }> = {
+// Raw bytes carry no byte order, and objdump reads them little-endian unless told: big-endian architectures say so.
+const TOOL: Record<Architecture, { command: string; machine: string; endian?: "-EB" | "-EL" }> = {
   x86_64: { command: "objdump", machine: "i386:x86-64" },
   x86: { command: "objdump", machine: "i386" },
   arm64: { command: "aarch64-linux-gnu-objdump", machine: "aarch64" },
   "arm-v7": { command: "arm-none-eabi-objdump", machine: "arm" },
   "arm-v6k": { command: "arm-none-eabi-objdump", machine: "arm" },
   "arm-v5te": { command: "arm-none-eabi-objdump", machine: "arm" },
+  mips: { command: "mips-linux-gnu-objdump", machine: "mips", endian: "-EB" },
+  mipsel: { command: "mipsel-linux-gnu-objdump", machine: "mips", endian: "-EL" },
+  ppc: { command: "powerpc-linux-gnu-objdump", machine: "powerpc:common", endian: "-EB" },
+  ppc64: { command: "powerpc64-linux-gnu-objdump", machine: "powerpc:common64", endian: "-EB" },
 };
 
 export class DisassembleError extends Error {
@@ -41,13 +46,14 @@ export async function disassemble(
   options: { thumb?: boolean } = {},
 ): Promise<Instruction[]> {
   if (code.length === 0) return [];
-  const { command, machine } = TOOL[architecture];
+  const { command, machine, endian } = TOOL[architecture];
   const work = await mkdtemp(join(tmpdir(), "atlas-objdump-"));
   try {
     const file = join(work, "code.bin");
     await writeFile(file, code);
     const args = ["-D", "-b", "binary", "-m", machine, `--adjust-vma=${address}`, "--no-show-raw-insn", "-z"];
     if (options.thumb === true) args.push("-M", "force-thumb");
+    if (endian !== undefined) args.push(endian);
     let stdout: string;
     try {
       ({ stdout } = await run(command, [...args, file], { maxBuffer: 64 * 1024 * 1024 }));

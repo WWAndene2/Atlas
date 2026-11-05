@@ -1,10 +1,11 @@
 // Runs Ghidra headless on one binary and returns its analysis. The only place Atlas starts Ghidra.
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryPath } from "../../graph/index.js";
+import { isPositionIndependentElf } from "../binary-header.js";
 import type { Architecture, EngineAnalysis, EngineInput } from "../engine-analysis.js";
 import { toolsDir } from "../tools-dir.js";
 import { parseGhidraDecompile, type DecompiledFunction } from "./ghidra-decompile.js";
@@ -43,7 +44,7 @@ export function locateGhidra(env: NodeJS.ProcessEnv = process.env): string {
   return dir;
 }
 
-// Ghidra's language for each architecture Atlas names. Little-endian throughout: the targets in view are.
+// Ghidra's language for each architecture Atlas names.
 const GHIDRA_LANGUAGE: Record<Architecture, string> = {
   x86: "x86:LE:32:default",
   x86_64: "x86:LE:64:default",
@@ -51,13 +52,19 @@ const GHIDRA_LANGUAGE: Record<Architecture, string> = {
   "arm-v6k": "ARM:LE:32:v6",
   "arm-v7": "ARM:LE:32:v7",
   arm64: "AARCH64:LE:64:v8A",
+  mips: "MIPS:BE:32:default",
+  mipsel: "MIPS:LE:32:default",
+  ppc: "PowerPC:BE:32:default",
+  ppc64: "PowerPC:BE:64:default",
 };
 
 function importArguments(input: EngineInput): string[] {
   if (input.raw === undefined) {
     // Keep the file's own addresses: Ghidra rebases position-independent ELF files to 0x100000 by default, which
-    // would make every address disagree with the symbol table and with other engines.
-    return ["-loader-imagebase", "0"];
+    // would make every address disagree with the symbol table and with other engines. Only those: an executable
+    // linked at a fixed address (MIPS at 0x400000, PowerPC at 0x10000000...) already loads where its addresses say,
+    // and the option would move it to 0 (measured: every MIPS and PowerPC Lua address wrong until this check).
+    return isPositionIndependentElf(readHead(input.path)) ? ["-loader-imagebase", "0"] : [];
   }
   return [
     "-loader",
@@ -67,6 +74,17 @@ function importArguments(input: EngineInput): string[] {
     "-processor",
     GHIDRA_LANGUAGE[input.raw.architecture],
   ];
+}
+
+function readHead(path: string): Uint8Array {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = new Uint8Array(64);
+    const n = readSync(fd, buffer, 0, 64, 0);
+    return buffer.subarray(0, n);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export interface GhidraRunOptions {

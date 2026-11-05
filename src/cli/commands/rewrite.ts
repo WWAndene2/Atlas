@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { GraphStore, Hypothesis } from "../../graph/index.js";
 import { binaryFacts } from "../../orchestrator/binary-facts.js";
 import { decompileFunctions } from "../../orchestrator/decompile-functions.js";
+import { forEachConcurrently } from "../../orchestrator/parallel.js";
 import { binaryToolchain, detectToolchain } from "../../orchestrator/detect-toolchain.js";
 import { fileSha256 } from "../../orchestrator/file-hash.js";
 import { binaryId } from "../../orchestrator/load-binary.js";
@@ -122,11 +123,12 @@ export async function runVerify(
       (h) => h.kind === "rewrite" && h.verification === undefined,
     );
     const counts: Record<string, number> = {};
-    for (const h of pending) {
+    for (const h of pending) toolchainFor(h); // a missing toolchain is reported before any work starts
+    await forEachConcurrently(pending, async (h) => {
       const { check } = await verifyRewrite(store, h.id, toolchainFor(h));
       const key = check.result === "pass" ? "verified" : check.reason;
       counts[key] = (counts[key] ?? 0) + 1;
-    }
+    });
     const text = `${pending.length} rewrites checked: ${Object.entries(counts)
       .map(([k, n]) => `${n} ${k}`)
       .join(", ")}`;

@@ -2,8 +2,8 @@
 // the outcome: verified when every byte outside relocations matches, otherwise the confidence it had, with the
 // failure and its details, so the agent can fix the source and propose again.
 import type { GraphStore, Hypothesis } from "../../graph/index.js";
-import { repositoryPath } from "../../graph/index.js";
 import { recompileCheck, type RecompileResult, type Toolchain } from "./recompile-check.js";
+import { ghidraPreludeFlags } from "./ghidra-prelude.js";
 import { isRewriteValue } from "./rewrite-value.js";
 
 export class VerifyError extends Error {
@@ -71,10 +71,7 @@ export async function verifyRewrite(
   }
   const value = hypothesis.value;
   const reference = referenceCode(store, hypothesis.node, value.last?.node);
-  const flags =
-    value.prelude === "ghidra"
-      ? [...toolchain.flags, "-include", repositoryPath("src", "verify", "recompile", "ghidra-types.h")]
-      : toolchain.flags;
+  const flags = value.prelude === "ghidra" ? [...toolchain.flags, ...ghidraPreludeFlags()] : toolchain.flags;
   const check = await recompileCheck({
     source: value.source,
     name: value.name,

@@ -19,6 +19,19 @@ describe("headerArchitecture", () => {
     expect(isSharedLibrary(new Uint8Array(64))).toBe(false);
   });
 
+  it("reads big-endian ELF headers in their own byte order", () => {
+    const header = (bigEndian: boolean, machine: number): Uint8Array => {
+      const b = new Uint8Array(64);
+      b.set([0x7f, 0x45, 0x4c, 0x46, 1, bigEndian ? 2 : 1]);
+      new DataView(b.buffer).setUint16(18, machine, !bigEndian);
+      return b;
+    };
+    expect(headerArchitecture(header(true, 8))).toBe("mips");
+    expect(headerArchitecture(header(false, 8))).toBe("mipsel");
+    expect(headerArchitecture(header(true, 20))).toBe("ppc");
+    expect(headerArchitecture(header(true, 21))).toBe("ppc64");
+  });
+
   it.runIf(elf !== undefined && exe !== undefined && so !== undefined)("reads ELF and PE headers", () => {
     expect(headerArchitecture(elf as Uint8Array)).toBe("x86_64");
     expect(headerArchitecture(exe as Uint8Array)).toBe("x86_64");

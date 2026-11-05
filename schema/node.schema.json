@@ -23,7 +23,7 @@
     "address": { "type": "string", "pattern": "^0x[0-9a-f]+$", "description": "Start address, lowercase hex." },
     "size": { "type": "integer", "minimum": 0, "description": "Size in bytes, when the node occupies memory." },
     "architecture": {
-      "enum": ["x86", "x86_64", "arm-v5te", "arm-v6k", "arm-v7", "arm64"],
+      "enum": ["x86", "x86_64", "arm-v5te", "arm-v6k", "arm-v7", "arm64", "mips", "mipsel", "ppc", "ppc64"],
       "description": "On a binary: the CPU its code runs on, from its header or, for a raw image, from the operator."
     },
     "thunk": {
