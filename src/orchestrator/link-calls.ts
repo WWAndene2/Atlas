@@ -15,23 +15,55 @@ export interface LinkedCode {
   unresolved: string[];
 }
 
-function arityIn(source: string, name: string): number | null {
-  const escaped = name.replace(/[$]/g, "\\$");
-  const m = new RegExp(`\\b${escaped}\\s*\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)\\s*;`).exec(source);
-  if (m === null) return null;
-  const params = (m[1] ?? "").trim();
-  if (params === "") return null;
-  if (params === "void") return 0;
-  if (params.includes("...")) return null;
-  // Commas at depth 0 (function-pointer parameters carry their own parentheses).
+/** Items of a parenthesised list, counted at depth 0 (nested calls and function pointers carry their own). */
+function countItems(list: string): number {
+  if (list.trim() === "") return 0;
   let depth = 0;
   let count = 1;
-  for (const c of params) {
+  for (const c of list) {
     if (c === "(") depth++;
     else if (c === ")") depth--;
     else if (c === "," && depth === 0) count++;
   }
   return count;
+}
+
+/** The parenthesised text after each occurrence of `name(`, balanced, and whether it is a declaration. */
+function occurrences(source: string, name: string): { text: string; declaration: boolean }[] {
+  const out = [];
+  const re = new RegExp(`\\b${name.replace(/[$]/g, "\\$")}\\s*\\(`, "g");
+  for (const m of source.matchAll(re)) {
+    const at = m.index ?? 0;
+    let depth = 1;
+    let i = at + m[0].length;
+    const start = i;
+    for (; i < source.length && depth > 0; i++) {
+      if (source[i] === "(") depth++;
+      else if (source[i] === ")") depth--;
+    }
+    // A declaration or definition: only type words (and qualifiers, attributes, stars) before the name on its line.
+    const before = source.slice(source.lastIndexOf("\n", at - 1) + 1, at);
+    const declaration =
+      /^\s*(?:__attribute__\(\([^)]*\)\)\s*)*[A-Za-z_][\w\s*]*[\s*]$/.test(before) && !/\breturn\b/.test(before);
+    out.push({ text: source.slice(start, i - 1), declaration });
+  }
+  return out;
+}
+
+/**
+ * A callee's number of parameters: from its prototype in the source, else from its calls when they all pass the
+ * same number of arguments (Ghidra declares callees without a known signature as f(), so this is what its own C
+ * passes, and the registers past them are not arguments). null when neither says.
+ */
+function arityIn(source: string, name: string): number | null {
+  const uses = occurrences(source, name);
+  for (const d of uses.filter((u) => u.declaration)) {
+    const params = d.text.trim();
+    if (params === "void") return 0;
+    if (params !== "" && !params.includes("...")) return countItems(params);
+  }
+  const counts = new Set(uses.filter((u) => !u.declaration).map((u) => countItems(u.text)));
+  return counts.size === 1 ? ([...counts][0] as number) : null;
 }
 
 function resolve(store: GraphStore, binary: string, symbol: string): bigint | undefined {

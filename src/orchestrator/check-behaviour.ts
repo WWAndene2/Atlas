@@ -58,9 +58,11 @@ async function rewriteVersions(store: GraphStore, hypothesis: Hypothesis, toolch
     return { inconclusive: `the rewrite calls functions not found in the binary: ${linked.unresolved.join(", ")}` };
   }
   return {
-    // The original up to its engine-measured size: the code window may run on into padding.
+    // The whole code window, up to the next function: the engine's size can stop short of a last block (one ending in
+    // a call that never returns: Ghidra gave Lua's 0x2bd60 166 bytes, before its call to luaL_error), and the checks
+    // follow only reachable code, so padding after the end is never run.
     original: {
-      code: Buffer.from(fn.code, "hex").subarray(0, Math.max(fn.size ?? 0, 1)),
+      code: Buffer.from(fn.code, "hex"),
       address: Number(BigInt(fn.address)),
     },
     candidate: { code: linked.code, address: CANDIDATE_ADDRESS },

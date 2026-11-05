@@ -51,6 +51,8 @@ describe("linkCalls", () => {
     const linked = await build(store, "int g(int, long);\nint f(int x){return g(x, 2)+1;}", ["-O2"], 0x40000000);
     expect(linked.unresolved).toEqual([]);
     expect(linked.arity).toEqual({ "0x400800": 2 });
+    const unprototyped = await build(store, "int g();\nint f(int x){g(x);\nreturn g(x+1);}", ["-O2"], 0x40000000);
+    expect(unprototyped.arity).toEqual({ "0x400800": 1 });
     const none = await build(store, "int h(int);\nint f(int x){return h(x);}", ["-O2"], 0x40000000);
     expect(none.unresolved).toEqual(["h"]);
   });
@@ -87,8 +89,12 @@ describe.runIf(python !== undefined)("behaviour checks across calls", () => {
     expect(r.equivalence.result).toBe("different");
     expect(r.differential.result).toBe("different");
   }, 240_000);
-  it("stays inconclusive when the callee's arity is unknown", async () => {
+  it("takes a callee's arity from its calls when the prototype says nothing", async () => {
     const f = "int g();\nint f(int x){return g(x*2)+1;}";
+    expect((await compare([f, ["-O2"]], [f, ["-O0"]])).equivalence.result).toBe("equivalent");
+  }, 240_000);
+  it("stays inconclusive when calls disagree on a callee's arity", async () => {
+    const f = "int g();\nint f(int x){return x ? g(x) : g(x, 1);}";
     expect((await compare([f, ["-O2"]], [f, ["-O0"]])).equivalence.result).toBe("inconclusive");
   }, 240_000);
 });
