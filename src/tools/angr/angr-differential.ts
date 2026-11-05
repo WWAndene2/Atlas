@@ -12,7 +12,14 @@ export async function runDifferential(
   python: string,
   original: CodeVersion,
   candidate: CodeVersion,
-  options: { inputs?: number; maxSteps?: number; buffer?: number; seed?: number; timeoutMs?: number } = {},
+  options: {
+    inputs?: number;
+    maxSteps?: number;
+    buffer?: number;
+    seed?: number;
+    timeoutMs?: number;
+    arity?: Record<string, number | null>;
+  } = {},
 ): Promise<DifferentialAnswer> {
   return runAngrScript<DifferentialAnswer>(
     python,
@@ -22,6 +29,7 @@ export async function runDifferential(
       inputs: options.inputs ?? 100,
       max_steps: options.maxSteps ?? 2000,
       buffer: options.buffer ?? 256,
+      arity: options.arity ?? {},
       seed: options.seed ?? 1,
     },
     ["same", "different", "inconclusive"],

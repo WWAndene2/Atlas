@@ -23,11 +23,21 @@ export interface ObjectFile {
   symbols: ObjectSymbol[];
 }
 
+export interface Relocation {
+  offset: number;
+  width: number;
+  type?: string;
+  symbol?: string;
+}
+
 export interface ObjectSection {
   name: string;
   bytes: Uint8Array;
-  /** Relocation holes: offset within the section and number of bytes the linker writes there. */
-  relocations: { offset: number; width: number }[];
+  /**
+   * Relocation holes: offset within the section and number of bytes the linker writes there; for ELF also the
+   * relocation type and the symbol it refers to (a call's callee, for the behaviour checks).
+   */
+  relocations: Relocation[];
 }
 
 // ELF relocation widths by type name; unlisted types default to 4 bytes, the common case.
@@ -41,7 +51,7 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
   const { stdout: sectionList } = await run("readelf", ["-SW", path]);
   const { stdout: symbolList } = await run("readelf", ["-sW", path]);
   const { stdout: relocationList } = await run("readelf", ["-rW", path]);
-  const holes = new Map<string, { offset: number; width: number }[]>();
+  const holes = new Map<string, Relocation[]>();
   let current: string | undefined;
   for (const line of relocationList.split("\n")) {
     const header = /^Relocation section '\.rela?(\S+)'/.exec(line);
@@ -49,7 +59,7 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
       current = header[1];
       continue;
     }
-    const m = /^([0-9a-f]+)\s+[0-9a-f]+\s+(R_\S+)/.exec(line.trim());
+    const m = /^([0-9a-f]+)\s+[0-9a-f]+\s+(R_\S+)(?:\s+[0-9a-f]+\s+([^\s+-]+))?/.exec(line.trim());
     if (m && current !== undefined) {
       const list = holes.get(current) ?? [];
       const offset = parseInt(m[1] ?? "0", 16);
@@ -57,9 +67,10 @@ async function readElf(path: string, bytes: Uint8Array): Promise<ObjectFile> {
       // x86-64 GOTPCRELX relocations let the linker relax the instruction itself, not only the field: a load from the
       // GOT becomes a lea (8b -> 8d), an indirect call through it a direct one. The two bytes before the field are
       // therefore holes too; measured on _start in Scrt1.o against a linked program.
+      const named = m[3] !== undefined ? { type, symbol: m[3] } : { type };
       if (/GOTPCRELX$/.test(type) && offset >= 2)
-        list.push({ offset: offset - 2, width: elfRelocationWidth(type) + 2 });
-      else list.push({ offset, width: elfRelocationWidth(type) });
+        list.push({ offset: offset - 2, width: elfRelocationWidth(type) + 2, ...named });
+      else list.push({ offset, width: elfRelocationWidth(type), ...named });
       holes.set(current, list);
     }
   }
@@ -192,7 +203,7 @@ export function functionRun(
   object: ObjectFile,
   first: string,
   last: string,
-): { bytes: Uint8Array; relocations: { offset: number; width: number }[] } | undefined {
+): { bytes: Uint8Array; relocations: Relocation[] } | undefined {
   const start = object.symbols.find((s) => s.name === first);
   const end = object.symbols.find((s) => s.name === last);
   if (start === undefined || end === undefined || start.section !== end.section || end.value < start.value)
@@ -209,7 +220,7 @@ export function functionRun(
     bytes: section.bytes.subarray(start.value, stop),
     relocations: section.relocations
       .filter((r) => r.offset >= start.value && r.offset < stop)
-      .map((r) => ({ offset: r.offset - start.value, width: r.width })),
+      .map((r) => ({ ...r, offset: r.offset - start.value })),
   };
 }
 

@@ -25,7 +25,7 @@ atlas check functions <file>                    # a second engine (Rizin) cross-
 atlas match graph documented.sqlite             # names and verified rewrites from a related, documented build
 atlas trace <program> -- <args>                 # RUNS the program (Frida): what ran, pointer or integer arguments
 atlas check format f.ksy <files...>             # a file format in Kaitai Struct, verified on real files
-atlas verify <hyp> --equivalence --differential # bytes differ: same behaviour? (angr, x86-64 leaf functions)
+atlas verify <hyp> --equivalence --differential # bytes differ: same behaviour? (angr, x86-64; callees opaque)
 ```
 
 An AI that connects rather than runs commands uses the MCP server, `atlas-mcp`: the same operations, as tools.

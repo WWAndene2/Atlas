@@ -82,8 +82,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
 - angr (`src/tools/angr/`): symbolic equivalence of two machine codes of one x86-64 function, run by
   `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-behaviour.ts`): equivalent
-  marks it verified (check `structural`), different records a counterexample, inconclusive (calls, input-bounded
-  loops, symbolic addresses) changes nothing. `--differential` runs both codes in angr on the same generated
+  marks it verified (check `structural`), different records a counterexample, inconclusive (indirect calls, callees of
+  unknown arity, input-bounded loops, symbolic addresses) changes nothing. Calls: the rewrite's calls are linked to
+  the original's callees (`src/orchestrator/link-calls.ts`: relocation symbol to graph function), each callee is an
+  opaque function returning the same value in both versions, and the calls must match in callee and arguments (up
+  to the arity in the rewrite's prototypes); what a callee writes to memory is not modelled. `--differential` runs both codes in angr on the same generated
   inputs (edge values, small and random integers, random buffers): same results make the rewrite `observed`, a
   difference records the input. It ends the input-bounded loops the symbolic check cannot.
 - Rizin (`src/tools/rizin/`): second engine. `atlas check functions <file>` sets the function entries it finds

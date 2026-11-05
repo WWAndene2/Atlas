@@ -41,7 +41,7 @@ export async function checkEquivalence(
   python: string,
   original: CodeVersion,
   candidate: CodeVersion,
-  options: { maxSteps?: number; buffer?: number; timeoutMs?: number } = {},
+  options: { maxSteps?: number; buffer?: number; timeoutMs?: number; arity?: Record<string, number | null> } = {},
 ): Promise<EquivalenceAnswer> {
   return runAngrScript<EquivalenceAnswer>(
     python,
@@ -50,6 +50,7 @@ export async function checkEquivalence(
       ...versions(original, candidate),
       max_steps: options.maxSteps ?? 300,
       buffer: options.buffer ?? 256,
+      arity: options.arity ?? {},
     },
     ["equivalent", "different", "inconclusive"],
     options.timeoutMs ?? 120_000,

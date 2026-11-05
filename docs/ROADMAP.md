@@ -142,8 +142,9 @@ on first download, since the release publishes no checksum). `atlas check functi
   (an AI working only through the CLI, from Ghidra's C and the recorded failure): 6 of 6 randomly sampled failing
   functions of 22 to 59 bytes verified, in 8 attempts; the fixes were struct types and offsets, `noreturn`,
   prototypes and `static` (now in `AGENTS.md`, 1.7). Equivalence (angr 10.0.5 and Z3) is in, opt-in through
-  `atlas verify --equivalence`: x86-64 leaf functions with loops bounded independently of the inputs; calls and
-  other architectures answer inconclusive. Differential testing too (`--differential`, generated inputs run in angr,
+  `atlas verify --equivalence`: x86-64 functions with loops bounded independently of the inputs; callees opaque
+  (calls linked to the original's, compared by callee and declared arguments); indirect calls, callees of unknown
+  arity and other architectures answer inconclusive. Differential testing too (`--differential`, generated inputs run in angr,
   never on the host CPU; on the 9 reference cases it settles the input-bounded loops equivalence leaves open). The
   check now
   works on every platform in view (ELF and COFF objects), validated with Lua's real source on each (97 to 99%), and

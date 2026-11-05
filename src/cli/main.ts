@@ -102,7 +102,7 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     the original bytes; records verified, or the failure and its details;
                                     without --cc, the toolchain detected for the binary; with
                                     --equivalence (one hypothesis), different bytes are then checked for
-                                    the same behaviour by symbolic execution (angr; x86-64 leaf functions);
+                                    the same behaviour by symbolic execution (angr; x86-64; callees opaque);
                                     with --differential, by running both on generated inputs (observed)
 
   --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)

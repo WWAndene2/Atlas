@@ -315,11 +315,11 @@ export function tools(store: GraphStore, graphPath: string) {
         equivalence: z
           .boolean()
           .optional()
-          .describe("One hypothesis: if the bytes differ, check for the same behaviour (angr, x86-64 leaf functions)"),
+          .describe("One hypothesis: if the bytes differ, check for the same behaviour (angr, x86-64; callees opaque)"),
         differential: z
           .boolean()
           .optional()
-          .describe("One hypothesis: if the bytes differ, run both on generated inputs (angr, x86-64 leaf functions)"),
+          .describe("One hypothesis: if the bytes differ, run both on generated inputs (angr, x86-64; callees opaque)"),
       },
       handler: async (a: {
         hypothesis: string;

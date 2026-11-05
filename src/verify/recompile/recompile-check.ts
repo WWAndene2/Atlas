@@ -18,7 +18,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { functionRun, functionSection, readObjectFile } from "./object-file.js";
+import { functionRun, functionSection, readObjectFile, type Relocation } from "./object-file.js";
 
 const run = promisify(execFile);
 
@@ -55,6 +55,8 @@ export type RecompileResult =
       differing: number;
       /** The candidate's machine code, to show the agent next to the original. */
       compiled: Uint8Array;
+      /** Where the linker would write into it, and what (a call's callee): for the behaviour checks. */
+      relocations: Relocation[];
     };
 
 export async function recompileCheck(request: RecompileRequest): Promise<RecompileResult> {
@@ -113,6 +115,7 @@ export async function recompileCheck(request: RecompileRequest): Promise<Recompi
       firstDifference: firstDifference < 0 ? Math.min(compiled.length, original.length) : firstDifference,
       differing: differing + (sizeOk ? 0 : 1),
       compiled: new Uint8Array(compiled),
+      relocations: holes,
     };
   } finally {
     await rm(work, { recursive: true, force: true });

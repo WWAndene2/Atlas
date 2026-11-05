@@ -2,7 +2,8 @@
 // only needs the same behaviour. Two checks through angr (src/tools/angr/), recorded through the verification path:
 // symbolic equivalence (check "structural": proof, so verified) and the differential test on concrete inputs (check
 // "differential": observed, not proof). A difference records the input that shows it; inconclusive changes nothing.
-// x86-64 leaf functions only for now: the checks model no callee.
+// x86-64 for now. Callees are opaque: the rewrite's calls are linked to the original's (link-calls.ts), and both
+// versions must make the same calls with the same arguments; what a callee writes to memory is not modelled.
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import {
   checkEquivalence,
@@ -13,10 +14,15 @@ import {
   type EquivalenceAnswer,
 } from "../tools/angr/index.js";
 import { ghidraPreludeFlags } from "../verify/recompile/ghidra-prelude.js";
+import { linkCalls } from "./link-calls.js";
 import { recompileCheck, type Toolchain } from "../verify/recompile/recompile-check.js";
 import { isRewriteValue } from "../verify/recompile/rewrite-value.js";
 
-type Versions = { original: CodeVersion; candidate: CodeVersion } | { inconclusive: string };
+type Versions =
+  { original: CodeVersion; candidate: CodeVersion; arity: Record<string, number | null> } | { inconclusive: string };
+
+/** Where the candidate is placed: within reach of a 32-bit relative call from the original's callees. */
+const CANDIDATE_ADDRESS = 0x40000000;
 
 /** The original's machine code and the rewrite's, compiled; or why they cannot be set side by side. */
 async function rewriteVersions(store: GraphStore, hypothesis: Hypothesis, toolchain: Toolchain): Promise<Versions> {
@@ -40,13 +46,25 @@ async function rewriteVersions(store: GraphStore, hypothesis: Hypothesis, toolch
   });
   if (check.result === "pass") return { inconclusive: "identical bytes: nothing to compare" };
   if (check.reason !== "mismatch") return { inconclusive: `the rewrite does not compile: ${check.reason}` };
+  const linked = linkCalls(
+    store,
+    fn.binary as string,
+    check.compiled,
+    check.relocations,
+    CANDIDATE_ADDRESS,
+    value.source,
+  );
+  if (linked.unresolved.length > 0) {
+    return { inconclusive: `the rewrite calls functions not found in the binary: ${linked.unresolved.join(", ")}` };
+  }
   return {
     // The original up to its engine-measured size: the code window may run on into padding.
     original: {
       code: Buffer.from(fn.code, "hex").subarray(0, Math.max(fn.size ?? 0, 1)),
       address: Number(BigInt(fn.address)),
     },
-    candidate: { code: check.compiled, address: 0x40000000 },
+    candidate: { code: linked.code, address: CANDIDATE_ADDRESS },
+    arity: linked.arity,
   };
 }
 
@@ -57,7 +75,7 @@ export async function checkRewriteEquivalence(
 ): Promise<EquivalenceAnswer> {
   const v = await rewriteVersions(store, hypothesis, toolchain);
   if ("inconclusive" in v) return { result: "inconclusive", details: v.inconclusive };
-  const answer = await checkEquivalence(locateAngr(), v.original, v.candidate);
+  const answer = await checkEquivalence(locateAngr(), v.original, v.candidate, { arity: v.arity });
   if (answer.result === "equivalent") {
     store.recordVerification(hypothesis.id, {
       confidence: "verified",
@@ -91,7 +109,7 @@ export async function checkRewriteDifferential(
 ): Promise<DifferentialAnswer> {
   const v = await rewriteVersions(store, hypothesis, toolchain);
   if ("inconclusive" in v) return { result: "inconclusive", details: v.inconclusive };
-  const answer = await runDifferential(locateAngr(), v.original, v.candidate);
+  const answer = await runDifferential(locateAngr(), v.original, v.candidate, { arity: v.arity });
   if (answer.result !== "inconclusive") {
     const same = answer.result === "same";
     store.recordVerification(hypothesis.id, {
