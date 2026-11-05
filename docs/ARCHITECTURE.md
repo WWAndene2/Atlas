@@ -199,6 +199,12 @@ but the file: all right but one, where Clang 15 and 17 tie (no version string, n
 right), 23 to 96 s each with compiles run in parallel. Limit: only installed compilers are candidates (not MSVC
 or console SDKs).
 
+`atlas decompile` gives each function as a whole translation unit (`AtlasDecompile.java`): the definitions of the
+types it uses (Ghidra's DataTypeWriter), `extern` declarations of its globals with Ghidra's types, its callees'
+prototypes (`noreturn` marked; callees without an analysed signature declared as `T name();`, keeping the return
+type), then the body. Measured on the four Lua builds against the body alone: compile errors 1,381 to 466, verified
+198 to 225 (Linux 19 to 20, Windows 67 to 85, Android 51 to 60, ARM 61 to 60).
+
 `atlas decompile` adds Ghidra's C for each function as a rewrite with
 `prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
 

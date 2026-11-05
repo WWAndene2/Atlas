@@ -143,7 +143,9 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   same-file jump limit (all 30 Lua source files reproduce whole). Toolchain detection finds the compiler and flags
   with no hint, among GCC 9 to 14, Clang 14 to 19 and cross compilers for Windows, ARM, MIPS and PowerPC (right on 7
   of 8 Lua builds; the eighth a reported Clang 15/17 tie). MIPS and PowerPC are architectures of their own (the
-  PlayStation and GameCube/Wii families). Agents' work is prepared: `atlas list tasks rewrite` (callees first)
+  PlayStation and GameCube/Wii families). Ghidra's C now comes as whole translation units
+  (types, globals, callee prototypes): compile errors down two thirds, verified up 14% on the four Lua builds.
+  Agents' work is prepared: `atlas list tasks rewrite` (callees first)
   and `atlas get task rewrite` (one self-contained task per function, original and attempt instructions side by
   side), the input M6's parallel agents will take. Next: the agent loop over a whole binary, larger
   functions, and the share verified and the time it takes.

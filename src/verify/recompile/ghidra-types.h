@@ -24,6 +24,12 @@ typedef unsigned long long uint5, uint6, uint7, undefined5, undefined6, undefine
 typedef unsigned short wchar16;
 typedef unsigned int wchar32;
 typedef unsigned char code;
+/* Built-ins of executable formats and the x87 FPU, which Ghidra's type writer refers to (seen on Windows Lua). */
+typedef unsigned int pointer32;
+typedef unsigned long long pointer64;
+typedef unsigned int ImageBaseOffset32;
+typedef unsigned long long ImageBaseOffset64;
+typedef long double float10;
 #define true 1
 #define false 0
 #endif
