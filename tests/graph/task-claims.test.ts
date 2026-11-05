@@ -49,4 +49,24 @@ describe("TaskClaims", () => {
     ]);
     claims.close();
   });
+
+  it("takes a release after the lease lapsed, keeping its note, and refuses one while another agent holds the task", () => {
+    const claims = new TaskClaims(":memory:");
+    claims.claimFirst(["t"], "paused", 1, Date.now() - 10); // a lease that already ran out
+    expect(claims.release("t", "paused", "found the struct layout")).toBe(true);
+    expect(claims.notes("t")).toEqual([{ agent: "paused", note: "found the struct layout" }]);
+    claims.claimFirst(["t"], "other", 60_000);
+    expect(claims.release("t", "paused", "one more finding")).toBe(false);
+    expect(claims.notes("t").map((n) => n.note)).toEqual(["found the struct layout", "one more finding"]);
+    claims.close();
+  });
+
+  it("never hands an agent a task it gave up", () => {
+    const claims = new TaskClaims(":memory:");
+    claims.claimFirst(["hard"], "top", 60_000);
+    claims.release("hard", "top");
+    expect(claims.claimFirst(["hard"], "top", 60_000)).toBeUndefined();
+    expect(claims.claimFirst(["hard"], "another-top", 60_000)?.task).toBe("hard");
+    claims.close();
+  });
 });

@@ -30,6 +30,11 @@ export class TaskClaims {
     // Tasks given back, and how often: they go behind every task not yet tried.
     this.db.exec("CREATE TABLE IF NOT EXISTS released (task TEXT PRIMARY KEY, times INTEGER NOT NULL)");
     // What agents found before giving a task back (near misses, layouts, causes), so the next one starts from there.
+    // Who gave each task back: an agent is never handed again a task it gave up (at the top level, it was handed its
+    // own releases in a loop in the benchmark run).
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS released_by (task TEXT NOT NULL, agent TEXT NOT NULL, PRIMARY KEY (task, agent))",
+    );
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS release_notes (task TEXT NOT NULL, agent TEXT NOT NULL, note TEXT NOT NULL)",
     );
@@ -68,7 +73,12 @@ export class TaskClaims {
         .map((x) => x.c);
       // accept: which tasks this agent may take, by how often they were given back (a stronger model takes what
       // others released; see orchestrator/task-levels.ts).
-      const task = order.find((c) => !held.has(c) && accept(c, times.get(c) ?? 0));
+      const givenUp = new Set(
+        (this.db.prepare("SELECT task FROM released_by WHERE agent = ?").all(agent) as { task: string }[]).map(
+          (r) => r.task,
+        ),
+      );
+      const task = order.find((c) => !held.has(c) && !givenUp.has(c) && accept(c, times.get(c) ?? 0));
       let claim: Claim | undefined;
       if (task !== undefined) {
         claim = { task, agent, expires: now + leaseMs };
@@ -83,12 +93,22 @@ export class TaskClaims {
   }
 
   /** Gives a task back. Only its holder can (another agent's release is ignored and reported false). */
+  /**
+   * Gives a task back. The holder releases it; so does an agent whose lease lapsed while nobody else took the task
+   * (in the benchmark run, agents paused by a usage limit came back to a lapsed lease, and their release and notes
+   * were refused). Another agent's claim is left alone, but a note is always kept.
+   */
   release(task: string, agent: string, note?: string): boolean {
-    const released = this.db.prepare("DELETE FROM claims WHERE task = ? AND agent = ?").run(task, agent).changes > 0;
-    if (released && note !== undefined && note.trim() !== "") {
+    const now = Date.now();
+    const holder = this.db.prepare("SELECT agent FROM claims WHERE task = ? AND expires > ?").get(task, now) as
+      { agent: string } | undefined;
+    const released = holder === undefined || holder.agent === agent;
+    if (note !== undefined && note.trim() !== "") {
       this.db.prepare("INSERT INTO release_notes (task, agent, note) VALUES (?, ?, ?)").run(task, agent, note.trim());
     }
     if (released) {
+      this.db.prepare("DELETE FROM claims WHERE task = ?").run(task);
+      this.db.prepare("INSERT OR IGNORE INTO released_by (task, agent) VALUES (?, ?)").run(task, agent);
       this.db
         .prepare("INSERT INTO released (task, times) VALUES (?, 1) ON CONFLICT(task) DO UPDATE SET times = times + 1")
         .run(task);
