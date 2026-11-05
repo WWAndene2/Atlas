@@ -11,6 +11,8 @@ import ghidra.app.script.GhidraScript;
 import ghidra.program.model.data.Array;
 import ghidra.program.model.data.BuiltInDataType;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.Composite;
+import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.DataTypeWriter;
 import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.data.ParameterDefinition;
@@ -150,7 +152,13 @@ public class AtlasDecompile extends GhidraScript {
     if (base == null || base instanceof BuiltInDataType || PRELUDE.contains(base.getName())) return;
     if (base instanceof TypeDef && ((TypeDef) base).getBaseDataType() instanceof BuiltInDataType
         && PRELUDE.contains(base.getName())) return;
-    types.add(base);
+    if (!types.add(base)) return;
+    // DataTypeWriter writes what a structure's members need, but not a typedef of an array such as jmp_buf (seen with
+    // DWARF: 680 of 706 Lua 5.4.6 rewrites failed on it), so members and typedef targets are collected here too.
+    if (base instanceof Composite) {
+      for (DataTypeComponent c : ((Composite) base).getDefinedComponents()) collect(c.getDataType(), types);
+    }
+    if (base instanceof TypeDef) collect(((TypeDef) base).getDataType(), types);
     if (base instanceof FunctionDefinition) {
       FunctionDefinition fd = (FunctionDefinition) base;
       for (ParameterDefinition p : fd.getArguments()) collect(p.getDataType(), types);
