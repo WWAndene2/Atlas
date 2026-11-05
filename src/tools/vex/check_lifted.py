@@ -112,7 +112,7 @@ void atlas_poke(atlas_state *s, uint64_t a, const uint8_t *src, uint64_t n) {{
 void atlas_peek(atlas_state *s, uint64_t a, uint8_t *dst, uint64_t n) {{
   for (uint64_t i = 0; i < n; i++) dst[i] = atlas_page(s, a + i)[(a + i) & 0xfff];
 }}
-static uint64_t heap = HEAP;
+uint64_t heap = HEAP;
 static uint64_t heap_alloc(atlas_state *s, uint64_t n) {{
   uint64_t p = heap + 16;
   STORE64(p - 8, n);
@@ -195,6 +195,12 @@ def run_c(lib, State, offsets, entry, case, timeout=2):
         code = lib.atlas_run(ctypes.byref(state), ctypes.c_uint64(entry))
         if code == 0:
             out = {"rax": struct.unpack_from("<Q", state.r, offsets["rax"][0])[0]}
+            # Memory the call allocated (the shared allocator's heap): what it wrote there must agree too.
+            end = ctypes.c_uint64.in_dll(lib, "heap").value
+            if end > HEAP:
+                buf = ctypes.create_string_buffer(end - HEAP)
+                lib.atlas_peek(ctypes.byref(state), ctypes.c_uint64(HEAP), buf, end - HEAP)
+                out["heap"] = buf.raw.hex()
             for base in case["pages"]:
                 buf = ctypes.create_string_buffer(PAGE)
                 lib.atlas_peek(ctypes.byref(state), ctypes.c_uint64(base), buf, PAGE)
@@ -298,6 +304,9 @@ def run_original(proj, entry, case, max_steps=4000, slots=()):
         # Returned: back at the return address with the stack popped.
         if not s.regs.rip.symbolic and s.solver.eval(s.regs.rip) == ret and s.solver.eval(s.regs.rsp) == rsp + 8:
             out = {"rax": s.solver.eval(s.regs.rax)}
+            end = s.globals.get("heap", HEAP)
+            if end > HEAP:
+                out["heap"] = s.solver.eval(s.memory.load(HEAP, end - HEAP)).to_bytes(end - HEAP, "big").hex()
             for base in case["pages"]:
                 out[hex(base)] = s.solver.eval(s.memory.load(base, PAGE)).to_bytes(PAGE, "big").hex()
             return out
