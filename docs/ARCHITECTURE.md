@@ -62,7 +62,7 @@ Flawed methods behind those gaps, each answered by a principle below:
     session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
-                      Ghidra, REA, angr; later Rizin, IDA, Frida
+                      Ghidra, REA, Rizin, angr; later IDA, Frida
 ```
 
 ### Tools layer: several engines, cross-checked
@@ -84,7 +84,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-equivalence.ts`): equivalent
   marks it verified (check `structural`), different records a counterexample, inconclusive (calls, input-bounded
   loops, symbolic addresses) changes nothing.
-- Later: Rizin directly, IDA for operators with a licence. Atlas adds tools of its own only where scores on
+- Rizin (`src/tools/rizin/`): second engine. `atlas check functions <file>` sets the function entries it finds
+  beside the graph's and records the agreement as engine evidence (`src/orchestrator/cross-check-functions.ts`).
+  Measured on Lua x86-64: Rizin finds 588 of Ghidra's 805 entries and none Ghidra misses.
+- Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
 Container formats whose code no engine reads directly are opened by Atlas's own readers before the engines run

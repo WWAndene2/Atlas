@@ -149,6 +149,30 @@ else
   lack "Lua toolchain fixtures" "install the compilers above, then run this again"
 fi
 
+step "Rizin, the second engine (atlas check functions)"
+# Exactly the reviewed release (docs/DEPENDENCY_REVIEWS.md), its static Linux x86-64 build, checked against the
+# SHA-256 recorded at review before unpacking. Recommended, not required.
+RIZIN_VERSION=0.9.1
+RIZIN_SHA256=9102249a9f0b6319c5334a2e5cf8d9cc3f2035e1d3def027c41f6a90f647e8cf
+rizin_dir="$tools/rizin-$RIZIN_VERSION"
+if [[ -x "$rizin_dir/bin/rizin" ]]; then
+  ok "Rizin $RIZIN_VERSION"
+elif [[ "$(uname -sm)" != "Linux x86_64" ]] || ! { have curl && have sha256sum && have tar; }; then
+  printf '   note: Rizin not installed (static build for Linux x86-64 only here)\n   how: install Rizin %s in %s\n' "$RIZIN_VERSION" "$rizin_dir"
+else
+  work=$(mktemp -d)
+  archive="rizin-v$RIZIN_VERSION-static-x86_64.tar.xz"
+  if curl -sSLf -o "$work/$archive" "https://github.com/rizinorg/rizin/releases/download/v$RIZIN_VERSION/$archive" &&
+    echo "$RIZIN_SHA256  $work/$archive" | sha256sum -c --quiet - &&
+    mkdir -p "$rizin_dir" && tar xf "$work/$archive" -C "$rizin_dir"; then
+    ok "Rizin $RIZIN_VERSION in $rizin_dir"
+  else
+    rm -rf "$rizin_dir"
+    printf '   note: Rizin download or checksum failed; run this again\n'
+  fi
+  rm -rf "$work"
+fi
+
 step "angr for the equivalence check (atlas verify --equivalence)"
 # A Python environment of its own in the tools directory, exactly the reviewed version (docs/DEPENDENCY_REVIEWS.md),
 # wheels only. Recommended, not required: without it --equivalence answers that angr is missing.

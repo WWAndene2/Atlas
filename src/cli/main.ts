@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
+import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
@@ -68,6 +69,9 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     how the binary was compiled: compiler clues in the file, then a probe
                                     recompiling a sample of Ghidra's C with each candidate; load and
                                     decompile the file first
+  check functions <file> [--arch <a> --base <0x..>]
+                                    a second engine (Rizin) lists the functions too: how many entries both
+                                    engines agree on, which only one finds; recorded as evidence
   verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details;
@@ -232,6 +236,11 @@ async function main(argv: string[]): Promise<number> {
           ...(values.equivalence === true ? { equivalence: true } : {}),
         });
         break;
+      case "check": {
+        const { raw } = parseRaw(values.arch, values.base);
+        output = await runCheckFunctions(store, rest, raw);
+        break;
+      }
       case "detect": {
         const { raw } = parseRaw(values.arch, values.base);
         output = await runDetectToolchain(store, rest, raw);

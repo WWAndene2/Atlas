@@ -84,3 +84,19 @@ network use at run time found.
 2. Run only as a subprocess on machine code Atlas extracted itself; target code is executed symbolically, never
    natively.
 3. Opt-in (`atlas verify --equivalence`): nothing else depends on it.
+
+## Rizin 0.9.1 — 5 November 2026
+
+**Scope of the check.** The release's static Linux x86-64 archive (`rizin-v0.9.1-static-x86_64.tar.xz`, SHA-256
+`9102249a9f0b6319c5334a2e5cf8d9cc3f2035e1d3def027c41f6a90f647e8cf`) from the project's GitHub releases. The release publishes no checksum: the hash was recorded at the first
+download (trust on first use), approved by the operator. Run on
+Atlas's fixtures; its code was not audited.
+
+**Seen:** LGPL-3.0, run as a separate program (no linking into Atlas). A self-contained binary with its plugins
+built in; no network use seen in the analysis commands Atlas runs (`aaa`, `aflj`).
+
+**Conditions:**
+
+1. Exactly 0.9.1, installed by `scripts/setup.sh` only after the SHA-256 above matches; a bump needs a new entry.
+2. Run with `-N` (no user scripts or plugins) and only the analysis commands in `src/tools/rizin/`; never `-d`
+   (debugging runs the target).

@@ -22,6 +22,7 @@ import { rewriteTask } from "../orchestrator/rewrite-task.js";
 import { runTarget } from "../orchestrator/run-target.js";
 import { binaryToolchain } from "../orchestrator/detect-toolchain.js";
 import { toolchainLibraries } from "../orchestrator/toolchain-libraries.js";
+import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { verifyOne, verifyPending } from "../orchestrator/verify-rewrites.js";
 import { ARCHITECTURES, type EngineInput } from "../tools/engine-analysis.js";
 
@@ -151,6 +152,13 @@ export function tools(store: GraphStore, graphPath: string) {
           await target.dispose();
         }
       },
+    },
+    check_functions: {
+      description: "A second engine (Rizin) lists the functions too: entries both agree on, and those only one finds.",
+      input: { path: z.string(), ...raw },
+      handler: async (a: { path: string; arch?: (typeof ARCHITECTURES)[number]; base?: string }) => ({
+        binaries: await crossCheckFile(store, a.path, rawInput(a)),
+      }),
     },
     match_libraries: {
       description: "Recognise library code (the detected toolchain's libraries and any given): linked, not rewritten.",

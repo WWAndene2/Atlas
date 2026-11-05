@@ -74,7 +74,9 @@ on time. A second engine raises confidence, not speed; the path to that test run
 naming (M2) and verified rewriting (M3). Measured meanwhile: REA 6.8.0 analyses native Linux binaries only through
 Ghidra, so it cannot cross-check Ghidra; the second engine is Rizin directly (0.9.1, independent code base), to be
 built from its pinned source since its release publishes no checksum, with REA kept for the targets Ghidra and
-Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
+Rizin do not cover (JavaScript, .NET, Android, dynamic capture). Done (5 November 2026), with the operator's approval,
+from the release's static build instead of source: its SHA-256 is recorded at review and checked by setup.sh (trust
+on first download, since the release publishes no checksum). `atlas check functions` is the cross-check.
 
 - **Security review of REA**, done on 6.8.0 (`docs/DEPENDENCY_REVIEWS.md`): usable as the second engine under
   conditions, so Ghidra's adapter comes first.
