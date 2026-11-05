@@ -29,6 +29,7 @@ import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
+import { liftBinary } from "../orchestrator/lift-binary.js";
 import { repairCandidates, repairRewrite } from "../orchestrator/repair-rewrite.js";
 import { toolchainFor, verifyOne, verifyPending } from "../orchestrator/verify-rewrites.js";
 import { ARCHITECTURES, type EngineInput } from "../tools/engine-analysis.js";
@@ -336,6 +337,31 @@ export function tools(store: GraphStore, graphPath: string) {
               equivalence: a.equivalence === true,
               differential: a.differential === true,
             });
+      },
+    },
+    lift: {
+      description:
+        "The 'it runs' path: every function of a loaded file translated mechanically to C (any architecture), written to out with its runtime and dispatch table.",
+      input: { path: z.string(), out: z.string(), ...raw },
+      handler: async (a: { path: string; out: string; arch?: (typeof ARCHITECTURES)[number]; base?: string }) => {
+        const target = await resolveTarget(a.path, rawInput(a));
+        try {
+          const results = [];
+          for (const b of target.binaries) {
+            const id = binaryId(await fileSha256(b.input.path));
+            results.push(
+              await liftBinary(
+                store,
+                id,
+                target.binaries.length === 1 ? a.out : `${a.out}/${b.label.replace(/[^\w.-]+/g, "_")}`,
+                b.input.raw === undefined ? b.input.path : undefined,
+              ),
+            );
+          }
+          return { binaries: results };
+        } finally {
+          await target.dispose();
+        }
       },
     },
     repair_rewrite: {

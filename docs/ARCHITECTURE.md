@@ -115,6 +115,14 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   into contiguous runs maximising modularity over calls plus a link between neighbours (exact dynamic programming);
   each run is a `sys_` node, each member gets a `system` hypothesis (inferred). `atlas get system` gives an agent
   the members, strings and calls out; `atlas propose summary` records its name and summary (`summary` hypothesis).
+- Static recompilation, the "it runs" path (`src/tools/vex/`, `src/orchestrator/lift-binary.ts`): `atlas lift
+<file> --out <dir>` translates every function's machine code to C through VEX (one translator for x86, x86-64,
+  ARM, ARM64, MIPS, PowerPC), with a runtime (`atlas_lift.h`: guest state at VEX's offsets, memory with the guest's
+  byte order, x86-64 condition codes, SSE low-lane floating point) and a dispatch table; a whole program recompiles
+  before any function is rewritten, and a verified rewrite then replaces its function's translation. Untranslated
+  functions are listed with their reason. `check_lifted.py` runs translations and the original (angr) on the same
+  inputs (x86-64 so far). Lua: x86-64 687 of 702 functions translated, ARM 1,243 of 1,256, MIPS 869 of 898, PowerPC
+  1,094 of 1,097, all compiling; checked on 60 x86-64 functions: 22 same, 0 different, 38 without a valid input.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 

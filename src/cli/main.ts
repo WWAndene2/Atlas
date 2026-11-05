@@ -6,6 +6,7 @@ import { GraphStore, TaskClaims } from "../graph/index.js";
 import { ARCHITECTURES } from "../tools/engine-analysis.js";
 import { runClusterSystems, runGetSystem, runProposeSummary } from "./commands/systems.js";
 import { runInferFields, runInferTypes } from "./commands/infer.js";
+import { runLift } from "./commands/lift.js";
 import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
@@ -98,6 +99,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
                                     integers, recorded as observed signatures (x86-64 Linux)
+  lift <file> --out <dir> [--arch <a> --base <0x..>]
+                                    the "it runs" path: every function translated mechanically to C
+                                    (through VEX, any architecture) with its runtime and a dispatch table,
+                                    and the reasons for the functions it could not translate
   repair rewrite <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
                                     before an agent: try the usual fixes (static, noreturn, attributes,
                                     types, operand order) on rewrites that compile to different bytes, keep
@@ -145,6 +150,7 @@ async function main(argv: string[]): Promise<number> {
         equivalence: { type: "boolean" },
         differential: { type: "boolean" },
         stdin: { type: "string" },
+        out: { type: "string" },
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
@@ -253,6 +259,11 @@ async function main(argv: string[]): Promise<number> {
       case "score":
         output = await runScoreNames(store, rest, values.truth, values.binary);
         break;
+      case "lift": {
+        const { raw } = parseRaw(values.arch, values.base);
+        output = await runLift(store, rest, values.out, raw);
+        break;
+      }
       case "repair":
         output = await runRepair(store, rest, {
           ...(values.cc !== undefined ? { cc: values.cc } : {}),

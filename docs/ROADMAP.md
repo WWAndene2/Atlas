@@ -160,6 +160,16 @@ on first download, since the release publishes no checksum). `atlas check functi
   side), the input M6's parallel agents will take. Next: the agent loop over a whole binary, larger
   functions, and the share verified and the time it takes.
 
+### Static recompilation — the "it runs" path (decided 5 November 2026)
+
+A field report on a 3DS title (one game among the targets Atlas is for) showed byte-exact rewriting is out of reach
+at first where the original compiler cannot be had, and that a mechanical translation checked by behaviour gets a
+game running sooner. Done: `atlas lift` (VEX to C, every architecture Atlas names; see ARCHITECTURE.md) and its
+behaviour check on x86-64. Next, in order: real inputs recorded while the program runs (random inputs leave Lua's
+state invalid: most checks found no valid input), the check on other architectures (an emulator side per CPU), a
+link step building a runnable program from the translations, imports and the original data, and verified rewrites
+replacing translations.
+
 ### M4 — Types and traces · 2–3 weeks
 
 - Frida traces projected onto the graph (calls, arguments, memory accesses).
