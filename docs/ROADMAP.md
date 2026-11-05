@@ -175,6 +175,10 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   released task came straight back. Fixed: code in linker sections and Ghidra's switch fragments are marked
   `generated` at load and left out of the queue, and a released task goes behind every task not yet tried. Known
   limit: cold fragments Ghidra does not place in a namespace (FUN_00007bf4 on Lua) still reach the queue.
+- Second parallel run, the queue fixed (same target and limits, 21 tasks claimed): 18 verified by the subagents, 2
+  more once the recompile check stopped taking a function's cold part (`.text.unlikely.<name>`) for its body: 20 of
+  21, functions of 29 to 503 bytes, in about 2.5 minutes of wall time for four subagents. Open tasks: 702 to 658.
+  The one left: a 1-byte operand-order difference in `test` that 15 source variants did not move.
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 

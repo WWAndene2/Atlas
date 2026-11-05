@@ -69,4 +69,31 @@ describe("recompileCheck", () => {
     const r = await recompileCheck({ source, name: "scale", original, minimumSize: original.length + 8, toolchain });
     expect(r.result).toBe("fail");
   });
+
+  it("compares a function's body, not the cold part GCC splits off it", async () => {
+    // GCC places the path to a cold call in .text.unlikely.sum (sum.cold), before .text.sum in the object. Taking
+    // that section made two correct rewrites of Lua functions fail.
+    const coldSource = [
+      "__attribute__((cold, noreturn)) void fatal(const char *, int);",
+      "extern int table[64];",
+      "int sum(int *p, int n) {",
+      "  int s = 0;",
+      "  for (int i = 0; i < n; i++) {",
+      '    if (p[i] < 0) fatal("negative", i);',
+      "    s += table[p[i] & 63] * p[i];",
+      "  }",
+      "  return s;",
+      "}",
+      "",
+    ].join("\n");
+    const body = compiledBytes(coldSource, "sum");
+    const r = await recompileCheck({
+      source: coldSource,
+      name: "sum",
+      original: body,
+      minimumSize: body.length,
+      toolchain,
+    });
+    expect(r).toMatchObject({ result: "pass", size: body.length });
+  });
 });

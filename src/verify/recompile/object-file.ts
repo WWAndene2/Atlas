@@ -168,7 +168,12 @@ export async function readObjectFile(path: string): Promise<ObjectFile> {
  * also with a placement kind before the name (.text.startup.main, .text.unlikely.f). */
 export function functionSection({ sections }: ObjectFile, name: string): ObjectSection | undefined {
   const escaped = name.replace(/[$]/g, "\\$");
-  const pattern = new RegExp(`^\\.text[.$](?:\\w+[.$])?${escaped}$`);
+  // The function's own section first. GCC also puts a function's never-taken paths in .text.unlikely.<name> (its
+  // <name>.cold part), which can come first in the object: taking it compared those few bytes with the whole
+  // function, and on Lua two subagents' correct rewrites failed. A cold part is never the function's body.
+  const exact = sections.find((s) => s.name === `.text.${name}` || s.name === `.text$${name}`);
+  if (exact !== undefined) return exact;
+  const pattern = new RegExp(`^\\.text[.$](?!unlikely[.$])\\w+[.$]${escaped}$`);
   return sections.find((s) => pattern.test(s.name));
 }
 
