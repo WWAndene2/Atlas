@@ -142,6 +142,13 @@ else
   printf '   note: not installed, so not detectable: %s\n   how: apt install %s\n' "${absent[*]}" "${compilers[*]}"
 fi
 
+step "Previous Lua release, for knowledge carried over (atlas match graph)"
+if "$repo/tests/fixtures/lua-versions/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-versions/build"
+else
+  lack "Lua 5.4.6 fixture" "check the network to www.lua.org, then run this again"
+fi
+
 step "Toolchain ground-truth fixtures (GCC 11, Clang 17, MIPS, PowerPC)"
 if "$repo/tests/fixtures/lua-toolchains/build.sh" | sed 's/^/   /'; then
   ok "$repo/tests/fixtures/lua-toolchains/build"
