@@ -172,9 +172,10 @@ on first download, since the release publishes no checksum). `atlas check functi
   (702 functions, 11 minutes on 4 cores): 657 functions with fields; against DWARF, of 2,051 accesses through
   struct parameters 1,837 hit a member's exact offset and width, 43 fall inside a member, 158 on an array element,
   13 on nothing (99.4% right); against the Frida trace, 226 functions confirmed, 4 contradicted. Then `atlas infer
-types`: 58 struct types for the 19 real structs met, purity 0.86 (arguments in a type pointing to its majority
-  struct), inverse purity 0.78 (large structs such as lua_State split in several). Next: merging the split types
-  through calls (an argument passed on to a callee is the same struct), and the typer agent declaring them.
+types`, joining first the arguments handed unchanged to callees: 57 struct types from 697 arguments for the 20
+  real structs met, purity 0.89 (arguments in a type pointing to its majority struct), inverse purity 0.88 (before
+  the join through calls: 0.86 and 0.78 from 601 arguments; lua_State now in 3 types, 384 arguments). Next: the
+  typer agent declaring them in rewrites.
 
 ### M5 — Systems · 2–3 weeks
 
