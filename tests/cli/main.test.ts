@@ -103,6 +103,13 @@ describe("atlas CLI", () => {
     expect(atlas("score", "names")).toMatchObject({ code: 2, out: { error: { code: "usage" } } });
   });
 
+  it("asks for a goal before running the whole job", () => {
+    expect(atlas("run", cli)).toMatchObject({
+      code: 2,
+      out: { error: { message: expect.stringContaining("--goal") } },
+    });
+  });
+
   it("answers errors in JSON with an exit code", () => {
     expect(atlas("get", "function", "0x9")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });
     expect(atlas("load", "/nonexistent")).toMatchObject({ code: 1, out: { error: { code: "not_found" } } });

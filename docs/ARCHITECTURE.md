@@ -256,6 +256,15 @@ Android Lua 1 (its C library is dynamic: nothing to find). A later toolchain det
 true name is already their label (exported symbols left in a stripped binary: 155 of 706 on Lua) are counted apart,
 so the accuracy measures naming, not reading.
 
+### The whole job
+
+`atlas run <file> --goal "<goal>" [--report <file.md>]` (`src/orchestrator/run-target.ts`) chains every step on
+each binary the file holds: load with every engine, decompile, detect the toolchain, match libraries, verify every
+rewrite, and report per binary the toolchain and its evidence, the functions that are stubs, library code, verified,
+and still open, the first open ones callees first, the time of each step, and any step that could not run (the run
+goes on without it). Agents working the open tasks in parallel (roadmap M6) will come between verification and the
+report. Raw ARM Lua: 881 functions, 9 stubs, 198 library, 60 verified, 618 open, in about 3 minutes.
+
 ### Command line
 
 `atlas <command> [--graph <file>] [--json]` (`src/cli/`, built to `dist/src/cli/main.js`): `load`, `get function`,

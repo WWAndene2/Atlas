@@ -9,6 +9,7 @@ import { runGetFunction } from "./commands/get-function.js";
 import { runList } from "./commands/list.js";
 import { parseRaw, runLoad } from "./commands/load.js";
 import { runMatchLibraries } from "./commands/libraries.js";
+import { runRun } from "./commands/run.js";
 import { runProposeName, runScoreNames } from "./commands/names.js";
 import { runGetTask, runListTasks } from "./commands/task.js";
 import { runDecompile, runDetectToolchain, runProposeRewrite, runVerify } from "./commands/rewrite.js";
@@ -16,6 +17,9 @@ import { CliError, fail, print, type Output } from "./output.js";
 
 const USAGE = `usage: atlas <command> [--graph <file>] [--json]
 
+  run <file> --goal "<goal>" [--arch <a> --base <0x..>] [--report <file.md>]
+                                    the whole job: load, decompile, detect the toolchain, match libraries,
+                                    verify, and report what is verified, linked and still open
   load <binary> [--arch <a> --base <0x..>]
                                     analyse a binary with every available engine and add it to the graph;
                                     --arch and --base for raw bytes with no header (a 3DS code.bin), where
@@ -77,6 +81,8 @@ async function main(argv: string[]): Promise<number> {
         cc: { type: "string" },
         cflags: { type: "string" },
         truth: { type: "string" },
+        goal: { type: "string" },
+        report: { type: "string" },
         library: { type: "string", multiple: true },
         base: { type: "string" },
         json: { type: "boolean", default: false },
@@ -115,6 +121,15 @@ async function main(argv: string[]): Promise<number> {
       case "decompile": {
         const { raw } = parseRaw(values.arch, values.base);
         output = await runDecompile(store, rest, raw, values.function ?? [], values.binary);
+        break;
+      }
+      case "run": {
+        const { raw } = parseRaw(values.arch, values.base);
+        output = await runRun(store, rest, {
+          ...(values.goal !== undefined ? { goal: values.goal } : {}),
+          ...(values.report !== undefined ? { report: values.report } : {}),
+          ...(raw !== undefined ? { raw } : {}),
+        });
         break;
       }
       case "match":

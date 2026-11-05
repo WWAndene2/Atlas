@@ -13,6 +13,7 @@ scripts/setup.sh            # installs and checks everything; names what is miss
 Then, with `atlas` (installed in `~/.local/bin`; else `node dist/src/cli/main.js`):
 
 ```sh
+atlas run <file> --goal "<goal>" --report r.md  # the whole job: everything below, then a report
 atlas load <file>                               # ELF, PE, Mach-O...: the engines read the header
 atlas load game.3ds                             # a decrypted 3DS title (NCSD/NCCH): code found and unpacked
 atlas load <file> --arch arm-v6k --base 0x100000   # raw bytes with no header: say the CPU and load address
