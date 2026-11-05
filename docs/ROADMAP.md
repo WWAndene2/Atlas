@@ -235,8 +235,11 @@ system`, `atlas propose summary`). Scored against the source files (DWARF): x86-
 - Fuzzy matching done (`atlas match graph`): from a documented graph, names (379 of 380 right, GCC 11 to GCC 13
   Lua: 53% of the functions to name) and verified rewrites carried over as hypotheses. Thresholds measured on that
   pair: 0.1 similarity gives 517 names with 26 wrong, 0.3 gives 285 with none wrong. Weak across compilers (Clang
-  17 to GCC 13: 28 names, 4 wrong). Next: a second Lua version, and features that survive a compiler change
-  (call graph, constants, strings).
+  17 to GCC 13: 28 names, 4 wrong). Measured from one version to the next (fixture `tests/fixtures/lua-versions`: Lua 5.4.6 with DWARF, its
+  graph decompiled and verified by Atlas alone, carried over to stripped 5.4.7): 619 names, 615 right (87.8% of
+  the functions to name); 103 verified rewrites carried, 98 verified again on 5.4.7, taking it from 21 verified
+  functions to 111 with no agent. Ghidra's C on a DWARF build needed the array-typedef fix (jmp_buf: 4 verified
+  of 706 before, 170 after). Next: features that survive a compiler change (call graph, constants, strings).
 - **Done when:** a second Lua version starts from the first one's graph, with the gain in cost measured.
 
 ### M8 — Scale
