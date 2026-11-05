@@ -169,9 +169,30 @@ behaviour check on x86-64. Then real inputs (atlas trace captures:
 registers at entry and the pages they point into, one level of pointers deep, code left out) and one
 deterministic allocator on both sides: of 80 Lua functions met while a script ran, 58 same and none different (13
 of 60 with generated inputs); the rest stop at callees the capture or the bridge does not cover (setjmp, ctype,
-untranslated functions). Next, in order: the check on other architectures (an emulator side per CPU), a
-link step building a runnable program from the translations, imports and the original data, and verified rewrites
-replacing translations.
+untranslated functions). Then the link step (`src/tools/vex/link.py`, x86-64 Linux on an x86-64 host): the
+original's segments at their own addresses, relocations applied, the C library called through a trampoline, setjmp
+in the translated caller's frame. Lua recompiled from its binary alone (701 of 709 functions translated) prints
+what the original prints on 13 scripts, and on a larger one in 20 of 20 runs with malloc handing out garbage-filled
+memory. Next, in order: the C library calls the check does not cover yet (ctype tables, setjmp), the check on
+other architectures (an emulator side per CPU), verified rewrites replacing their translations in the linked
+program, Lua's own test suite and a second program, then a link for guests on another CPU (platform services
+emulated, the console case).
+
+### Behaviour, assets and what a whole program must do (decided 5 November 2026)
+
+Ideas kept from an outside design for a "reconstruction engine" (its staged loop and evidence ledger are what the
+graph already does): Atlas checks functions and a program's text output, but a game is judged on what it shows,
+plays and saves. In order, after the static recompilation steps above:
+
+- **Behaviour specification.** Observed scenarios (an input sequence, the output and state it leads to) recorded in
+  the graph as hypotheses tied to traces and captures: the acceptance tests of a whole program, technology-neutral,
+  shared by every agent, and the reference a recompiled program is replayed against.
+- **Assets.** Images, textures, models, sounds and fonts found through the format checks (`atlas check format`),
+  extracted and converted with their provenance (extracted, converted, or generated where missing, never mixed).
+- **Visual and audio comparison.** Frames and sound of the original and the recompiled program under the same
+  inputs, compared with stated tolerances, each discrepancy routed to the function or system behind it.
+- **Per-feature decisions.** For each system: rewritten, translated, emulated, deferred or unsupported, recorded,
+  so a report says what a reconstruction covers rather than one score.
 
 ### M4 — Types and traces · 2–3 weeks
 
