@@ -1,8 +1,10 @@
 """Field accesses through each pointer argument of a function, by symbolic execution of the whole binary.
 
 argv[1]: request JSON {"binary": path, "functions": [int], "max_steps": int, "max_states": int, "seconds": float}
-stdout: {"functions": {"0x..": {"args": {"0": [{"offset": int, "size": int, "read": bool, "write": bool}]},
-                                 "complete": bool, "error"?: str}}}
+stdout: one JSON line per function, as it is done:
+        {"address": "0x..", "args": {"0": [{"offset": int, "size": int, "read": bool, "write": bool}]},
+         "complete": bool, "error"?: str}
+(a function stuck in the solver past every bound loses only itself: the caller keeps the lines already written)
 
 Each function starts from a state where the six integer argument registers (System V x86-64) hold distinct symbolic
 values. A memory access whose address is argument i plus a constant is a field of what argument i points to, at that
@@ -107,11 +109,10 @@ def main():
     signal.signal(signal.SIGALRM, on_alarm)
     request = json.load(open(sys.argv[1]))
     proj = angr.Project(request["binary"], auto_load_libs=False, main_opts={"base_addr": 0} if request.get("pie") else {})
-    result = {}
     for address in request["functions"]:
         signal.alarm(int(float(request.get("seconds", 10)) * 3) + 1)
         try:
-            result[hex(address)] = fields_of(
+            result = fields_of(
                 proj,
                 address,
                 int(request.get("max_steps", 60)),
@@ -119,12 +120,12 @@ def main():
                 float(request.get("seconds", 10)),
             )
         except OutOfTime:
-            result[hex(address)] = {"args": {}, "complete": False, "error": "out of time"}
+            result = {"args": {}, "complete": False, "error": "out of time"}
         except Exception as error:
-            result[hex(address)] = {"args": {}, "complete": False, "error": f"{type(error).__name__}: {error}"[:200]}
+            result = {"args": {}, "complete": False, "error": f"{type(error).__name__}: {error}"[:200]}
         finally:
             signal.alarm(0)
-    print(json.dumps({"functions": result}))
+        print(json.dumps({"address": hex(address), **result}), flush=True)
 
 
 if __name__ == "__main__":

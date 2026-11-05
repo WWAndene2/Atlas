@@ -24,33 +24,63 @@ export interface FunctionFields {
   error?: string;
 }
 
+function parseLines(stdout: string, into: Record<string, FunctionFields>): void {
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    try {
+      const { address, ...fields } = JSON.parse(line) as FunctionFields & { address: string };
+      into[address] = fields;
+    } catch {
+      // A line cut short by the process ending: that function is retried.
+    }
+  }
+}
+
+/**
+ * Runs fields.py on `functions`. A function can hold the solver past every bound; the process is then stopped, the
+ * functions already written are kept, the one it was on is recorded as out of time, and the rest are run again.
+ */
 export async function functionFields(
   python: string,
   binary: string,
   functions: number[],
   options: { positionIndependent: boolean; seconds?: number; maxSteps?: number },
 ): Promise<Record<string, FunctionFields>> {
+  const out: Record<string, FunctionFields> = {};
+  const seconds = options.seconds ?? 4;
+  let todo = functions;
   const work = await mkdtemp(join(tmpdir(), "atlas-fields-"));
   try {
-    const path = join(work, "request.json");
-    const seconds = options.seconds ?? 4;
-    await writeFile(
-      path,
-      JSON.stringify({
-        binary,
-        pie: options.positionIndependent,
-        functions,
-        seconds,
-        max_steps: options.maxSteps ?? 40,
-      }),
-    );
-    const { stdout } = await run(python, [repositoryPath("src", "tools", "angr", "fields.py"), path], {
-      // fields.py stops each function after three times `seconds` at most (an alarm), plus loading the binary.
-      timeout: (functions.length * (seconds * 3 + 2) + 120) * 1000,
-      maxBuffer: 256 * 1024 * 1024,
-    });
-    return (JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as { functions: Record<string, FunctionFields> })
-      .functions;
+    while (todo.length > 0) {
+      const path = join(work, "request.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          binary,
+          pie: options.positionIndependent,
+          functions: todo,
+          seconds,
+          max_steps: options.maxSteps ?? 40,
+        }),
+      );
+      try {
+        const { stdout } = await run(python, [repositoryPath("src", "tools", "angr", "fields.py"), path], {
+          // Each function is stopped by an alarm after three times `seconds`; a stuck solver call can still outlast
+          // it, so the whole run is bounded too, with time to load the binary.
+          timeout: (todo.length * (seconds * 3 + 2) + 120) * 1000,
+          maxBuffer: 256 * 1024 * 1024,
+        });
+        parseLines(stdout, out);
+      } catch (error) {
+        parseLines((error as { stdout?: string }).stdout ?? "", out);
+      }
+      const left = todo.filter((a) => out[`0x${a.toString(16)}`] === undefined);
+      // The first function without an answer is the one the process was on: recorded, and the rest run again.
+      const stuck = left[0];
+      if (stuck !== undefined) out[`0x${stuck.toString(16)}`] = { args: {}, complete: false, error: "out of time" };
+      todo = left.slice(1);
+    }
+    return out;
   } finally {
     await rm(work, { recursive: true, force: true });
   }
