@@ -6,3 +6,4 @@ export {
   type CodeVersion,
   type EquivalenceAnswer,
 } from "./angr-equivalence.js";
+export { runDifferential, type DifferentialAnswer } from "./angr-differential.js";

@@ -141,7 +141,9 @@ on first download, since the release publishes no checksum). `atlas check functi
   functions of 22 to 59 bytes verified, in 8 attempts; the fixes were struct types and offsets, `noreturn`,
   prototypes and `static` (now in `AGENTS.md`, 1.7). Equivalence (angr 10.0.5 and Z3) is in, opt-in through
   `atlas verify --equivalence`: x86-64 leaf functions with loops bounded independently of the inputs; calls and
-  other architectures answer inconclusive. The check now
+  other architectures answer inconclusive. Differential testing too (`--differential`, generated inputs run in angr,
+  never on the host CPU; on the 9 reference cases it settles the input-bounded loops equivalence leaves open). The
+  check now
   works on every platform in view (ELF and COFF objects), validated with Lua's real source on each (97 to 99%), and
   the baseline of Ghidra's C as written: Linux x86-64 19 of 709, Windows x86-64 67 of 819, Android AArch64 51 of 686,
   raw ARMv6K 61 of 872, each checked in about 20 s. Runs of neighbouring functions remove the

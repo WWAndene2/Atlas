@@ -247,12 +247,25 @@ export function tools(store: GraphStore, graphPath: string) {
           .boolean()
           .optional()
           .describe("One hypothesis: if the bytes differ, check for the same behaviour (angr, x86-64 leaf functions)"),
+        differential: z
+          .boolean()
+          .optional()
+          .describe("One hypothesis: if the bytes differ, run both on generated inputs (angr, x86-64 leaf functions)"),
       },
-      handler: async (a: { hypothesis: string; cc?: string; cflags?: string[]; equivalence?: boolean }) => {
+      handler: async (a: {
+        hypothesis: string;
+        cc?: string;
+        cflags?: string[];
+        equivalence?: boolean;
+        differential?: boolean;
+      }) => {
         const given = a.cc !== undefined ? { cc: a.cc, flags: a.cflags ?? [] } : undefined;
         return a.hypothesis === "all"
           ? verifyPending(store, given)
-          : verifyOne(store, a.hypothesis, given, a.equivalence === true);
+          : verifyOne(store, a.hypothesis, given, {
+              equivalence: a.equivalence === true,
+              differential: a.differential === true,
+            });
       },
     },
     plan_agents: {

@@ -81,9 +81,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
 - angr (`src/tools/angr/`): symbolic equivalence of two machine codes of one x86-64 function, run by
-  `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-equivalence.ts`): equivalent
+  `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-behaviour.ts`): equivalent
   marks it verified (check `structural`), different records a counterexample, inconclusive (calls, input-bounded
-  loops, symbolic addresses) changes nothing.
+  loops, symbolic addresses) changes nothing. `--differential` runs both codes in angr on the same generated
+  inputs (edge values, small and random integers, random buffers): same results make the rewrite `observed`, a
+  difference records the input. It ends the input-bounded loops the symbolic check cannot.
 - Rizin (`src/tools/rizin/`): second engine. `atlas check functions <file>` sets the function entries it finds
   beside the graph's and records the agreement as engine evidence (`src/orchestrator/cross-check-functions.ts`).
   Measured on Lua x86-64: Rizin finds 588 of Ghidra's 805 entries and none Ghidra misses.

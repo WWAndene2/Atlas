@@ -80,8 +80,9 @@ def initial_state(proj, pointers, buf_size):
     return state, args
 
 
-def explore(proj, address, state, max_steps, watch_symbolic):
-    """Runs from `address` until every path returns; records argument registers used as addresses if asked."""
+def explore(proj, address, state, max_steps, watch_symbolic, allow_unfinished=False):
+    """Runs from `address` until every path returns; records argument registers used as addresses if asked.
+    With allow_unfinished, paths still running after max_steps are dropped instead of making the run inconclusive."""
     state = state.copy()
     state.regs.rip = address
     dereferenced = set()
@@ -112,7 +113,7 @@ def explore(proj, address, state, max_steps, watch_symbolic):
             if not s.regs.rip.symbolic and s.solver.eval(s.regs.rip) == SENTINEL:
                 finished.append(s)
                 simgr.active.remove(s)
-    if simgr.active:
+    if simgr.active and not allow_unfinished:
         raise Inconclusive(f"a path was still running after {max_steps} basic blocks")
     return finished, dereferenced
 

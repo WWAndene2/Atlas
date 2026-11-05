@@ -3,7 +3,7 @@
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import type { Toolchain } from "../verify/recompile/recompile-check.js";
 import { verifyRewrite, type VerifyOutcome } from "../verify/recompile/verify-rewrite.js";
-import { checkRewriteEquivalence } from "./check-equivalence.js";
+import { checkRewriteDifferential, checkRewriteEquivalence } from "./check-behaviour.js";
 import { binaryToolchain } from "./detect-toolchain.js";
 import { NotFoundError } from "./function-context.js";
 import { forEachConcurrently } from "./parallel.js";
@@ -25,24 +25,32 @@ function toolchainFor(store: GraphStore, h: Hypothesis, given?: Toolchain): Tool
   return { cc: detected.cc, flags: detected.flags };
 }
 
-/** With `equivalence`, a rewrite whose bytes differ is then checked for equivalent behaviour (angr, opt-in). */
+/**
+ * A rewrite whose bytes differ can then be checked for the same behaviour (angr, opt-in): `equivalence` (symbolic
+ * proof), `differential` (concrete inputs; run when equivalence is not asked for or is inconclusive).
+ */
 export async function verifyOne(
   store: GraphStore,
   id: string,
   given?: Toolchain,
-  equivalence = false,
-): Promise<VerifyOutcome & { equivalence?: string }> {
+  behaviour: { equivalence?: boolean; differential?: boolean } = {},
+): Promise<VerifyOutcome & { equivalence?: string; differential?: string }> {
   const h = store.getHypothesis(id);
   if (h === undefined) throw new NotFoundError(`no hypothesis ${id}`);
   const toolchain = toolchainFor(store, h, given);
   const outcome = await verifyRewrite(store, id, toolchain);
-  if (!equivalence || outcome.check.result === "pass" || outcome.check.reason !== "mismatch") return outcome;
-  const answer = await checkRewriteEquivalence(store, outcome.hypothesis, toolchain);
-  return {
-    ...outcome,
-    hypothesis: store.getHypothesis(id) ?? outcome.hypothesis,
-    equivalence: `${answer.result}: ${answer.details}`,
-  };
+  if (outcome.check.result === "pass" || outcome.check.reason !== "mismatch") return outcome;
+  const result: VerifyOutcome & { equivalence?: string; differential?: string } = { ...outcome };
+  if (behaviour.equivalence === true) {
+    const answer = await checkRewriteEquivalence(store, outcome.hypothesis, toolchain);
+    result.equivalence = `${answer.result}: ${answer.details}`;
+    if (answer.result !== "inconclusive") behaviour = { ...behaviour, differential: false };
+  }
+  if (behaviour.differential === true) {
+    const answer = await checkRewriteDifferential(store, store.getHypothesis(id) ?? outcome.hypothesis, toolchain);
+    result.differential = `${answer.result}: ${answer.details}`;
+  }
+  return { ...result, hypothesis: store.getHypothesis(id) ?? outcome.hypothesis };
 }
 
 /** Every rewrite not checked yet, in parallel; a missing toolchain is reported before any work starts. */

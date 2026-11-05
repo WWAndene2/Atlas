@@ -43,22 +43,43 @@ export async function checkEquivalence(
   candidate: CodeVersion,
   options: { maxSteps?: number; buffer?: number; timeoutMs?: number } = {},
 ): Promise<EquivalenceAnswer> {
+  return runAngrScript<EquivalenceAnswer>(
+    python,
+    "equivalence.py",
+    {
+      ...versions(original, candidate),
+      max_steps: options.maxSteps ?? 300,
+      buffer: options.buffer ?? 256,
+    },
+    ["equivalent", "different", "inconclusive"],
+    options.timeoutMs ?? 120_000,
+  );
+}
+
+/** The two versions as the scripts read them. */
+export function versions(original: CodeVersion, candidate: CodeVersion): Record<string, unknown> {
+  return {
+    original: { code: Buffer.from(original.code).toString("hex"), address: original.address },
+    candidate: { code: Buffer.from(candidate.code).toString("hex"), address: candidate.address },
+  };
+}
+
+/** Runs one of the angr scripts on a request; a crash, a timeout or an unknown answer is inconclusive. */
+export async function runAngrScript<T extends { result: string; details: string }>(
+  python: string,
+  script: string,
+  request: Record<string, unknown>,
+  results: string[],
+  timeoutMs: number,
+): Promise<T> {
   const work = await mkdtemp(join(tmpdir(), "atlas-angr-"));
   try {
-    const request = join(work, "request.json");
-    await writeFile(
-      request,
-      JSON.stringify({
-        original: { code: Buffer.from(original.code).toString("hex"), address: original.address },
-        candidate: { code: Buffer.from(candidate.code).toString("hex"), address: candidate.address },
-        max_steps: options.maxSteps ?? 300,
-        buffer: options.buffer ?? 256,
-      }),
-    );
+    const path = join(work, "request.json");
+    await writeFile(path, JSON.stringify(request));
     let stdout: string;
     try {
-      ({ stdout } = await run(python, [repositoryPath("src", "tools", "angr", "equivalence.py"), request], {
-        timeout: options.timeoutMs ?? 120_000,
+      ({ stdout } = await run(python, [repositoryPath("src", "tools", "angr", script), path], {
+        timeout: timeoutMs,
         maxBuffer: 16 * 1024 * 1024,
       }));
     } catch (error) {
@@ -66,13 +87,10 @@ export async function checkEquivalence(
       return {
         result: "inconclusive",
         details: `angr did not finish: ${(error as Error).message.split("\n")[0] ?? ""}`,
-      };
+      } as T;
     }
-    const line = stdout.trim().split("\n").pop() ?? "";
-    const answer = JSON.parse(line) as EquivalenceAnswer;
-    if (!["equivalent", "different", "inconclusive"].includes(answer.result)) {
-      return { result: "inconclusive", details: "angr gave no answer" };
-    }
+    const answer = JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as T;
+    if (!results.includes(answer.result)) return { result: "inconclusive", details: "angr gave no answer" } as T;
     return answer;
   } finally {
     await rm(work, { recursive: true, force: true });

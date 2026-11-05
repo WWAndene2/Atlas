@@ -72,12 +72,13 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   check functions <file> [--arch <a> --base <0x..>]
                                     a second engine (Rizin) lists the functions too: how many entries both
                                     engines agree on, which only one finds; recorded as evidence
-  verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence]
+  verify <hyp_id|all> [--cc <compiler> --cflags="<flags>"] [--equivalence] [--differential]
                                     recompile a rewrite with the target's toolchain and compare it with
                                     the original bytes; records verified, or the failure and its details;
                                     without --cc, the toolchain detected for the binary; with
                                     --equivalence (one hypothesis), different bytes are then checked for
-                                    the same behaviour by symbolic execution (angr; x86-64 leaf functions)
+                                    the same behaviour by symbolic execution (angr; x86-64 leaf functions);
+                                    with --differential, by running both on generated inputs (observed)
 
   --graph <file>   the graph database (default: $ATLAS_GRAPH, else ./atlas.sqlite)
   --binary <bin_>  with an address, the binary it belongs to when the graph holds several
@@ -111,6 +112,7 @@ async function main(argv: string[]): Promise<number> {
         cc: { type: "string" },
         cflags: { type: "string" },
         equivalence: { type: "boolean" },
+        differential: { type: "boolean" },
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
@@ -234,6 +236,7 @@ async function main(argv: string[]): Promise<number> {
           ...(values.cc !== undefined ? { cc: values.cc } : {}),
           ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),
           ...(values.equivalence === true ? { equivalence: true } : {}),
+          ...(values.differential === true ? { differential: true } : {}),
         });
         break;
       case "check": {
