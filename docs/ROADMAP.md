@@ -170,6 +170,11 @@ Rizin do not cover (JavaScript, .NET, Android, dynamic capture).
   across their processes. Done: `atlas claim task rewrite` (a lease per task, callees first), `atlas release task`,
   the protocol in `AGENTS.md` 1.8, the store safe for concurrent processes (WAL, lock waits, immediate
   transactions).
+- First parallel run (x86-64 Lua, four subagents of one session, 5 tasks each at most): 5 verified, all by one
+  subagent; the three others stalled because the queue handed out linker stubs (the PLT) and switch fragments, and a
+  released task came straight back. Fixed: code in linker sections and Ghidra's switch fragments are marked
+  `generated` at load and left out of the queue, and a released task goes behind every task not yet tried. Known
+  limit: cold fragments Ghidra does not place in a namespace (FUN_00007bf4 on Lua) still reach the queue.
 - **Done when:** all of Lua named and rewritten by parallel subagents, with the share verified and the time taken
   measured against one agent.
 

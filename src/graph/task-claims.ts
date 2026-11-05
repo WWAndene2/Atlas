@@ -21,6 +21,8 @@ export class TaskClaims {
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS claims (task TEXT PRIMARY KEY, agent TEXT NOT NULL, expires INTEGER NOT NULL)",
     );
+    // Tasks given back, and how often: they go behind every task not yet tried.
+    this.db.exec("CREATE TABLE IF NOT EXISTS released (task TEXT PRIMARY KEY, times INTEGER NOT NULL)");
   }
 
   close(): void {
@@ -36,7 +38,19 @@ export class TaskClaims {
     try {
       this.db.prepare("DELETE FROM claims WHERE expires <= ?").run(now);
       const held = new Set((this.db.prepare("SELECT task FROM claims").all() as { task: string }[]).map((r) => r.task));
-      const task = candidates.find((c) => !held.has(c));
+      // Tasks never released first, in their order; then released ones, least released first. A released task went to
+      // the front before, and in the first parallel run on Lua every claim after a release returned the same task.
+      const times = new Map(
+        (this.db.prepare("SELECT task, times FROM released").all() as { task: string; times: number }[]).map((r) => [
+          r.task,
+          r.times,
+        ]),
+      );
+      const order = candidates
+        .map((c, i) => ({ c, i, t: times.get(c) ?? 0 }))
+        .sort((a, b) => a.t - b.t || a.i - b.i)
+        .map((x) => x.c);
+      const task = order.find((c) => !held.has(c));
       let claim: Claim | undefined;
       if (task !== undefined) {
         claim = { task, agent, expires: now + leaseMs };
@@ -52,7 +66,13 @@ export class TaskClaims {
 
   /** Gives a task back. Only its holder can (another agent's release is ignored and reported false). */
   release(task: string, agent: string): boolean {
-    return this.db.prepare("DELETE FROM claims WHERE task = ? AND agent = ?").run(task, agent).changes > 0;
+    const released = this.db.prepare("DELETE FROM claims WHERE task = ? AND agent = ?").run(task, agent).changes > 0;
+    if (released) {
+      this.db
+        .prepare("INSERT INTO released (task, times) VALUES (?, 1) ON CONFLICT(task) DO UPDATE SET times = times + 1")
+        .run(task);
+    }
+    return released;
   }
 
   /** The claims in force. */

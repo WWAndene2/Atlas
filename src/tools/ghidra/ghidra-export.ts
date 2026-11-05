@@ -68,6 +68,7 @@ export function parseGhidraExport(text: string): EngineAnalysis {
       size,
       label: string(f, "label", where),
       thunk: boolean(f, "thunk", where),
+      ...(f.generated === "linker" || f.generated === "fragment" ? { generated: f.generated } : {}),
       ...(code !== undefined ? { code } : {}),
     });
     internal.add(address);

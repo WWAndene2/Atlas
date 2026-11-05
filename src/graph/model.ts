@@ -16,6 +16,8 @@ export interface GraphNode {
   architecture?: "x86" | "x86_64" | "arm-v5te" | "arm-v6k" | "arm-v7" | "arm64" | "mips" | "mipsel" | "ppc" | "ppc64";
   /** On a function: the file's bytes from its entry up to the next function, hex; the recompile check's reference. */
   code?: string;
+  /** On a function: code no source function of its own produces (linker stubs; pieces split off another function). */
+  generated?: "linker" | "fragment";
   /** On a function: a stub that only jumps elsewhere. */
   thunk?: boolean;
   label?: string;

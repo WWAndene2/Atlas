@@ -69,6 +69,27 @@ describe("rewriteQueue", () => {
   });
 });
 
+describe("rewriteQueue and generated code", () => {
+  it("leaves linker stubs and fragments out", () => {
+    const store = new GraphStore(":memory:");
+    const sha = "2".repeat(64);
+    loadAnalysis(store, "t", {
+      tool: { name: "test", version: "1" },
+      sha256: sha,
+      functions: [
+        { address: "0x10", size: 4, label: "FUN_10", thunk: false, code: "90909090" },
+        { address: "0x20", size: 4, label: "plt0", thunk: false, code: "90909090", generated: "linker" },
+        { address: "0x30", size: 4, label: "caseD_9", thunk: false, code: "90909090", generated: "fragment" },
+      ],
+      calls: [],
+      strings: [],
+      limitations: [],
+    });
+    expect(rewriteQueue(store, binaryId(sha)).map((q) => q.label)).toEqual(["FUN_10"]);
+    store.close();
+  });
+});
+
 describe("rewriteTask", () => {
   it("gives the original instructions, the closest attempt compiled, and verified callee prototypes", async () => {
     const callee = proposeRewrite(store, g, { language: "c", source, name: "g" }, "agent");

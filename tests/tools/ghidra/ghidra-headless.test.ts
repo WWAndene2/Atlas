@@ -125,6 +125,9 @@ describe("Ghidra on stripped Lua", () => {
       expect(hits / truth.size).toBeGreaterThan(0.98);
       expect(hits / found.length).toBeGreaterThan(0.98);
       expect(analysis.calls.length).toBeGreaterThan(2700);
+      // Code the linker wrote is marked, so no agent is given it to rewrite: the PLT header, init and fini stubs.
+      expect(analysis.functions.find((f) => f.label === "_DT_INIT")?.generated).toBe("linker");
+      expect(analysis.functions.filter((f) => f.generated === "fragment").length).toBeGreaterThan(0);
       const banner = analysis.strings.find((s) => s.value.includes("Lua 5.4"));
       expect(banner?.readers.length).toBeGreaterThan(0);
     },

@@ -107,7 +107,9 @@ of dynamically linked files, which Ghidra places in a synthetic `EXTERNAL` block
 Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
 them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
 graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
-(`fn_<same 16 digits>_<address>`, with `thunk: true` on stubs such as import entries, which agents need not name or
+(`fn_<same 16 digits>_<address>`, with `generated: linker` on code in linker-written sections (PLT, init, fini) and
+`generated: fragment` on pieces Ghidra found split off another function (its `switchD_...::` namespaces), neither
+handed to agents; `thunk: true` on stubs such as import entries, which agents need not name or
 rewrite), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
 function using it, all backed by one evidence record
 (source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
