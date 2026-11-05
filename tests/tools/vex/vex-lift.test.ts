@@ -56,8 +56,8 @@ int main(void) {
     expect(() => execFileSync(join(dir, "harness"))).not.toThrow();
   }, 120_000);
   it("reports what it cannot translate instead of translating it wrong", async () => {
-    // fprem (x87 partial remainder), then ret: x87 register-stack access the translator does not implement.
-    const [lifted] = await liftFunctions(python as string, "x86_64", [{ address: 0x1000, code: "d9f8c3" }]);
-    expect(lifted).toMatchObject({ address: "0x1000", unsupported: expect.any(String) });
+    // cpuid, then ret: VEX models it as a call to a helper with side effects (a Dirty statement), not translated.
+    const [lifted] = await liftFunctions(python as string, "x86_64", [{ address: 0x1000, code: "0fa2c3" }]);
+    expect(lifted).toMatchObject({ address: "0x1000", unsupported: "statement Dirty" });
   }, 60_000);
 });
