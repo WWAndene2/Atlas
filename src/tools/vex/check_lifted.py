@@ -187,7 +187,7 @@ def build(c_path, runtime, functions, imports, offsets, work, off):
     big = ["-DATLAS_BIG_ENDIAN"] if BIG_ENDIAN else []
     # setjmp's support is x86-64 System V (jumps.py): elsewhere translations call setjmp as any import.
     jumps = ["-include", header] if CONV["link"] is None else []
-    subprocess.run(["gcc", "-O1", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", *big, "-I", runtime, *jumps,
+    subprocess.run(["gcc", "-O0", "-w", "-shared", "-fPIC", "-DATLAS_PAGED", *big, "-I", runtime, *jumps,
                     c_path, os.path.join(work, "glue.c"), "-o", lib], check=True)
     return lib
 

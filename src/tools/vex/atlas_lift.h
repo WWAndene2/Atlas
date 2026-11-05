@@ -52,21 +52,24 @@ void atlas_trap(atlas_state *s, uint64_t at, int kind);
 #endif
 #ifdef ATLAS_PAGED
 /* Paged guest memory (checks with captured inputs, whose addresses span the 64-bit space): pages of 4 KiB made on
- * first use by atlas_page, accessed byte by byte so an access across two pages is right. */
+ * first use by atlas_page. Accesses are out of line (inlined, a large translation took over 30 minutes to compile),
+ * and byte by byte only when they cross two pages. */
 uint8_t *atlas_page(atlas_state *s, uint64_t a);
-#define ATLAS_LOAD(N)                                                         \
-  static inline uint##N##_t atlas_load##N(atlas_state *s, uint64_t a) {       \
-    uint8_t b[N / 8];                                                         \
-    uint##N##_t v;                                                            \
-    for (unsigned i = 0; i < N / 8; i++) b[i] = atlas_page(s, a + i)[(a + i) & 0xfff]; \
-    memcpy(&v, b, sizeof v);                                                  \
-    return SWAP##N(v);                                                        \
-  }                                                                           \
-  static inline void atlas_store##N(atlas_state *s, uint64_t a, uint##N##_t v) { \
-    uint8_t b[N / 8];                                                         \
-    v = SWAP##N(v);                                                           \
-    memcpy(b, &v, sizeof v);                                                  \
-    for (unsigned i = 0; i < N / 8; i++) atlas_page(s, a + i)[(a + i) & 0xfff] = b[i]; \
+#define ATLAS_LOAD(N)                                                                        \
+  static __attribute__((noinline)) uint##N##_t atlas_load##N(atlas_state *s, uint64_t a) {   \
+    uint8_t b[N / 8];                                                                        \
+    uint##N##_t v;                                                                           \
+    if ((a & 0xfff) <= 4096 - N / 8) memcpy(b, atlas_page(s, a) + (a & 0xfff), N / 8);      \
+    else for (unsigned i = 0; i < N / 8; i++) b[i] = atlas_page(s, a + i)[(a + i) & 0xfff]; \
+    memcpy(&v, b, sizeof v);                                                                 \
+    return SWAP##N(v);                                                                       \
+  }                                                                                          \
+  static __attribute__((noinline)) void atlas_store##N(atlas_state *s, uint64_t a, uint##N##_t v) { \
+    uint8_t b[N / 8];                                                                        \
+    v = SWAP##N(v);                                                                          \
+    memcpy(b, &v, sizeof v);                                                                 \
+    if ((a & 0xfff) <= 4096 - N / 8) memcpy(atlas_page(s, a) + (a & 0xfff), b, N / 8);      \
+    else for (unsigned i = 0; i < N / 8; i++) atlas_page(s, a + i)[(a + i) & 0xfff] = b[i]; \
   }
 #else
 #define ATLAS_LOAD(N)                                                         \
