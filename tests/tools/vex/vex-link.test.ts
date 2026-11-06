@@ -119,6 +119,7 @@ const WINDOWS_PROGRAM = `
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 static jmp_buf env;
 static void deep(int n) { if (n == 0) longjmp(env, 42); deep(n - 1); }
 static void bye(void) { fputs("bye\\n", stdout); }
@@ -134,6 +135,7 @@ int main(int argc, char **argv) {
   f = fopen(argv[1], "rb"); fseek(f, 1, SEEK_SET);
   fgets(buf, sizeof buf, f); long at = ftell(f); fclose(f); remove(argv[1]);
   fprintf(stdout, "%s%ld %s\\n", buf, at, getenv("ATLAS_WIN_TEST") ? getenv("ATLAS_WIN_TEST") : "-");
+  fprintf(stdout, "%hhd|%hhu|%lc|%ls|%S\\n", 300, 300, (wint_t)L'w', L"wide", L"up");
   char name[L_tmpnam + 8]; memset(name, 'X', sizeof name); tmpnam(name); /* must stay within L_tmpnam */
   if (name[L_tmpnam] != 'X' || strlen(name) >= L_tmpnam) return 9;
   return strlen(argv[argc - 1]) == 5 ? 3 : 1;
@@ -187,7 +189,9 @@ describe.runIf(python !== undefined && has("x86_64-w64-mingw32-gcc") && has("x86
         encoding: "utf8",
         env: { ...process.env, ATLAS_WIN_TEST: "env" },
       });
-      expect(run.stdout).toBe("hello|42|-5|1099511627776|1099511627776| 1.41|ff|z|%\nbc\n4 env\nbye\n");
+      expect(run.stdout).toBe(
+        "hello|42|-5|1099511627776|1099511627776| 1.41|ff|z|%\nbc\n4 env\n44|44|w|wide|up\nbye\n",
+      );
       expect(run.status).toBe(3);
       // ATLAS_COVERAGE: the translated functions that ran, each one of the program's.
       const coverage = join(dir, "coverage.txt");
