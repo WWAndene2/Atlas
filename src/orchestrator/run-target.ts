@@ -1,11 +1,13 @@
 // The whole job on one target, by one command: open the file, load each binary it holds with every engine,
-// decompile, detect the toolchain, recognise library code, verify every rewrite, and report what is verified, what
-// is library code and what is still open. Agents working the open tasks in parallel (roadmap M6) come between
+// decompile, detect the toolchain, recognise library code, verify every rewrite, replay the recorded behaviours on
+// the rebuilt program (check-reconstruction.ts), and report what is verified, what is library code, what the
+// rebuilt program reproduces and what is still open. Agents working the open tasks in parallel (roadmap M6) come between
 // verification and the report; until then the report hands the open tasks over, callees first.
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
 import { verifyRewrite } from "../verify/recompile/verify-rewrite.js";
 import { binaryFacts } from "./binary-facts.js";
+import { checkReconstruction, type ReconstructionCheck } from "./check-reconstruction.js";
 import { decompileFunctions } from "./decompile-functions.js";
 import { binaryToolchain, detectToolchain, type ToolchainValue } from "./detect-toolchain.js";
 import { loadTarget } from "./load-target.js";
@@ -25,6 +27,8 @@ export interface BinaryReport {
   verified: number;
   open: number;
   toolchain?: ToolchainValue;
+  /** The recorded behaviours replayed on the rebuilt program; absent when none is recorded. */
+  behaviours?: ReconstructionCheck;
   /** The first open functions, callees first: where agents start. */
   next: string[];
   /** Steps that could not run, and why. The run goes on without them. */
@@ -94,6 +98,13 @@ async function runBinary(store: GraphStore, input: EngineInput, label: string): 
     );
   }
 
+  try {
+    const behaviours = await timed(report.seconds, "replay", () => checkReconstruction(store, binary, input));
+    if (behaviours !== undefined) report.behaviours = behaviours;
+  } catch (error) {
+    report.problems.push(`behaviours not replayed: ${(error as Error).message}`);
+  }
+
   const functions = store.nodesOfKind("function").filter((n) => n.binary === binary);
   report.functions = functions.length;
   report.stubs = functions.filter((n) => n.thunk === true).length;
@@ -151,6 +162,16 @@ export function reportMarkdown(report: RunReport): string {
       `- Toolchain: ${b.toolchain === undefined ? "unknown" : `${b.toolchain.cc} ${b.toolchain.flags.join(" ")} (${b.toolchain.verified} of ${b.toolchain.sample} probed functions reproduced${b.toolchain.ties.length > 0 ? `; tied with ${b.toolchain.ties.map((t) => t.join(" ")).join(", ")}` : ""})`}`,
       `- Functions: ${b.functions}, of which ${b.stubs} import stubs and ${b.library} library code (linked, not rewritten)`,
       `- Rewritten and verified byte for byte: ${b.verified} of ${toRewrite} (${toRewrite > 0 ? ((100 * b.verified) / toRewrite).toFixed(1) : "0"}%)`,
+      ...(b.behaviours === undefined
+        ? [
+            "- Behaviours: none recorded (`atlas record behaviour <program> -- <args>` adds the program's acceptance tests)",
+          ]
+        : [
+            `- Behaviours reproduced by the rebuilt program: ${b.behaviours.reproduced} of ${b.behaviours.recorded}`,
+            ...b.behaviours.failed.map(
+              (f) => `  - not ${f.hypothesis} ${JSON.stringify(f.argv)}: ${f.differences.join("; ")}`,
+            ),
+          ]),
       `- Open: ${b.open}. Next, callees first: ${b.next.join(", ") || "none"}`,
       `  (for each: \`atlas get task rewrite <fn> --json\`, then \`atlas propose rewrite\` and \`atlas verify\`)`,
       `- Time: ${Object.entries(b.seconds)

@@ -388,9 +388,13 @@ so the accuracy measures naming, not reading.
 
 `atlas run <file> --goal "<goal>" [--report <file.md>]` (`src/orchestrator/run-target.ts`) chains every step on
 each binary the file holds: load with every engine, decompile, detect the toolchain, match libraries, verify every
-rewrite, and report per binary the toolchain and its evidence, the functions that are stubs, library code, verified,
-and still open, the first open ones callees first, the time of each step, and any step that could not run (the run
-goes on without it). Agents working the open tasks in parallel (roadmap M6) will come between verification and the
+rewrite, replay the recorded behaviours on the rebuilt program (`src/orchestrator/check-reconstruction.ts`: built as
+`atlas lift --link` builds it, in a temporary directory; skipped, at no cost, when no behaviour is recorded), and
+report per binary the toolchain and its evidence, the functions that are stubs, library code, verified, and still
+open, how many behaviours the rebuilt program reproduces and where the others differ, the first open functions
+callees first, the time of each step, and any step that could not run (the run goes on without it). Linux Lua with
+the seven behaviours of the replay check: 6 of 7 reproduced (the seventh prints `os.time()`), the replay step
+106 s of the run. Agents working the open tasks in parallel (roadmap M6) will come between verification and the
 report. Raw ARM Lua: 881 functions, 9 stubs, 198 library, 60 verified, 618 open, in about 3 minutes.
 
 ### MCP server

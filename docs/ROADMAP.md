@@ -304,7 +304,8 @@ system`, `atlas propose summary`). Scored against the source files (DWARF): x86-
 
 - `atlas run <target> --goal "<goal>"`: setup, loading, analysis by agents (M6), verification, and a report of what
   was found, with its confidence and evidence, and what stays unknown. Done without the agents: load, decompile,
-  toolchain, libraries, verification and the report; the agents' step waits for M6.
+  toolchain, libraries, verification, the recorded behaviours replayed on the rebuilt program, and the report; the
+  agents' step waits for M6.
 - Own tools added where M1-M8's scores showed a gap, each beating the tool it replaces on the same score.
 - **Done when:** on a ground-truth target never seen before, one command produces the report, scored against the
   target's sources.
