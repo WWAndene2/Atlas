@@ -9,8 +9,8 @@ in miniature: the code is faithful, the platform's services are emulated.
 
 Only the register layout and system-call convention are architecture-specific (CONVENTIONS); the rest is shared.
 
-Request, a JSON file named on the command line: {"arch", "endness", "binary": path of the original (read again when
-the program starts), "lifted": [paths of the translations' C], "translated": [graph addresses], "base": where a
+Request, a JSON file named on the command line: {"arch", "endness", "binary": path of the original (built into the
+program), "lifted": [paths of the translations' C], "translated": [graph addresses], "base": where a
 position-independent image is mapped, "runtime": directory of atlas_lift.h, "out": path of the executable}
 stdout: {"executable": path, "translated": int, "entry": hex}
 """
@@ -23,6 +23,8 @@ import sys
 import archinfo
 import cle
 
+from embed import embed_original
+
 # Per architecture: the registers a Linux system call reads (number, then up to six arguments, then where the
 # result goes), as archinfo names them. ARM EABI: r7 holds the number, r0-r5 the arguments, r0 the result.
 CONVENTIONS = {
@@ -34,12 +36,6 @@ GUEST_SIZE = 0x40000000  # 1 GiB of guest memory
 # The guest's memory layout (atlas_syscall.inc): mmap's arena from 0x20000000, then 8 MiB of stack below the top.
 GUEST_MMAP, GUEST_TOP = 0x20000000, 0x3F000000
 GUEST_STACK_LOW = GUEST_TOP - 0x800000
-
-
-def c_string(text):
-    """A C string literal for any path: every byte escaped in octal, so quotes, backslashes or non-ASCII in the
-    original's path can neither break nor change the generated program."""
-    return '"' + "".join(f"\\{b:03o}" for b in text.encode()) + '"'
 
 
 def main():
@@ -93,23 +89,18 @@ void atlas_trap(atlas_state *s, uint64_t at, int kind) {{
   fprintf(stderr, "atlas: guest trap %d at %#lx\\n", kind, (unsigned long)at); abort();
 }}
 #include "atlas_syscall.inc"
+{embed_original(request["binary"])}
 int main(int argc, char **argv, char **envp) {{
   static atlas_state st;
   atlas_state *s = &st;
   s->mem = mmap(NULL, {GUEST_SIZE:#x}ULL, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
   if (s->mem == MAP_FAILED) {{ perror("atlas: guest memory"); return 127; }}
-  FILE *self = fopen({c_string(request["binary"])}, "rb");
-  if (!self) {{ perror("atlas: the original binary"); return 127; }}
   static const struct {{ uint64_t vaddr, memsize, offset, filesize; }} segs[] = {{
 {nl.join(f"    {{{v:#x}ULL, {m:#x}ULL, {o:#x}ULL, {fsz:#x}ULL}}," for v, m, o, fsz in segs)}
   }};
   for (unsigned k = 0; k < sizeof segs / sizeof segs[0]; k++) {{
-    if (segs[k].filesize) {{
-      fseek(self, (long)segs[k].offset, SEEK_SET);
-      if (fread(s->mem + segs[k].vaddr, 1, segs[k].filesize, self) != segs[k].filesize) return 127;
-    }}
+    if (segs[k].filesize) memcpy(s->mem + segs[k].vaddr, atlas_original + segs[k].offset, segs[k].filesize);
   }}
-  fclose(self);
   atlas_guest_setup(s, argc, argv, envp);
 {nl.join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
   REG(uint32_t, {off["sp"]}) = atlas_guest_sp;

@@ -120,7 +120,7 @@ export async function linkBinary(
     }
   }
   const outcome = await linkProgram(locateAngr(), {
-    // Absolute: the program reads the original's segments from it when it starts, wherever it is run from.
+    // Absolute: the linker builds the original into the program, from wherever it is run.
     binary: resolve(path),
     lifted: [join(dir, "lifted.c")],
     translated,
@@ -153,7 +153,7 @@ async function crosslink(
   const outcome = await crosslinkProgram(locateAngr(), {
     arch: ARCH[architecture].name,
     endness: ARCH[architecture].endness,
-    // Absolute: the program reads the original's segments from it when it starts, wherever it is run from.
+    // Absolute: the linker builds the original into the program, from wherever it is run.
     binary: resolve(path),
     lifted: [join(dir, "lifted.c")],
     translated,

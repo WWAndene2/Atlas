@@ -1,7 +1,7 @@
 """Links an AArch64 Linux program's translations (lift.py) into an executable for an x86-64 Linux host: an Android
 app's native code, or any AArch64 program built against the C library, run on a PC.
 
-Request, a JSON file named on the command line: {"binary": path of the ELF (read again when the program starts),
+Request, a JSON file named on the command line: {"binary": path of the ELF (built into the program),
 "lifted": [paths of the translations' C], "translated": [graph addresses], "base": where a position-independent
 image is mapped, "runtime": directory of atlas_lift.h, "out": path of the executable}
 stdout: {"executable": path, "imports": int, "own": [data imports the program provides itself]}
@@ -33,6 +33,7 @@ import sys
 import archinfo
 import cle
 
+from embed import embed_original
 from jumps import A64_ARGS, A64_FRAME, A64_SAVED, LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
 from link import ENTER_GUEST, TRAMPOLINE
 
@@ -46,12 +47,6 @@ CALLBACK_SLOTS = 64
 
 # Data imports the host's C library does not have, and their initial value.
 OWN_DATA = {"__stack_chk_guard": 0x2F8D6E1A5C4B3907}
-
-
-def gas_string(text):
-    """The path as a string for the assembler inside a C string literal: each byte an octal escape, read by the
-    assembler, so no character of the path can end either string."""
-    return '\\"' + "".join(f"\\\\{b:03o}" for b in text.encode()) + '\\"'
 
 
 def is_library(path):
@@ -271,8 +266,7 @@ void atlas_syscall(atlas_state *s) {{
 
 /* The original file, built into the program: the output does not depend on where the original was (an .apk's
  * library is read from a temporary file that is gone after the link). */
-__asm__(".section .rodata\\n.balign 16\\natlas_original:\\n.incbin {gas_string(request["binary"])}\\n.previous");
-extern const uint8_t atlas_original[];
+{embed_original(request["binary"])}
 /* The image mapped and relocated, the imports resolved, the guest state and its 8 MiB stack made. */
 static uint8_t *guest_stack;
 static int atlas_setup(char **envp) {{

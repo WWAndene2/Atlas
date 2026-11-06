@@ -22,6 +22,7 @@ import sys
 import archinfo
 import cle
 
+from embed import embed_original
 from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
 from rewrites import prepare
 
@@ -209,6 +210,7 @@ void atlas_trap(atlas_state *s, uint64_t at, int kind) {{
   fprintf(stderr, "atlas: guest trap %d at %#lx\\n", kind, (unsigned long)at); abort();
 }}
 
+{embed_original(request["binary"])}
 int main(int argc, char **argv, char **envp) {{
   static const struct {{ uint64_t vaddr, memsize, offset, filesize; int exec; }} segs[] = {{
 {chr(10).join(f"    {{{v:#x}ULL, {m:#x}ULL, {o:#x}ULL, {fsz:#x}ULL, {int(x)}}}," for v, m, o, fsz, x in segs)}
@@ -216,8 +218,6 @@ int main(int argc, char **argv, char **envp) {{
   static const uint64_t relative[][2] = {{ {", ".join(f"{{{a:#x}ULL, {d:#x}ULL}}" for a, d in relative) or "{0, 0}"} }};
   static const uint64_t slots[][3] = {{ {", ".join(f"{{{a:#x}ULL, {i}, {d}}}" for a, i, d in slots) or "{0, 0, 0}"} }};
   static const uint64_t copies[][3] = {{ {", ".join(f"{{{a:#x}ULL, {i}, {n}}}" for a, i, n in copies) or "{0, 0, 0}"} }};
-  FILE *self = fopen("{request["binary"]}", "rb");
-  if (!self) {{ perror("atlas: the original binary"); return 127; }}
   for (unsigned k = 0; k < sizeof segs / sizeof segs[0]; k++) {{
     uint64_t lo = segs[k].vaddr & ~0xfffULL, hi = (segs[k].vaddr + segs[k].memsize + 0xfff) & ~0xfffULL;
     if (lo < 0x10000) lo = 0x10000; /* the kernel keeps the first 64 KiB: an image's header lives there */
@@ -226,12 +226,9 @@ int main(int argc, char **argv, char **envp) {{
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
     if (at == MAP_FAILED) {{ perror("atlas: mapping the original's segments"); return 127; }}
     uint64_t from = segs[k].vaddr < lo ? lo : segs[k].vaddr, skip = from - segs[k].vaddr;
-    if (segs[k].filesize > skip) {{
-      fseek(self, (long)(segs[k].offset + skip), SEEK_SET);
-      if (fread((void *)(uintptr_t)from, 1, segs[k].filesize - skip, self) != segs[k].filesize - skip) return 127;
-    }}
+    if (segs[k].filesize > skip)
+      memcpy((void *)(uintptr_t)from, atlas_original + segs[k].offset + skip, segs[k].filesize - skip);
   }}
-  fclose(self);
   for (int i = 0; i < NIMPORTS; i++) import_host[i] = dlsym(RTLD_DEFAULT, import_names[i]);
   if (getenv("ATLAS_TRACE_CALLS")) trace_calls = fopen(getenv("ATLAS_TRACE_CALLS"), "w");
   for (unsigned k = 0; k < sizeof relative / sizeof relative[0]; k++)

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -99,6 +99,7 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram", () => {
         base: 0,
       });
       // An argument with a quote and a backslash reaches the guest intact.
+      rmSync(join(dir, "p")); // the output does not need the original any more
       const run = spawnSync(outcome.executable, ["first", 'it\'s "x"\\'], { encoding: "utf8" });
       expect(run.stdout).toBe('hello it\'s "x"\\ 5050\n');
       expect(run.status).toBe(7);
@@ -179,6 +180,7 @@ describe.runIf(python !== undefined && has("x86_64-w64-mingw32-gcc") && has("x86
         out: join(dir, "program"),
       });
       expect(outcome.unserved).toEqual([]);
+      rmSync(join(dir, "p.exe")); // the output does not need the original any more
       const run = spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], {
         encoding: "utf8",
         env: { ...process.env, ATLAS_WIN_TEST: "env" },
@@ -249,6 +251,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
       base,
     });
     expect(outcome.own).toEqual(["__stack_chk_guard"]);
+    rmSync(join(dir, "p")); // the output does not need the original any more
     const run = spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], {
       encoding: "utf8",
       env: { ...process.env, ATLAS_A64_TEST: "env" },
@@ -304,6 +307,7 @@ describe.runIf(python !== undefined)("linkProgram", () => {
       functions: {},
       base,
     });
+    rmSync(join(dir, "p")); // the output does not need the original any more
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
     expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\nbye\n");
     expect(run.status).toBe(0);
@@ -334,6 +338,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
       out: join(dir, "program"),
       base,
     });
+    rmSync(join(dir, "p")); // the output does not need the original any more
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
     expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\nbye\n");
     expect(run.status).toBe(0);
@@ -387,6 +392,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
       out: join(dir, "program"),
       base,
     });
+    rmSync(join(dir, "p")); // the output does not need the original any more
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
     expect(run.stdout).toBe("got 10, old handler is ours: 1\ngot 12, previous is ours: 1\n");
     expect(run.status).toBe(0);
@@ -450,6 +456,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     });
     writeFileSync(join(dir, "driver.c"), HOST_DRIVER);
     execFileSync("gcc", ["-O1", "driver.c", "-o", "driver", "-ldl"], { cwd: dir });
+    rmSync(join(dir, "lib.so")); // the output does not need the original any more
     const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
     expect(run.stdout).toBe("42 5.00 hello host 6 11\n");
     expect(run.status).toBe(0);

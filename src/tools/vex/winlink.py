@@ -1,6 +1,6 @@
 """Links a Windows x64 program's translations (lift.py) into an executable for an x86-64 Linux host.
 
-Request, a JSON file named on the command line: {"binary": path of the PE (read again when the program starts),
+Request, a JSON file named on the command line: {"binary": path of the PE (built into the program),
 "lifted": [paths of the translations' C], "translated": [addresses], "runtime": directory of atlas_lift.h and the
 win_*.inc services, "out": path of the executable}
 stdout: {"executable": path, "imports": int, "stubs": int, "unserved": [names]}
@@ -24,6 +24,7 @@ import sys
 import archinfo
 import pefile
 
+from embed import embed_original
 from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, WIN64_ARGS, WIN64_SAVED, jumps_c
 
 SERVICES = ["win_base.inc", "win_stdio.inc", "win_string.inc", "win_time.inc", "win_process.inc",
@@ -231,6 +232,7 @@ void atlas_syscall(atlas_state *s) {{
   fprintf(stderr, "atlas: a Windows program made a system call\\n"); abort();
 }}
 
+{embed_original(request["binary"])}
 int main(int argc, char **argv, char **envp) {{
   host_argc = argc; host_argv = argv; host_envp = envp;
   win_initenv = envp;
@@ -238,16 +240,11 @@ int main(int argc, char **argv, char **envp) {{
   uint8_t *image = mmap((void *)(uintptr_t){image_base:#x}ULL, {image_size:#x}, PROT_READ | PROT_WRITE | PROT_EXEC,
                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
   if (image == MAP_FAILED) {{ perror("atlas: mapping the image at its base"); return 127; }}
-  FILE *self = fopen(win_module_path, "rb");
-  if (!self) {{ perror("atlas: the original program"); return 127; }}
   static const uint64_t parts[][3] = {{ {{{image_base:#x}ULL, 0, {pe.OPTIONAL_HEADER.SizeOfHeaders:#x}}},
 {nl.join(f"    {{{v:#x}ULL, {o:#x}, {n:#x}}}," for v, o, n in sections if n)}
   }};
-  for (unsigned k = 0; k < sizeof parts / sizeof parts[0]; k++) {{
-    fseek(self, (long)parts[k][1], SEEK_SET);
-    if (fread((void *)(uintptr_t)parts[k][0], 1, parts[k][2], self) != parts[k][2]) return 127;
-  }}
-  fclose(self);
+  for (unsigned k = 0; k < sizeof parts / sizeof parts[0]; k++)
+    memcpy((void *)(uintptr_t)parts[k][0], atlas_original + parts[k][1], parts[k][2]);
   /* Import slots: placeholders the dispatch recognises, or a data import's host address. */
 {nl.join(f"  *(uint64_t *)(uintptr_t){a:#x}ULL = (uint64_t)(uintptr_t)&{DATA[n]};" if n in DATA else f"  *(uint64_t *)(uintptr_t){a:#x}ULL = {PLACEHOLDER + 16 * i:#x}ULL;" for i, (a, n) in enumerate(imports))}
   static atlas_state st;

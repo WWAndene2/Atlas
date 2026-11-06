@@ -195,8 +195,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   arguments converted, the image set up when the host loads it, nothing else visible; the library's references
   to its own exports (PLT calls and symbol relocations, which a shared library uses for any function it exports)
   resolve to its own translations. `atlas lift --link` on such a `.so`, or on the `.apk` holding it, writes it under the original's name; the
-  original image is built into the output (`.incbin`), so it does not depend on where the original was (an
-  `.apk`'s library is a temporary extract). Lua's
+  original image is built into the output (`.incbin`, `src/tools/vex/embed.py`, as every linker does: `link.py`,
+  `winlink.py`, `crosslink.py` too), so it does not depend on where the original was (moved, deleted, or an
+  `.apk`'s temporary extract). Lua's
   Android-style `liblua.so` (`tests/fixtures/lua-platforms`), all 686 functions translated, driven by a host
   program through Lua's C API (dlopen, luaL_newstate, luaL_openlibs, luaL_loadfilex, lua_pcallk), prints for the
   test script exactly what the same driver prints with Lua built natively for x86-64 from the same sources. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
