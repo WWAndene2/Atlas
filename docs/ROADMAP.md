@@ -198,7 +198,12 @@ plays and saves. In order, after the static recompilation steps above:
 
 - **Behaviour specification.** Observed scenarios (an input sequence, the output and state it leads to) recorded in
   the graph as hypotheses tied to traces and captures: the acceptance tests of a whole program, technology-neutral,
-  shared by every agent, and the reference a recompiled program is replayed against.
+  shared by every agent, and the reference a recompiled program is replayed against. Done in part: `behaviour`
+  hypotheses, `atlas record behaviour` and `atlas verify behaviour` (replay check) for command-line programs
+  (arguments, standard input, environment, files); on Lua, the recompiled Linux, Windows and AArch64 programs
+  reproduce every deterministic scenario recorded. Next: interactive input sequences and timing, state machines
+  and persistence rules inferred from scenarios, scenarios recorded on programs that run only on another platform
+  (through an emulator), and a tolerance for values that legitimately vary (clocks).
 - **Assets.** Images, textures, models, sounds and fonts found through the format checks (`atlas check format`),
   extracted and converted with their provenance (extracted, converted, or generated where missing, never mixed).
 - **Visual and audio comparison.** Frames and sound of the original and the recompiled program under the same

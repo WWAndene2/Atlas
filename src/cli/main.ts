@@ -11,6 +11,7 @@ import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
+import { runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
@@ -95,6 +96,14 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     (angr, symbolic; x86-64 ELF), checked against traces when there are some
   infer types [--binary <bin_>]     struct types assembled from the inferred fields: arguments that access
                                     mostly the same fields share one struct (ty_ nodes, type hypotheses)
+  record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]... [-- <args>]
+                                    RUN the original twice on a scenario (fresh directory, fixed environment):
+                                    its output, exit and the output files named, recorded as an observed
+                                    behaviour, the acceptance test of the whole program; refused if the two
+                                    runs differ
+  verify behaviour <original> <reconstruction>
+                                    RUN the reconstruction on every recorded scenario: reproduced exactly,
+                                    verified; else where it differs
   trace <program> [--stdin <text>] [-- <arguments>]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
@@ -153,6 +162,10 @@ async function main(argv: string[]): Promise<number> {
         equivalence: { type: "boolean" },
         differential: { type: "boolean" },
         stdin: { type: "string" },
+        input: { type: "string", multiple: true },
+        output: { type: "string", multiple: true },
+        env: { type: "string", multiple: true },
+        timeout: { type: "string" },
         out: { type: "string" },
         link: { type: "boolean" },
         truth: { type: "string" },
@@ -297,7 +310,21 @@ async function main(argv: string[]): Promise<number> {
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
         break;
+      case "record":
+        output = await runRecordBehaviour(store, rest, {
+          ...(values.stdin !== undefined ? { stdin: values.stdin } : {}),
+          ...(values.input !== undefined ? { input: values.input } : {}),
+          ...(values.output !== undefined ? { output: values.output } : {}),
+          ...(values.env !== undefined ? { env: values.env } : {}),
+          ...(values.timeout !== undefined ? { timeout: values.timeout } : {}),
+          ...(values.agent !== undefined ? { agent: values.agent } : {}),
+        });
+        break;
       case "verify":
+        if (rest[0] === "behaviour") {
+          output = await runVerifyBehaviour(store, rest);
+          break;
+        }
         output = await runVerify(store, rest, {
           ...(values.cc !== undefined ? { cc: values.cc } : {}),
           ...(values.cflags !== undefined ? { cflags: values.cflags } : {}),

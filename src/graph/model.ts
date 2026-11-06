@@ -47,7 +47,7 @@ export interface Evidence {
 }
 
 export type HypothesisKind =
-  "name" | "signature" | "type" | "summary" | "system" | "format" | "rewrite" | "match" | "toolchain";
+  "name" | "signature" | "type" | "summary" | "system" | "format" | "rewrite" | "match" | "toolchain" | "behaviour";
 
 export type Confidence = "guessed" | "inferred" | "observed" | "verified" | "rejected";
 
@@ -61,7 +61,7 @@ export interface Hypothesis {
   evidence: string[];
   author: { agent: string; task?: string };
   verification?: {
-    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run" | "recompile";
+    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run" | "recompile" | "replay";
     result?: "pass" | "fail" | "inconclusive";
     details?: string;
   };

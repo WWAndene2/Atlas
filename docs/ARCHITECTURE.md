@@ -101,6 +101,22 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   format node (`fmt_<binary>_<id>`) and a format hypothesis holding the .ksy, then compiles it to a Python parser
   and runs it on every file given (`src/orchestrator/check-format.ts`): all read makes it verified (check
   `parser_run`); a failure records the file and the error; trailing bytes are reported.
+- Behaviour (`src/orchestrator/record-behaviour.ts`, `replay-behaviour.ts`, `src/verify/replay/`): the acceptance
+  tests of a whole program, technology-neutral. `atlas record behaviour <program> -- <arguments>` runs the original
+  on a scenario (arguments, standard input, environment variables, input files) and records a `behaviour`
+  hypothesis on its binary at `observed`, with a `capture` evidence: the scenario and what the program did
+  (standard output and error, exit code or signal, the output files named), bytes kept as text when valid UTF-8,
+  else base64. Every run sees the same conditions: a fresh working directory with the input files, argv[0]
+  `program`, the environment PATH, HOME at that directory, LC_ALL=C and TZ=UTC plus the scenario's variables, a
+  time limit, the program's process group stopped at it. The original runs twice, and a scenario it does not
+  repeat (a clock, an address) is refused. `atlas verify behaviour <original> <reconstruction>` replays every
+  scenario: the same outcome makes it `verified` (check `replay`, the reconstruction named by its SHA-256), a
+  difference keeps it `observed` with where the two part. MCP: `record_behaviour`, `verify_behaviour`. Measured on
+  Lua: seven scenarios recorded on Linux Lua (scripts with tables, formats, maths, errors, coroutines and files, an
+  output file, standard input, a syntax error, an environment variable, `os.time()`); its recompiled program
+  (`atlas lift --link`), and the Windows and AArch64 builds' recompiled programs, reproduce the six that do not
+  depend on the clock, and the seventh is reported as differing. Limit: two runs only catch what differs between
+  them; `os.time()` agreed within one second and was recorded.
 - Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
   fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
   similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the

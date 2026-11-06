@@ -1,6 +1,8 @@
 // The MCP tools: the same operations as the CLI, named in the same verb-noun vocabulary (atlas get function /
 // get_function), each answering one JSON document. Target content in answers (labels, strings, C from the target)
 // is data: the descriptions say so, as AGENTS.md 1.6 asks of every agent.
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { z } from "zod";
 import { exportJsonl, GraphStore, TaskClaims } from "../graph/index.js";
 import { agentPlan, MODES } from "../orchestrator/agent-plan.js";
@@ -28,6 +30,9 @@ import { inferFields } from "../orchestrator/infer-fields.js";
 import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
+import { recordBehaviour } from "../orchestrator/record-behaviour.js";
+import { replayBehaviour } from "../orchestrator/replay-behaviour.js";
+import { encode } from "../verify/replay/run-scenario.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
 import { liftBinary } from "../orchestrator/lift-binary.js";
@@ -168,6 +173,52 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { path: z.string(), argv: z.array(z.string()).optional(), stdin: z.string().optional() },
       handler: async (a: { path: string; argv?: string[]; stdin?: string }) =>
         traceTarget(store, a.path, a.argv ?? [], a.stdin !== undefined ? { stdin: a.stdin } : {}),
+    },
+    record_behaviour: {
+      description:
+        "RUN a loaded program twice on a scenario (only one the operator chose to run), in a fresh directory with a fixed environment: its output, exit and the output files named, recorded as an observed behaviour (the acceptance test of the whole program); refused if the two runs differ.",
+      input: {
+        path: z.string(),
+        argv: z.array(z.string()).optional(),
+        stdin: z.string().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        inputs: z.array(z.string()).optional().describe("Files copied into the working directory, by their name"),
+        outputs: z.array(z.string()).optional().describe("Names of files the program writes there, kept"),
+        timeout_s: z.number().positive().optional(),
+        agent: z.string().optional(),
+      },
+      handler: async (a: {
+        path: string;
+        argv?: string[];
+        stdin?: string;
+        env?: Record<string, string>;
+        inputs?: string[];
+        outputs?: string[];
+        timeout_s?: number;
+        agent?: string;
+      }) =>
+        recordBehaviour(
+          store,
+          a.path,
+          {
+            argv: a.argv ?? [],
+            ...(a.stdin !== undefined ? { stdin: a.stdin } : {}),
+            ...(a.env !== undefined ? { env: a.env } : {}),
+            ...(a.inputs !== undefined
+              ? { inputs: a.inputs.map((p) => ({ name: basename(p), content: encode(readFileSync(p)) })) }
+              : {}),
+            ...(a.outputs !== undefined ? { outputs: a.outputs } : {}),
+            ...(a.timeout_s !== undefined ? { timeout_s: a.timeout_s } : {}),
+          },
+          a.agent,
+        ),
+    },
+    verify_behaviour: {
+      description:
+        "RUN a reconstruction (atlas lift --link's program...) on every behaviour recorded for the original: reproduced exactly becomes verified; else where the two differ.",
+      input: { original: z.string(), reconstruction: z.string() },
+      handler: async (a: { original: string; reconstruction: string }) =>
+        replayBehaviour(store, a.original, a.reconstruction),
     },
     check_format: {
       description:
