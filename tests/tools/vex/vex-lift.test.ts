@@ -64,4 +64,9 @@ int main(void) {
       unsupported: expect.stringMatching(/^helper amd64g_dirtyhelper_CPUID/),
     });
   }, 60_000);
+  it("passes a system call instruction's number to the runtime (Horizon takes it from svc #n)", async () => {
+    // ARM: svc #0x32 (SendSyncRequest on Horizon), then bx lr.
+    const [lifted] = await liftFunctions(python as string, "arm-v6k", [{ address: 0x1000, code: "320000ef1eff2fe1" }]);
+    expect(lifted && "c" in lifted ? lifted.c : "").toContain("s->svc = 50u; atlas_syscall(s);");
+  }, 60_000);
 });

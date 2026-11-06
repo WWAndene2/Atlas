@@ -262,6 +262,17 @@ class Function:
                 f"if (s->returned >= {self.address:#x}ULL && s->returned < {self.end:#x}ULL) {{ pc = s->returned; continue; }} "
                 f"return; }} pc = {after:#x}ULL; continue;")
 
+    def svc_immediate(self, at, size):
+        """The number a system call instruction carries: ARM's svc #imm24, Thumb's svc #imm8, AArch64's svc #imm16;
+        0 for an instruction with none (x86's syscall)."""
+        data = self.memory.load(at, size) if self.memory is not None else self.code[at - self.address:][:size]
+        word = int.from_bytes(data[:size], "little")
+        if self.arch.name.startswith("ARM"):
+            return word & 0xFF if self.thumb else word & 0xFFFFFF
+        if self.arch.name == "AARCH64":
+            return (word >> 5) & 0xFFFF
+        return 0
+
     def thumb_branch(self, at):
         """The target of a Thumb-2 unconditional B.W (encoding T4) at `at`, or None if it is not one (ARM ARM:
         I1 = not (J1 xor S), I2 = not (J2 xor S), offset = SignExtend(S:I1:I2:imm10:imm11:0))."""
@@ -481,7 +492,8 @@ class Function:
                 elif irsb.jumpkind == "Ijk_Sys_syscall" and constant is not None:
                     # A system call (svc, syscall): the program's atlas_syscall serves it from the guest registers.
                     todo.append(constant)
-                    body.append(f"      atlas_syscall(s); pc = {constant:#x}ULL; continue;")
+                    body.append(f"      s->svc = {self.svc_immediate(last_mark[0], last_mark[1])}u; atlas_syscall(s); "
+                                f"pc = {constant:#x}ULL; continue;")
                 elif irsb.jumpkind == "Ijk_NoDecode":
                     stop = a + irsb.size
                     target = self.thumb_branch(stop) if self.thumb else None

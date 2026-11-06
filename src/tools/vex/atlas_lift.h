@@ -16,6 +16,9 @@ typedef struct atlas_state {
    * target, and a call site that finds another address unwinds (a return that skips a level). ATLAS_RETURNED_ANY:
    * a return whose target is not known (a host call, a longjmp's landing), taken as the expected one. */
   uint64_t returned;
+  /* The immediate of the system call instruction being served (svc #n): where a kernel takes the call's number
+   * from the instruction rather than a register (Horizon); 0 when the instruction has none (x86's syscall). */
+  uint32_t svc;
 } atlas_state;
 #define ATLAS_RETURNED_ANY (~0ULL)
 
