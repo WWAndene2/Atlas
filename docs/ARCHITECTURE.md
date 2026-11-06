@@ -133,6 +133,13 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   translation's place (stubs carry its calls back into the program; at fixed addresses when the original's image
   allows, so its globals are reached by `DAT_<address>`). Lua: 102 of 111 verified rewrites in place, output
   identical to the original's.
+- Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
+  host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
+  its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating
+  system is served by atlas_syscall, which carries out the common Linux calls on the guest's memory (the console
+  case in miniature: faithful code, emulated services). A freestanding ARM program (its own _start, syscalls by
+  hand) translated and run on x86-64 prints what it should and returns its exit code. Full static-glibc startup
+  (its TLS and allocator init) is further work.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
