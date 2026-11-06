@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { locateAngr } from "../../../src/tools/angr/index.js";
 import {
@@ -775,4 +776,82 @@ describe.runIf(python !== undefined)("linkProgram native", () => {
     // The two links share the translations, compiled once.
     expect(readdirSync(dir).filter((f) => /^lifted\.c\.[0-9a-f]{16}\.o$/.test(f))).toHaveLength(1);
   }, 600_000);
+});
+
+// Hand-written assembly patterns (tests/fixtures/handwritten-asm/handwritten.c), one program each, for the 3DS's CPU.
+// Measured: a call made by hand (1) works, VEX's ARM decoder taking "lr set to the next instruction, then b" as a
+// call; a stack switch (3) works, the guest stack being memory; a return that skips a level (2) is not followed yet,
+// a translation being a C function that returns to its C caller (the fix planned in docs/ROADMAP.md: a shadow stack
+// of return addresses).
+const HANDWRITTEN = fileURLToPath(new URL("../../fixtures/handwritten-asm/handwritten.c", import.meta.url));
+const ALL_FUNCTIONS = `
+import cle, json, sys
+o = cle.Loader(sys.argv[1], auto_load_libs=False).main_object
+syms = sorted({s.rebased_addr & ~1: s for s in o.symbols if s.is_function and not s.is_import}.items())
+end = max(s.vaddr + s.memsize for s in o.sections if s.is_executable)
+out = []
+for k, (a, s) in enumerate(syms):
+    size = s.size or ((syms[k + 1][0] if k + 1 < len(syms) else end) - a)  # a naked function's symbol has size 0
+    out.append({"address": a, "code": o.memory.load(a - o.mapped_base, size).hex()})
+print(json.dumps(out))
+`;
+
+async function runPattern(pattern: number): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "atlas-handwritten-"));
+  execFileSync(
+    "clang",
+    [
+      "--target=armv6k-none-eabi",
+      "-marm",
+      "-mfloat-abi=soft",
+      "-O1",
+      "-ffreestanding",
+      "-nostdlib",
+      "-static",
+      "-fuse-ld=lld",
+      `-DPATTERN=${pattern}`,
+      HANDWRITTEN,
+      "-o",
+      "p",
+    ],
+    { cwd: dir },
+  );
+  writeFileSync(join(dir, "functions.py"), ALL_FUNCTIONS);
+  const functions = JSON.parse(
+    execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }),
+  ) as { address: number; code: string }[];
+  const lifted = await liftFunctions(python as string, "arm-v6k", functions, join(dir, "p"));
+  writeFileSync(
+    join(dir, "lifted.c"),
+    `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
+  );
+  const outcome = await crosslinkProgram(python as string, {
+    arch: "ARMEL",
+    endness: "Iend_LE",
+    binary: join(dir, "p"),
+    lifted: [join(dir, "lifted.c")],
+    translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+    out: join(dir, "program"),
+    base: 0,
+  });
+  return spawnSync(outcome.executable, [], { encoding: "utf8" }).stdout;
+}
+
+describe.runIf(python !== undefined && armClang())("hand-written assembly", () => {
+  it("follows a call made by hand (adr lr, then b)", async () => {
+    expect(await runPattern(1)).toBe("ok\n");
+  }, 300_000);
+  it.fails(
+    "follows a return that skips a level",
+    async () => {
+      expect(await runPattern(2)).toBe("ok\n");
+    },
+    300_000,
+  );
+  it("follows a stack switch", async () => {
+    expect(await runPattern(3)).toBe("ok\n");
+  }, 300_000);
 });

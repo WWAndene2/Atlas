@@ -191,12 +191,15 @@ spreads across platforms instead of finishing one. So, from now on:
 - **Comparing images:** scenarios gain a timed input sequence and frame captures; the reconstruction writes its
   frames as it writes its coverage (`ATLAS_FRAMES`), compared under a stated tolerance (PSNR or SSIM), the report
   naming the first frame and region that differ; `blame` and `fuzz` then work on frames unchanged.
-- **Hand-written assembly first measured** with a fixture of its patterns (calls made by hand, returns that skip a
-  level, stack switches); the expected fix is a shadow stack of return addresses (a return that does not go where
-  its call expected unwinds to the matching frame, as longjmp does), with a block-by-block mode for functions
-  marked irregular.
+- **Hand-written assembly, measured** with a fixture of its patterns (`tests/fixtures/handwritten-asm/`, ARMv6K,
+  one program per pattern): a call made by hand (`adr lr` then `b`) works, VEX's ARM decoder taking it as a call;
+  a stack switch works, the guest stack being memory; a return that skips a level does not (a translation is a C
+  function that returns to its C caller), a known failure in the test. The fix: a shadow stack of return addresses,
+  a return that does not go where its call expected unwinding to the matching frame as longjmp does, with a
+  block-by-block mode for functions marked irregular.
 
-Order of work: this roadmap entry; the hand-written assembly fixture; the console kernel's core with the 3DS
+Order of work: this roadmap entry; the hand-written assembly fixture (done); returns that skip a level (the shadow
+stack); the console kernel's core with the 3DS
 profile and the log of what is not served, run on the title; then the services the log asks for most; frames.
 
 ### Static recompilation — the "it runs" path (decided 5 November 2026)
