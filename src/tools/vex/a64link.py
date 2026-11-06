@@ -14,7 +14,7 @@ registers in order: the guest's x0-x5 become rdi..r9, x6, x7 and the stack argum
 d0-d7 xmm0-7 (variadic ones too: AArch64 Linux passes them as named ones); x0, x1 and d0, d1 take rax, rdx and
 xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. A guest function handed to qsort,
 bsearch or an exit handler registration is replaced by a host stub bound to it, which enters the guest with the
-conversion the other way; sigaction installs a guest handler the same way (the guest state saved around it,
+conversion the other way; signal and sigaction install a guest handler the same way (the guest state saved around it,
 so a signal arriving in the middle of translated code leaves that code as it was). Data the host's C library does not export
 (AArch64's __stack_chk_guard, a global there) is a variable of the program. setjmp and longjmp run in the
 translated caller's frame (jumps.py, AArch64 registers). The program starts at the entry, whose call to
@@ -33,7 +33,10 @@ from link import ENTER_GUEST, TRAMPOLINE
 
 # Imports that call a function the guest passes them (the argument's position): qsort's and bsearch's comparison,
 # and the handlers run at exit (glibc's atexit is linked into the program and registers through __cxa_atexit).
-CALLBACK_ARGS = {"qsort": 3, "bsearch": 4, "atexit": 0, "__cxa_atexit": 0, "on_exit": 0}
+CALLBACK_ARGS = {"qsort": 3, "bsearch": 4, "atexit": 0, "__cxa_atexit": 0, "on_exit": 0,
+                 "signal": 1, "bsd_signal": 1, "sysv_signal": 1, "__sysv_signal": 1}
+# Those that return the handler they replace: a stub there is turned back into the guest's handler.
+RETURNS_HANDLER = {"signal", "bsd_signal", "sysv_signal", "__sysv_signal"}
 CALLBACK_SLOTS = 64
 
 # Data imports the host's C library does not have, and their initial value.
@@ -105,6 +108,7 @@ static uint64_t callback_target[{CALLBACK_SLOTS}];
 static int callback_count;
 {nl.join(f'__attribute__((naked)) static void callback_stub_{k}(void) {{ __asm__ volatile("movabs ${k:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}' for k in range(CALLBACK_SLOTS))}
 static void *const callback_stub[{CALLBACK_SLOTS}] = {{{", ".join(f"(void *)callback_stub_{k}" for k in range(CALLBACK_SLOTS))}}};
+static const int returns_handler[{len(imports) or 1}] = {{{", ".join("1" if n in RETURNS_HANDLER else "0" for n in imports) or "0"}}};
 static const int callback_arg[{len(imports) or 1}] = {{{", ".join(str(CALLBACK_ARGS.get(n, -1)) for n in imports) or "-1"}}};
 /* The stub bound to a guest function in the image, or the value unchanged (SIG_DFL, SIG_IGN, a host function). */
 static uint64_t bind_callback(uint64_t fn) {{
@@ -200,6 +204,7 @@ void atlas_call(atlas_state *s, uint64_t target) {{
     REG(uint64_t, X0 + 8 * callback_arg[i]) = bind_callback(REG(uint64_t, X0 + 8 * callback_arg[i]));
   }}
   call_host(s, import_host[i]);
+  if (returns_handler[i]) REG(uint64_t, X0) = unbind_callback(REG(uint64_t, X0));
 }}
 void atlas_trap(atlas_state *s, uint64_t at, int kind) {{
   fprintf(stderr, "atlas: guest trap %d at %#lx\\n", kind, (unsigned long)at); abort();

@@ -339,7 +339,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
   }, 600_000);
 });
 
-// An AArch64 program installing its own signal handler with sigaction, then raising the signal: the host delivers
+// An AArch64 program installing its own signal handler with sigaction, then signal, raising the signal each time: the host delivers
 // it to the translated handler. The old action handed back is the program's own handler again.
 const SIGNAL_PROGRAM = `
 #include <signal.h>
@@ -355,12 +355,15 @@ int main(void) {
   raise(SIGUSR1);
   sigaction(SIGUSR1, &sa, &old);
   printf("got %d, old handler is ours: %d\\n", (int)got, old.sa_handler == on_usr1);
+  signal(SIGUSR2, on_usr1);
+  raise(SIGUSR2);
+  printf("got %d, previous is ours: %d\\n", (int)got, signal(SIGUSR2, SIG_DFL) == on_usr1);
   return 0;
 }
 `;
 
 describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram signals", () => {
-  it("delivers a signal to an AArch64 program's own handler installed with sigaction", async () => {
+  it("delivers a signal to an AArch64 program's own handler installed with sigaction or signal", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-a64-signal-test-"));
     writeFileSync(join(dir, "p.c"), SIGNAL_PROGRAM);
     execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p"], { cwd: dir });
@@ -384,7 +387,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
       base,
     });
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
-    expect(run.stdout).toBe("got 10, old handler is ours: 1\n");
+    expect(run.stdout).toBe("got 10, old handler is ours: 1\ngot 12, previous is ours: 1\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });
