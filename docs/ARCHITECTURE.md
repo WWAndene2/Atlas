@@ -282,6 +282,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   (`threads.inc`) are host threads with their own guest state, but one runs guest code at a time, handing over by
   priority when it blocks, yields or readies a higher one: deterministic, as on an application core. A thread that
   spins on memory without a system call never yields (timer preemption is not modelled).
+  A machine's periodic tick (a vertical blank) runs between threads' turns. gsp::Gpu (`ctr_gsp.inc`) shows each
+  framebuffer presented at the next blank and writes it as a PPM under `ATLAS_FRAMES` (`frames.inc`, numbered per
+  screen in the order shown); the GPU's own work (display transfer, command lists) is logged as unserved, its
+  completion still raised so a title goes on.
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating

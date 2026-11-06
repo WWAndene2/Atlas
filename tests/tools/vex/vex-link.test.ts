@@ -109,7 +109,7 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram", () => {
 });
 
 // A freestanding ARM program that talks to the kernel as a 3DS title does (Horizon: the call's number in the svc
-// immediate, the command buffer at TLS + 0x80): a debug string, srv: by its port, a service handle for gsp::Gpu
+// immediate, the command buffer at TLS + 0x80): a debug string, srv: by its port, a service handle for cfg:u
 // (which nothing serves, so its request is logged), the tick counter, heap memory, a handle closed twice. It exits
 // through ExitProcess; its stdout is empty, its debug output on stderr.
 const CTR_PROGRAM = `
@@ -126,7 +126,7 @@ void title(void) {
   u32 *c = cmd();
   c[0] = 0x00010002; c[1] = 0x20;
   ok &= request(srv) == 0 && c[1] == 0;
-  c[0] = 0x00050100; c[1] = 0x3A707367; c[2] = 0x7570473A; c[3] = 8; c[4] = 0; /* "gsp::Gpu" */
+  c[0] = 0x00050100; c[1] = 0x3A676663; c[2] = 0x75; c[3] = 5; c[4] = 0; /* "cfg:u" */
   ok &= request(srv) == 0 && c[1] == 0;
   u32 gsp = c[3];
   c[0] = 0x00130042;
@@ -232,6 +232,54 @@ async function buildTitle(dir: string, source: string): Promise<string> {
   return outcome.executable;
 }
 
+// A title's first frame, through gsp::Gpu as libctru's gspInit and gfx do it: rights, the interrupt queue and its
+// shared memory, a memory fill (GX) painting the top framebuffer blue, one pixel drawn red by the CPU, the
+// framebuffer presented through shared memory, shown at the next vertical blank.
+const CTR_FRAME = `
+typedef unsigned u32; typedef unsigned char u8;
+#define SVC(n, a) do { register u32 r0 __asm__("r0") = a[0], r1 __asm__("r1") = a[1], r2 __asm__("r2") = a[2], \\
+  r3 __asm__("r3") = a[3], r4 __asm__("r4") = a[4], r5 __asm__("r5") = a[5]; \\
+  __asm__ volatile("svc " #n : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4), "+r"(r5) : : "memory"); \\
+  a[0] = r0; a[1] = r1; a[2] = r2; a[3] = r3; a[4] = r4; a[5] = r5; } while (0)
+static u32 *cmd(void) { u32 t; __asm__ volatile("mrc p15, 0, %0, c13, c0, 3" : "=r"(t)); return (u32 *)(t + 0x80); }
+static u32 request(u32 h) { u32 a[6] = {h}; SVC(0x32, a); return a[0]; }
+static void out(const char *m) { u32 a[6] = {(u32)m, 0}; while (m[a[1]]) a[1]++; SVC(0x3D, a); }
+#define SHARED 0x10100000u
+#define FB 0x1F000000u
+static int wait_interrupt(u32 event, int id) {        /* pops the queue until the interrupt comes */
+  volatile u8 *q = (volatile u8 *)SHARED;
+  for (int tries = 0; tries < 100; tries++) {
+    while (q[1]) { int e = q[0xC + q[0]]; q[0] = (q[0] + 1) % 0x34; q[1]--; if (e == id) return 1; }
+    u32 a[6] = {event, 0, 0xFFFFFFFFu, 0xFFFFFFFFu}; SVC(0x24, a);
+  }
+  return 0;
+}
+void title(void) {
+  int ok = 1;
+  u32 a[6] = {0, (u32)"srv:"}; SVC(0x2D, a); u32 srv = a[1];
+  u32 *c = cmd();
+  c[0] = 0x00050100; c[1] = 0x3A707367; c[2] = 0x7570473A; c[3] = 8; c[4] = 0; request(srv); u32 gsp = c[3];
+  c[0] = 0x00160042; c[1] = 0; c[2] = 0; c[3] = 0xFFFF8001u; ok &= request(gsp) == 0 && c[1] == 0;  /* AcquireRight */
+  u32 e[6] = {0, 0}; SVC(0x17, e); u32 event = e[1];
+  c[0] = 0x00130042; c[1] = 1; c[2] = 0; c[3] = event; request(gsp);              /* RegisterInterruptRelayQueue */
+  ok &= c[1] == 0x2A07 && c[2] == 0; u32 block = c[4];
+  u32 m[6] = {block, SHARED, 3, 0x10000000u}; SVC(0x1F, m); ok &= m[0] == 0;     /* MapMemoryBlock */
+  u32 *gx = (u32 *)(SHARED + 0x800);                                              /* memory fill, 24-bit, blue */
+  gx[8] = 0x01000102; gx[9] = FB; gx[10] = 0x0000FF; gx[11] = FB + 240 * 400 * 3;
+  gx[12] = 0; gx[13] = 0; gx[14] = 0; gx[15] = 0x101; gx[0] = 1 << 8;
+  c[0] = 0x000C0000; request(gsp);                                                /* TriggerCmdReqQueue */
+  ok &= wait_interrupt(event, 0);                                                 /* PSC0 */
+  u8 *fb = (u8 *)FB + (10 * 240 + (239 - 20)) * 3; fb[0] = 0; fb[1] = 0; fb[2] = 0xFF; /* (10, 20) red */
+  u32 *info = (u32 *)(SHARED + 0x200);                                            /* top screen, entry 1 */
+  info[8] = 0; info[9] = FB; info[10] = FB; info[11] = 240 * 3; info[12] = 1; info[13] = 0; info[14] = 0;
+  info[0] = 0x101;                                                                /* entry 1, update */
+  ok &= wait_interrupt(event, 2) && (info[0] & 0xFF00) == 0;                      /* VBlank0: shown */
+  if (ok) out("shown\\n");
+  u32 x[6] = {0}; SVC(0x03, x);
+}
+__attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
+`;
+
 describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profile", () => {
   it("runs a title's threads in priority order, with their events, semaphores, arbiters and mutexes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
@@ -243,6 +291,24 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profil
     expect(existsSync(log)).toBe(false);
   }, 300_000);
 
+  it("shows a title's first frame through gsp::Gpu, written out as an image", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
+    const program = await buildTitle(dir, CTR_FRAME);
+    const frames = join(dir, "frames");
+    execFileSync("mkdir", [frames]);
+    const run = spawnSync(program, [], { encoding: "utf8", env: { ...process.env, ATLAS_FRAMES: frames } });
+    expect(run.stderr).toBe("shown\n");
+    expect(run.status).toBe(0);
+    expect(readdirSync(frames)).toEqual(["top-0001.ppm"]);
+    const image = readFileSync(join(frames, "top-0001.ppm"));
+    const header = "P6\n400 240\n255\n";
+    expect(image.subarray(0, header.length).toString()).toBe(header);
+    const pixel = (x: number, y: number) => [...image.subarray(header.length + (y * 400 + x) * 3).subarray(0, 3)];
+    expect(pixel(10, 20)).toEqual([255, 0, 0]);
+    expect(pixel(11, 20)).toEqual([0, 0, 255]);
+    expect(pixel(399, 239)).toEqual([0, 0, 255]);
+  }, 300_000);
+
   it("serves a title's Horizon system calls and srv:, and logs what is not served", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
     const program = await buildTitle(dir, CTR_PROGRAM);
@@ -250,7 +316,7 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profil
     const run = spawnSync(program, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
     expect(run.stderr).toBe("title up\nall ok\n");
     expect(run.status).toBe(0);
-    expect(readFileSync(log, "utf8")).toBe("1 gsp::Gpu 0x13\n1 svc 0x7f\n");
+    expect(readFileSync(log, "utf8")).toBe("1 cfg:u 0x13\n1 svc 0x7f\n");
   }, 300_000);
 });
 

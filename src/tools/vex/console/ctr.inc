@@ -48,7 +48,7 @@ static void ctr_srv(atlas_state *s, uint8_t *command, struct console_object *ses
     uint32_t handle = console_handle_new(CONSOLE_SESSION, 0, console_service_lookup(name));
     c[0] = 0x00050042;
     c[1] = handle ? CTR_OK : CTR_NOT_IMPLEMENTED;
-    c[2] = 0x04000000; /* a copied handle follows */
+    c[2] = 0x10; /* one handle moved (libctru: IPC_Desc_MoveHandles(1)) */
     c[3] = handle;
   } else {
     console_unserved("srv:", id);
@@ -57,9 +57,12 @@ static void ctr_srv(atlas_state *s, uint8_t *command, struct console_object *ses
   }
 }
 
+static void ctr_gsp(atlas_state *s, uint8_t *command, struct console_object *session); /* ctr_gsp.inc */
+
 static void ctr_setup(atlas_state *s) {
   REG(uint32_t, CTR_TLS_REG) = CTR_TLS;
   console_service_register("srv:", ctr_srv);
+  console_service_register("gsp::Gpu", ctr_gsp);
   atexit(console_unserved_write);
   console_threads_start(s, CTR_MAIN_PRIORITY);
 }
@@ -194,6 +197,12 @@ static void ctr_syscall(atlas_state *s) {
         o->count = s->svc == 0x18;
         if (o->count) console_schedule(0);
       }
+      break;
+    }
+    case 0x1F: case 0x20: { /* MapMemoryBlock(block, address, ...), UnmapMemoryBlock(block, address) */
+      struct console_object *o = ctr_object(CTR_R(0), CONSOLE_MEMORY);
+      if (o == NULL) r = CTR_INVALID_HANDLE;
+      else o->value = s->svc == 0x1F ? CTR_R(1) : 0; /* guest memory is all there: mapping names where it is */
       break;
     }
     case 0x21: CTR_R(1) = console_handle_new(CONSOLE_OTHER, 0, NULL); break; /* CreateAddressArbiter */

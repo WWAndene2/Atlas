@@ -86,7 +86,8 @@ def main():
         regs = ", ".join(str(arch.registers[f"r{k}"][0]) for k in range(6))
         platform = (f"static const uint32_t ctr_reg[6] = {{{regs}}};\n"
                     f"#define CTR_TLS_REG {tls}\n#define CTR_SP_REG {off['sp']}\n"
-                    '#include "console/kernel.inc"\n#include "console/threads.inc"\n#include "console/ctr.inc"')
+                    '#include "console/kernel.inc"\n#include "console/threads.inc"\n#include "console/frames.inc"\n'
+                    '#include "console/ctr.inc"\n#include "console/ctr_gsp.inc"')
         setup = f"  (void)argc; (void)argv; (void)envp;\n  ctr_setup(s);\n  REG(uint32_t, {off['sp']}) = CTR_STACK_TOP;"
         serve = "  ctr_syscall(s);"
     else:

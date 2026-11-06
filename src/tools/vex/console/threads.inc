@@ -41,6 +41,19 @@ static uint64_t console_now(void) {
   return (uint64_t)t.tv_sec * 1000000000u + (uint64_t)t.tv_nsec;
 }
 
+/* A periodic tick of the machine (a display's vertical blank): called by the scheduler, between two threads'
+ * turns, once its time has come. Its work is to signal objects; it runs no guest code. A tick late by more than a
+ * period is not repeated (missed blanks are lost, as on a display). While a tick is set, threads waiting for ever
+ * are not reported: the tick may be what they wait on. */
+static void (*console_tick)(void);
+static uint64_t console_tick_period, console_tick_next;
+
+static void console_every(uint64_t period, void (*tick)(void)) {
+  console_tick = tick;
+  console_tick_period = period;
+  console_tick_next = console_now() + period;
+}
+
 /* A deadline from a relative timeout in nanoseconds; a negative one waits for ever. */
 static uint64_t console_deadline(int64_t timeout) {
   return timeout < 0 ? CONSOLE_FOREVER : console_now() + (uint64_t)timeout;
@@ -122,6 +135,12 @@ static void console_schedule(int yield) {
   int me = console_self;
   for (;;) {
     uint64_t now = console_now(), nearest = CONSOLE_FOREVER;
+    if (console_tick != NULL && now >= console_tick_next) {
+      console_tick_next += console_tick_period;
+      if (console_tick_next <= now) console_tick_next = now + console_tick_period;
+      console_tick();
+    }
+    if (console_tick != NULL) nearest = console_tick_next;
     int best = -1;
     for (int k = 1; k <= CONSOLE_THREADS; k++) {
       int i = (me + k) % CONSOLE_THREADS; /* this thread last: among equals, the next one goes first */

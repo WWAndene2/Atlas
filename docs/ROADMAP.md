@@ -190,8 +190,11 @@ spreads across platforms instead of finishing one. So, from now on:
   immediate, the command buffer at TLS + 0x80, srv:, objects, heap and linear memory, the tick counter), tested
   on a freestanding ARM title; threads (`console/threads.inc`: one guest thread runs at a time, by priority, until it
   blocks, yields or readies a higher one; events, mutexes, semaphores, address arbiters, timeouts; a deadlock is
-  reported). Not modelled: preemption by a timer between system calls, the second core. Next: the services a real
-  title's log names.
+  reported). Not modelled: preemption by a timer between system calls, the second core. gsp::Gpu's first part
+  (`console/ctr_gsp.inc`, formats from libctru's client): rights, the interrupt queue and its shared memory, the
+  vertical blank at 59.83 Hz, framebuffers presented and written out as frames (`ATLAS_FRAMES`, `frames.inc`), GX
+  DMA and memory fill. Next: the other services every title starts with (APT, HID, FS), then the GPU's work
+  (display transfer, command lists).
 - **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
   then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
   emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.
