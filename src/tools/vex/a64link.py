@@ -227,11 +227,14 @@ static int import_of(uint64_t target) {{
   for (int i = 0; i < NIMPORTS; i++) if (import_host[i] && (uint64_t)(uintptr_t)import_host[i] == target) return i;
   return -1;
 }}
-static int import_is(uint64_t t, const char *name) {{
-  int i = import_of(t);
-  return i >= 0 && strcmp(import_names[i], name) == 0;
+/* The addresses that mean setjmp, worked out once (its PLT entries, then its host addresses after dlsym): ATLAS_CALL
+ * asks this on every guest call, so it must not scan the imports. */
+static uint64_t setjmp_targets[{2 * len(SETJMP_NAMES) + 1}] = {{{", ".join(f"{a:#x}ULL" for a, i in sorted(plt.items()) if imports[i] in SETJMP_NAMES) or "0"}}};
+static int setjmp_count = {sum(1 for a, i in plt.items() if imports[i] in SETJMP_NAMES)};
+int atlas_is_setjmp(uint64_t t) {{
+  for (int k = 0; k < setjmp_count; k++) if (setjmp_targets[k] == t) return 1;
+  return 0;
 }}
-int atlas_is_setjmp(uint64_t t) {{ return {" || ".join(f'import_is(t, "{n}")' for n in SETJMP_NAMES)}; }}
 
 static char **host_envp;
 /* ATLAS_COVERAGE=<file>: the translated functions that ran (graph addresses), written at exit, as link.py does. */
@@ -341,6 +344,9 @@ static int atlas_setup(char **envp) {{
     if (segs[k].filesize) memcpy((void *)(uintptr_t)segs[k].vaddr, atlas_original + segs[k].offset, segs[k].filesize);
   }}
   for (int i = 0; i < NIMPORTS; i++) import_host[i] = dlsym(RTLD_DEFAULT, import_names[i]);
+  for (int i = 0; i < NIMPORTS; i++)
+    if (import_host[i] && ({" || ".join(f'!strcmp(import_names[i], "{n}")' for n in SETJMP_NAMES)}))
+      setjmp_targets[setjmp_count++] = (uint64_t)(uintptr_t)import_host[i];
 {nl.join(f"  import_host[{i}] = &own_data[{k}];" for k, (i, _) in enumerate(own))}
   for (unsigned k = 0; k < sizeof relative / sizeof relative[0]; k++)
     if (relative[k][0]) *(uint64_t *)(uintptr_t)relative[k][0] = relative[k][1];
