@@ -551,3 +551,36 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc") && javaHome(
     expect(run.status).toBe(0);
   }, 600_000);
 });
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram wrong addresses", () => {
+  it("reports a call to an address no loaded module holds instead of jumping there", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-wrong-test-"));
+    writeFileSync(
+      join(dir, "p.c"),
+      '#include <stdio.h>\nint main(void) { int (*volatile f)(void) = (int (*)(void))0x7ff000001234; puts("before"); fflush(stdout); return f(); }\n',
+    );
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "p"), base);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stdout).toBe("before\n");
+    expect(run.stderr).toContain("atlas: a call to 0x7ff000001234, in no loaded module");
+    expect(run.status).not.toBe(0);
+  }, 600_000);
+});

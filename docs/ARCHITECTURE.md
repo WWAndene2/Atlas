@@ -205,8 +205,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   -fPIC code, not through a host program's copy relocations; one such library per process. A guest call to an
   address outside its image is a call of host code (a JNIEnv function, a host program's callback) with the
   conventions converted: an AArch64 JNI library (`Java_...` native methods calling GetStringUTFChars and
-  NewStringUTF through JNIEnv) linked this way runs in a host Java VM, loaded by `System.load` (test). A wrong
-  address outside the image then crashes instead of being reported;
+  NewStringUTF through JNIEnv) linked this way runs in a host Java VM, loaded by `System.load` (test). An address
+  outside the image that no loaded module holds (dladdr) is reported and stops the program, rather than jumped
+  to;
   verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
   ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,

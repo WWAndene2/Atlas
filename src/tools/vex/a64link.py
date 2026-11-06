@@ -125,8 +125,7 @@ __attribute__((constructor)) static void atlas_library_start(void) {
   if (atlas_setup(environ)) abort();
 }"""
     own = [(index[n], v) for n, v in OWN_DATA.items() if n in index]
-    c = f"""#define _GNU_SOURCE
-#include "atlas_lift.h"
+    c = f"""#include "atlas_lift.h"
 #include <dlfcn.h>
 #include <errno.h>
 #include <setjmp.h>
@@ -228,8 +227,14 @@ void atlas_call(atlas_state *s, uint64_t target) {{
     /* An address outside the guest image is host code: a function pointer the host gave the guest (a JNIEnv
      * function, a callback of a host program), called with the conventions converted. */
     if (target < {min(v for v, *_ in segs):#x}ULL || target >= {max(v + m for v, m, *_ in segs):#x}ULL) {{
-      call_host(s, (void *)(uintptr_t)target);
-      return;
+      /* Only into code a loaded module holds: anything else is a wrong address, reported rather than jumped to. */
+      Dl_info where;
+      if (dladdr((void *)(uintptr_t)target, &where) && where.dli_fname != NULL) {{
+        call_host(s, (void *)(uintptr_t)target);
+        return;
+      }}
+      fprintf(stderr, "atlas: a call to %#lx, in no loaded module\\n", (unsigned long)target);
+      abort();
     }}
     fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target);
     abort();
@@ -329,7 +334,8 @@ static int atlas_setup(char **envp) {{
     # A library is a host shared library whose only visible symbols are the original's exports.
     shared = (["-shared", "-fPIC", "-fvisibility=hidden"]
               + [f"-Wl,--defsym={name}={address:#x}" for name, address in exported_data]) if library else []
-    subprocess.run(["gcc", "-O1", "-w", *shared, "-I", request["runtime"], "-include", out + ".setjmp.h",
+    # _GNU_SOURCE on the command line: the included setjmp header comes before the file's own definition (dladdr).
+    subprocess.run(["gcc", "-O1", "-w", "-D_GNU_SOURCE", *shared, "-I", request["runtime"], "-include", out + ".setjmp.h",
                     *request["lifted"], out + ".main.c", "-o", out, "-ldl", "-lm"], check=True)
     print(json.dumps({"executable": out, "imports": len(imports), "own": sorted(n for n in OWN_DATA if n in index),
                       "library": library, "exports": len(exports), "exported_data": len(exported_data)}))
