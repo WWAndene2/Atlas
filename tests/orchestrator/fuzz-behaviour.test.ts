@@ -42,3 +42,35 @@ describe("fuzzBehaviour", () => {
     store.close();
   }, 300_000);
 });
+
+// A reconstruction that reports coverage as the linked programs do (ATLAS_COVERAGE, one address per line at exit):
+// one "function" per kind of byte its input holds. It agrees with the original, so only coverage changes.
+const COVERING = `#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+  int c, n = 0, seen[4] = {0};
+  while ((c = getchar()) != EOF) {
+    n += c >= '0' && c <= '9';
+    seen[c >= '0' && c <= '9' ? 0 : c >= 'a' && c <= 'z' ? 1 : c == ' ' || c == '\\n' ? 2 : 3] = 1;
+  }
+  printf("%d\\n", n);
+  const char *out = getenv("ATLAS_COVERAGE");
+  if (out) { FILE *f = fopen(out, "w"); for (int k = 0; k < 4; k++) if (seen[k]) fprintf(f, "%#x\\n", 0x1000 + k); fclose(f); }
+  return 0;
+}`;
+
+describe("fuzzBehaviour coverage guidance", () => {
+  it("keeps as seeds the mutants that reach code no earlier run reached", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-fuzz-guided-"));
+    const store = new GraphStore(join(dir, "g.sqlite"));
+    const original = build(dir, "original", ORIGINAL);
+    const binary = binaryId(await fileSha256(original));
+    store.putNode({ schema_version: 1, id: binary, kind: "binary", architecture: "x86_64" });
+    await recordBehaviour(store, original, { argv: [], stdin: "abc" });
+    const result = await fuzzBehaviour(store, original, build(dir, "covering", COVERING), { rounds: 60, seed: 5 });
+    expect(result.found).toEqual([]);
+    expect(result.seeded).toBeGreaterThan(0);
+    expect(result.covered).toBeGreaterThan(1);
+    store.close();
+  }, 300_000);
+});

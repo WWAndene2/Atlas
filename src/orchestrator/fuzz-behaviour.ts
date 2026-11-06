@@ -24,6 +24,8 @@ export interface FuzzResult {
   found: { hypothesis: string; differences: string[] }[];
   /** Functions the reconstruction reached over the run, when it reports coverage (ATLAS_COVERAGE). */
   covered?: number;
+  /** Mutants kept as seeds because they reached functions no earlier run had. */
+  seeded: number;
 }
 
 export async function fuzzBehaviour(
@@ -47,7 +49,7 @@ export async function fuzzBehaviour(
   const random = generator(options.seed ?? 1);
   const rounds = options.rounds ?? 50;
   const limit = options.limit ?? 10;
-  const result: FuzzResult = { rounds: 0, unstable: 0, found: [] };
+  const result: FuzzResult = { rounds: 0, unstable: 0, found: [], seeded: 0 };
   // The functions the reconstruction reached over the run, when it reports them (ATLAS_COVERAGE).
   const covered = new Set<string>();
   const work = await mkdtemp(join(tmpdir(), "atlas-fuzz-"));
@@ -64,7 +66,12 @@ export async function fuzzBehaviour(
       await rm(file, { force: true });
       const got = await runScenario(reconstruction, forReconstruction(mutant), { ATLAS_COVERAGE: file });
       const reached = await readCoverage(file);
-      if (reached !== undefined) for (const a of reached) covered.add(a);
+      // A mutant that reaches a function no earlier run reached becomes a seed itself: later rounds start from it.
+      if (reached !== undefined && [...reached].some((a) => !covered.has(a))) {
+        for (const a of reached) covered.add(a);
+        seeds.push(mutant);
+        result.seeded++;
+      }
       const found = differences(expected, got, mutant.vary);
       if (found.length === 0) continue;
       const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
