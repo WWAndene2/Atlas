@@ -207,8 +207,9 @@ plays and saves. In order, after the static recompilation steps above:
   (arguments, standard input, environment, files); on Lua, the recompiled Linux, Windows and AArch64 programs
   reproduce every deterministic scenario recorded. Next: interactive input sequences and timing, state machines
   and persistence rules inferred from scenarios, scenarios recorded on programs that run only on another platform
-  (through an emulator). Done: a tolerance for what legitimately varies (`--vary`, masked in every comparison), and
-  `atlas blame behaviour` (the functions a failing behaviour comes from); translations compiled once for all its
+  (through an emulator). Done: a tolerance for what legitimately varies (`--vary`, masked in every comparison), `atlas fuzz behaviour`
+  (mutated inputs on which a reconstruction differs, recorded as behaviours) and `atlas blame behaviour` (the
+  functions a failing behaviour comes from); translations compiled once for all its
   rebuilds; next for it, AArch64 and Windows programs.
 - **Assets.** Images, textures, models, sounds and fonts found through the format checks (`atlas check format`),
   extracted and converted with their provenance (extracted, converted, or generated where missing, never mixed).

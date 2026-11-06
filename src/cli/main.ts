@@ -11,7 +11,7 @@ import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
-import { runBlameBehaviour, runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
+import { runBlameBehaviour, runFuzzBehaviour, runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
@@ -102,6 +102,10 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
                                     runs differ, beyond the parts --vary masks (a time...)
+  fuzz behaviour <original> <reconstruction> [--rounds <n>] [--seed <n>]
+                                    RUN both on mutants of the recorded inputs (standard input, input
+                                    files; seeded): each one the original repeats but the reconstruction
+                                    answers otherwise is recorded as a behaviour, ready for blame
   blame behaviour <original> <hyp_id>
                                     the functions a behaviour the rebuilt program fails comes from: delta
                                     debugging, each probe a rebuild with the other functions run as the
@@ -173,6 +177,8 @@ async function main(argv: string[]): Promise<number> {
         env: { type: "string", multiple: true },
         timeout: { type: "string" },
         vary: { type: "string", multiple: true },
+        rounds: { type: "string" },
+        seed: { type: "string" },
         out: { type: "string" },
         link: { type: "boolean" },
         truth: { type: "string" },
@@ -315,6 +321,12 @@ async function main(argv: string[]): Promise<number> {
           ...(values.last !== undefined ? { last: values.last } : {}),
           ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
+        });
+        break;
+      case "fuzz":
+        output = await runFuzzBehaviour(store, rest, {
+          ...(values.rounds !== undefined ? { rounds: values.rounds } : {}),
+          ...(values.seed !== undefined ? { seed: values.seed } : {}),
         });
         break;
       case "blame":

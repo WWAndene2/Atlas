@@ -1,7 +1,8 @@
 // atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]... [--timeout
 // <s>] [--vary <regex>]... [-- <arguments>]: runs the original on a scenario and records what it did. atlas verify behaviour <original>
 // <reconstruction>: replays every recorded scenario against the reconstruction. atlas blame behaviour <original>
-// <hyp>: the functions a behaviour the rebuilt program fails comes from.
+// <hyp>: the functions a behaviour the rebuilt program fails comes from. atlas fuzz behaviour <original>
+// <reconstruction>: mutants of the recorded inputs on which the two differ, recorded as behaviours.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
@@ -9,6 +10,7 @@ import { NotFoundError } from "../../orchestrator/function-context.js";
 import { InvalidScenarioError, recordBehaviour, UnstableBehaviourError } from "../../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../../orchestrator/blame-behaviour.js";
+import { fuzzBehaviour } from "../../orchestrator/fuzz-behaviour.js";
 import { encode, type Scenario } from "../../verify/replay/run-scenario.js";
 import { CliError, type Output } from "../output.js";
 
@@ -118,6 +120,46 @@ export async function runBlameBehaviour(store: GraphStore, args: string[]): Prom
               )
               .join("\n");
     return { data: blame, text };
+  } catch (error) {
+    if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
+    throw error;
+  }
+}
+
+export async function runFuzzBehaviour(
+  store: GraphStore,
+  args: string[],
+  options: { rounds?: string; seed?: string },
+): Promise<Output> {
+  const [what, original, reconstruction, ...extra] = args;
+  if (what !== "behaviour" || original === undefined || reconstruction === undefined || extra.length > 0) {
+    throw new CliError(
+      "usage",
+      "usage: atlas fuzz behaviour <original> <reconstruction> [--rounds <n>] [--seed <n>] (runs both programs)",
+    );
+  }
+  for (const path of [original, reconstruction])
+    if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
+  const number = (value: string | undefined, name: string) => {
+    if (value === undefined) return undefined;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0) throw new CliError("usage", `--${name} ${value}: a whole number`);
+    return n;
+  };
+  const rounds = number(options.rounds, "rounds");
+  const seed = number(options.seed, "seed");
+  try {
+    const fuzz = await fuzzBehaviour(store, original, reconstruction, {
+      ...(rounds !== undefined ? { rounds } : {}),
+      ...(seed !== undefined ? { seed } : {}),
+    });
+    return {
+      data: fuzz,
+      text:
+        `${fuzz.rounds} mutants tried (${fuzz.unstable} the original does not repeat): ` +
+        `${fuzz.found.length} on which the reconstruction differs, recorded as behaviours` +
+        fuzz.found.map((f) => `\n  ${f.hypothesis}: ${f.differences.join("; ")}`).join(""),
+    };
   } catch (error) {
     if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
     throw error;

@@ -122,6 +122,15 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   `--vary '[0-9]{10}'` is reproduced by the rebuilt program a second later; `math.random()` without one is refused
   at recording, the message pointing to `--vary`. Limit: two runs only catch what differs between them; a clock
   read twice within one second agrees, so it must be named by whoever records the scenario.
+- Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
+<original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
+  original differentially. The recorded behaviours with a standard input or input files are the seeds; each round
+  mutates one's inputs (bit flips, replaced bytes, often those parsers care about, insertions, deleted and
+  duplicated runs; seeded, so a run repeats), runs the original twice as the oracle (a mutant it does not repeat
+  is dropped) and the reconstruction once, and records a mutant on which they differ as a new behaviour of the
+  original (observed, author `fuzzer`), ready for `atlas blame behaviour`. On Lua, 1,000 mutants of the recorded
+  scripts and standard input against each of the rebuilt Linux, Windows and AArch64 programs: no difference, in
+  about 6 s per 500; a test shows a reconstruction that miscounts one digit caught from a seed without it.
 - Blame (`src/orchestrator/blame-behaviour.ts`): `atlas blame behaviour <original> <hyp>` (MCP `blame_behaviour`)
   finds the functions a behaviour the rebuilt program fails comes from. On an x86-64 Linux host the original is
   mapped executable at its own addresses, so `link.py` can run any function as the original's machine code (its

@@ -33,6 +33,7 @@ import { traceTarget } from "../orchestrator/trace-target.js";
 import { recordBehaviour } from "../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../orchestrator/blame-behaviour.js";
+import { fuzzBehaviour } from "../orchestrator/fuzz-behaviour.js";
 import { encode } from "../verify/replay/run-scenario.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
@@ -226,6 +227,21 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { original: z.string(), reconstruction: z.string() },
       handler: async (a: { original: string; reconstruction: string }) =>
         replayBehaviour(store, a.original, a.reconstruction),
+    },
+    fuzz_behaviour: {
+      description:
+        "RUN an original and its reconstruction on seeded mutants of the recorded inputs (standard input, input files): each mutant the original repeats but the reconstruction answers otherwise is recorded as a behaviour of the original, ready for blame_behaviour.",
+      input: {
+        original: z.string(),
+        reconstruction: z.string(),
+        rounds: z.number().int().positive().optional(),
+        seed: z.number().int().nonnegative().optional(),
+      },
+      handler: async (a: { original: string; reconstruction: string; rounds?: number; seed?: number }) =>
+        fuzzBehaviour(store, a.original, a.reconstruction, {
+          ...(a.rounds !== undefined ? { rounds: a.rounds } : {}),
+          ...(a.seed !== undefined ? { seed: a.seed } : {}),
+        }),
     },
     blame_behaviour: {
       description:
