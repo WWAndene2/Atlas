@@ -69,6 +69,12 @@ def prepare(rewrites, functions, work):
         if missing:
             skipped.append({"address": r["address"], "reason": f"needs data of the original: {', '.join(missing[:5])}"})
             continue
+        # A call through a pointer (Lua's luaM_free_ calls its allocator so) goes straight to the original's
+        # address, around the stubs: such a rewrite stays a translation until pointers into code are mapped.
+        listing = subprocess.run(["objdump", "-d", obj], check=True, capture_output=True, text=True).stdout
+        if any(("call" in line or "jmp" in line) and "*" in line for line in listing.splitlines()):
+            skipped.append({"address": r["address"], "reason": "calls through a function pointer"})
+            continue
         # The rewrite's own symbol renamed, so a rewrite named like a C library function cannot shadow it.
         symbol = f"atlas_rewrite_{r['address']:x}"
         renamed = obj[:-2] + ".renamed.o"
