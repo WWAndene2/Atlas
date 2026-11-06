@@ -56,7 +56,7 @@ export async function linkBinary(
       binary: resolve(path),
       lifted: [join(dir, "lifted.c")],
       translated,
-      out: join(dir, library ? basename(path) : "program"),
+      out: join(dir, library ? libraryName(store.getNode(binary)?.label, path) : "program"),
       base: linkBase(path),
     });
     const kept = verifiedRewrites(
@@ -204,4 +204,13 @@ function isElfLibrary(path: string): boolean {
   } finally {
     closeSync(fd);
   }
+}
+
+/**
+ * A library's file name: the last part of the binary's label (an .apk's "lua.apk:lib/arm64-v8a/liblua.so" gives
+ * liblua.so; the file itself is then a temporary extract), else the file's own name.
+ */
+function libraryName(label: string | undefined, path: string): string {
+  const last = label?.split(/[/:]/).pop();
+  return last !== undefined && last !== "" ? last : basename(path);
 }

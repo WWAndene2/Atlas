@@ -48,9 +48,10 @@ CALLBACK_SLOTS = 64
 OWN_DATA = {"__stack_chk_guard": 0x2F8D6E1A5C4B3907}
 
 
-def c_string(text):
-    """A C string literal for any path, every byte escaped in octal."""
-    return '"' + "".join(f"\\{b:03o}" for b in text.encode()) + '"'
+def gas_string(text):
+    """The path as a string for the assembler inside a C string literal: each byte an octal escape, read by the
+    assembler, so no character of the path can end either string."""
+    return '\\"' + "".join(f"\\\\{b:03o}" for b in text.encode()) + '\\"'
 
 
 def is_library(path):
@@ -268,6 +269,10 @@ void atlas_syscall(atlas_state *s) {{
   fprintf(stderr, "atlas: the program made a system call of its own\\n"); abort();
 }}
 
+/* The original file, built into the program: the output does not depend on where the original was (an .apk's
+ * library is read from a temporary file that is gone after the link). */
+__asm__(".section .rodata\\n.balign 16\\natlas_original:\\n.incbin {gas_string(request["binary"])}\\n.previous");
+extern const uint8_t atlas_original[];
 /* The image mapped and relocated, the imports resolved, the guest state and its 8 MiB stack made. */
 static uint8_t *guest_stack;
 static int atlas_setup(char **envp) {{
@@ -277,19 +282,13 @@ static int atlas_setup(char **envp) {{
   }};
   static const uint64_t relative[][2] = {{ {", ".join(f"{{{a:#x}ULL, {d:#x}ULL}}" for a, d in relative) or "{0, 0}"} }};
   static const uint64_t slots[][3] = {{ {", ".join(f"{{{a:#x}ULL, {i}, {d}}}" for a, i, d in slots) or "{0, 0, 0}"} }};
-  FILE *self = fopen({c_string(request["binary"])}, "rb");
-  if (!self) {{ perror("atlas: the original binary"); return 127; }}
   for (unsigned k = 0; k < sizeof segs / sizeof segs[0]; k++) {{
     uint64_t lo = segs[k].vaddr & ~0xfffULL, hi = (segs[k].vaddr + segs[k].memsize + 0xfff) & ~0xfffULL;
     void *at = mmap((void *)(uintptr_t)lo, hi - lo, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE,
                     -1, 0);
     if (at == MAP_FAILED && errno != EEXIST) {{ perror("atlas: mapping the original's segments"); return 127; }}
-    if (segs[k].filesize) {{
-      fseek(self, (long)segs[k].offset, SEEK_SET);
-      if (fread((void *)(uintptr_t)segs[k].vaddr, 1, segs[k].filesize, self) != segs[k].filesize) return 127;
-    }}
+    if (segs[k].filesize) memcpy((void *)(uintptr_t)segs[k].vaddr, atlas_original + segs[k].offset, segs[k].filesize);
   }}
-  fclose(self);
   for (int i = 0; i < NIMPORTS; i++) import_host[i] = dlsym(RTLD_DEFAULT, import_names[i]);
 {nl.join(f"  import_host[{i}] = &own_data[{k}];" for k, (i, _) in enumerate(own))}
   for (unsigned k = 0; k < sizeof relative / sizeof relative[0]; k++)
