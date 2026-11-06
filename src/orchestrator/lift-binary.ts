@@ -11,6 +11,8 @@ import { bigEndian, liftFunctions, RUNTIME_HEADER } from "../tools/vex/index.js"
 
 export interface LiftOutcome {
   binary: string;
+  /** Addresses of the translated functions. */
+  addresses: number[];
   functions: number;
   translated: number;
   /** Reason (addresses blanked) to the number of functions it stopped. */
@@ -52,6 +54,11 @@ export async function liftBinary(store: GraphStore, binary: string, out: string,
   );
   await copyFile(RUNTIME_HEADER, join(out, "atlas_lift.h"));
   const report = { binary, functions: functions.length, translated: translated.length, unsupported };
+  const addresses = translated.map((t) => Number(BigInt(t.address)));
   await writeFile(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
-  return { ...report, files: ["lifted.c", "dispatch.c", "atlas_lift.h", "report.json"].map((f) => join(out, f)) };
+  return {
+    ...report,
+    addresses,
+    files: ["lifted.c", "dispatch.c", "atlas_lift.h", "report.json"].map((f) => join(out, f)),
+  };
 }

@@ -99,10 +99,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     RUN the program under Frida (only one you chose to run): which functions
                                     ran, and per function whether its argument registers held pointers or
                                     integers, recorded as observed signatures (x86-64 Linux)
-  lift <file> --out <dir> [--arch <a> --base <0x..>]
+  lift <file> --out <dir> [--link] [--arch <a> --base <0x..>]
                                     the "it runs" path: every function translated mechanically to C
                                     (through VEX, any architecture) with its runtime and a dispatch table,
-                                    and the reasons for the functions it could not translate
+                                    and the reasons for the functions it could not translate; with --link
+                                    (x86-64), a program built from them, verified rewrites in their place
   repair rewrite <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
                                     before an agent: try the usual fixes (static, noreturn, attributes,
                                     types, operand order) on rewrites that compile to different bytes, keep
@@ -151,6 +152,7 @@ async function main(argv: string[]): Promise<number> {
         differential: { type: "boolean" },
         stdin: { type: "string" },
         out: { type: "string" },
+        link: { type: "boolean" },
         truth: { type: "string" },
         agent: { type: "string" },
         lease: { type: "string" },
@@ -261,7 +263,7 @@ async function main(argv: string[]): Promise<number> {
         break;
       case "lift": {
         const { raw } = parseRaw(values.arch, values.base);
-        output = await runLift(store, rest, values.out, raw);
+        output = await runLift(store, rest, values.out, raw, values.link === true);
         break;
       }
       case "repair":

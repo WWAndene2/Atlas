@@ -1,0 +1,45 @@
+// Links a binary's translations, and its verified rewrites in their place, into a program for a host of the same
+// architecture (link.py). x86-64 Linux ELF for now.
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { repositoryPath } from "../../graph/index.js";
+
+const run = promisify(execFile);
+
+export interface LinkRequest {
+  binary: string;
+  lifted: string[];
+  translated: number[];
+  out: string;
+  rewrites: { address: number; name: string; source: string; flags: string[] }[];
+  /** The binary's functions by name (labels and name hypotheses) to their address. */
+  functions: Record<string, number>;
+}
+
+export interface LinkOutcome {
+  executable: string;
+  imports: number;
+  rewrites: number;
+  rewrites_skipped: { address: number; reason: string }[];
+}
+
+export async function linkProgram(python: string, request: LinkRequest): Promise<LinkOutcome> {
+  const work = await mkdtemp(join(tmpdir(), "atlas-link-"));
+  try {
+    const path = join(work, "request.json");
+    await writeFile(
+      path,
+      JSON.stringify({ ...request, arch: "AMD64", runtime: repositoryPath("src", "tools", "vex") }),
+    );
+    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "link.py"), path], {
+      maxBuffer: 1 << 28,
+      timeout: 3_600_000,
+    });
+    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as LinkOutcome;
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}

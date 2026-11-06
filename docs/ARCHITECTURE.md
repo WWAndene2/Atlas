@@ -126,6 +126,13 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   memory, one deterministic allocator for both sides, the C library's ctype tables and setjmp): 66 same, 0
   different. On ARM, MIPS and PowerPC (calling conventions by table, generated inputs): 18, 9 and 9 of 40 same, 0
   different.
+- Linking (`src/tools/vex/link.py`, `rewrites.py`, `jumps.py`; `src/orchestrator/link-binary.ts`): `atlas lift
+<file> --out <dir> --link` builds a program for an x86-64 host from an x86-64 binary's translations: the
+  original's segments at their own addresses, relocations applied, the C library called through a trampoline,
+  setjmp in the translated caller's frame, and every verified rewrite compiled as it was verified, in its
+  translation's place (stubs carry its calls back into the program; at fixed addresses when the original's image
+  allows, so its globals are reached by `DAT_<address>`). Lua: 102 of 111 verified rewrites in place, output
+  identical to the original's.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
