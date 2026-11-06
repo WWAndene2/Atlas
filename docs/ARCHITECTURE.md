@@ -149,9 +149,14 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   mutates one's inputs (bit flips, replaced bytes, often those parsers care about, insertions, deleted and
   duplicated runs; seeded, so a run repeats), runs the original twice as the oracle (a mutant it does not repeat
   is dropped) and the reconstruction once, and records a mutant on which they differ as a new behaviour of the
-  original (observed, author `fuzzer`), ready for `atlas blame behaviour`. On Lua, 1,000 mutants of the recorded
+  original (observed, author `fuzzer`), ready for `atlas blame behaviour`. It is guided by coverage when the
+  reconstruction reports it (`ATLAS_COVERAGE`, the programs `atlas lift --link` builds): a mutant whose run reaches
+  a function no earlier run reached becomes a seed itself, so later rounds go deeper from it; the result gives the
+  functions reached and the mutants kept. A mutant recording then finds unstable (it runs the original three
+  times, the oracle twice) is counted as unstable and the run goes on. On Lua, 1,000 mutants of the recorded
   scripts and standard input against each of the rebuilt Linux, Windows and AArch64 programs: no difference, in
-  about 6 s per 500; a test shows a reconstruction that miscounts one digit caught from a seed without it.
+  about 6 s per 500; with Lua's own suite recorded, 300 guided mutants against the rebuilt Lua reach 627 functions,
+  24 kept as seeds, 3 unstable, no difference (150 s); a test shows a reconstruction that miscounts one digit caught from a seed without it.
 - Blame (`src/orchestrator/blame-behaviour.ts`): `atlas blame behaviour <original> <hyp>` (MCP `blame_behaviour`)
   finds the functions a behaviour the rebuilt program fails comes from. On an x86-64 Linux host the original is
   mapped executable at its own addresses, so `link.py` can run any function as the original's machine code (its

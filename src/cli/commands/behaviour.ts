@@ -212,6 +212,9 @@ export async function runFuzzBehaviour(
       text:
         `${fuzz.rounds} mutants tried (${fuzz.unstable} the original does not repeat): ` +
         `${fuzz.found.length} on which the reconstruction differs, recorded as behaviours` +
+        (fuzz.covered !== undefined
+          ? `; the reconstruction reached ${fuzz.covered} functions, ${fuzz.seeded} mutants kept as seeds for new ones`
+          : "") +
         fuzz.found.map((f) => `\n  ${f.hypothesis}: ${f.differences.join("; ")}`).join(""),
     };
   } catch (error) {
