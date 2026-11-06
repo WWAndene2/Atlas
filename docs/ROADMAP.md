@@ -160,6 +160,39 @@ on first download, since the release publishes no checksum). `atlas check functi
   side), the input M6's parallel agents will take. Next: the agent loop over a whole binary, larger
   functions, and the share verified and the time it takes.
 
+### Focus: one console target, to the end (decided 6 November 2026)
+
+A field report from an agent using Atlas on a 3DS title: what cost it most is not here (the console's services and
+GPU), a game is judged on what it shows and Atlas compares text, hand-written assembly is untested, and the scope
+spreads across platforms instead of finishing one. So, from now on:
+
+- **The scope is frozen.** No new platform; Windows, Android and JNI receive defect fixes only.
+- **One target is carried to the end: a 3DS title, measured on the title itself**, not on Lua. Milestones, in order:
+  (1) its code loads and translates entirely; (2) it starts and shows its first frame; (3) it reaches its title
+  screen; (4) a timed input sequence gives the same frames as the original in an emulator used as the oracle.
+- **A console kernel, generic, with a profile per machine.** The core is shared by every console: the system call
+  table (each profile registers its numbers), kernel handles and objects (events, mutexes, semaphores, shared
+  memory), threads (on the per-thread guest state that exists), IPC messages routed to a registry of services,
+  and a log of every call and command not served (service, command ID, count), so what a title needs is read, not
+  guessed. A profile holds what differs: system call numbers, the IPC header format, port and service names, the
+  memory map, the CPU's calling convention. The first and only profile built is the 3DS (ARMv6K, Horizon); the
+  Switch's Horizon would reuse most of the core. A service is written against the core; one proper to a machine
+  (gsp::Gpu, dsp::DSP, y2r:u) lives in its profile, and those alike across consoles (files, input, clock) share
+  their logic.
+- **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
+  then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
+  emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.
+- **Comparing images:** scenarios gain a timed input sequence and frame captures; the reconstruction writes its
+  frames as it writes its coverage (`ATLAS_FRAMES`), compared under a stated tolerance (PSNR or SSIM), the report
+  naming the first frame and region that differ; `blame` and `fuzz` then work on frames unchanged.
+- **Hand-written assembly first measured** with a fixture of its patterns (calls made by hand, returns that skip a
+  level, stack switches); the expected fix is a shadow stack of return addresses (a return that does not go where
+  its call expected unwinds to the matching frame, as longjmp does), with a block-by-block mode for functions
+  marked irregular.
+
+Order of work: this roadmap entry; the hand-written assembly fixture; the console kernel's core with the 3DS
+profile and the log of what is not served, run on the title; then the services the log asks for most; frames.
+
 ### Static recompilation — the "it runs" path (decided 5 November 2026)
 
 A field report on a 3DS title (one game among the targets Atlas is for) showed byte-exact rewriting is out of reach
