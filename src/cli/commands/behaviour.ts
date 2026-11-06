@@ -3,7 +3,8 @@
 // <reconstruction>: replays every recorded scenario against the reconstruction. atlas blame behaviour <original>
 // <hyp>: the functions a behaviour the rebuilt program fails comes from. atlas fuzz behaviour <original>
 // <reconstruction>: mutants of the recorded inputs on which the two differ, recorded as behaviours. atlas coverage
-// behaviour <original>: the translated functions the recorded behaviours reach.
+// behaviour <original>: the translated functions the recorded behaviours reach. atlas copy behaviour <reference>
+// <target>: behaviours of one build carried to another build of the same program.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
@@ -13,6 +14,7 @@ import { replayBehaviour } from "../../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../../orchestrator/blame-behaviour.js";
 import { fuzzBehaviour } from "../../orchestrator/fuzz-behaviour.js";
 import { coverageBehaviour } from "../../orchestrator/coverage-behaviour.js";
+import { copyBehaviour } from "../../orchestrator/copy-behaviour.js";
 import { encode, type Scenario } from "../../verify/replay/run-scenario.js";
 import { CliError, type Output } from "../output.js";
 
@@ -189,6 +191,27 @@ export async function runCoverageBehaviour(store: GraphStore, args: string[]): P
           .join("") +
         `\nlargest not reached:` +
         c.uncovered.map((u) => `\n  ${u.id}${u.label !== undefined ? ` ${u.label}` : ""} (${u.size} bytes)`).join(""),
+    };
+  } catch (error) {
+    if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
+    throw error;
+  }
+}
+
+export async function runCopyBehaviour(store: GraphStore, args: string[]): Promise<Output> {
+  const [what, reference, target, ...extra] = args;
+  if (what !== "behaviour" || reference === undefined || target === undefined || extra.length > 0) {
+    throw new CliError(
+      "usage",
+      "usage: atlas copy behaviour <reference> <target> (another build of the same program, both loaded)",
+    );
+  }
+  for (const path of [reference, target]) if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
+  try {
+    const result = await copyBehaviour(store, reference, target);
+    return {
+      data: result,
+      text: `${result.copied.length} behaviours copied as inferred (${result.already} already there)`,
     };
   } catch (error) {
     if (error instanceof NotFoundError) throw new CliError("not_found", error.message);

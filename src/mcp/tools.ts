@@ -35,6 +35,7 @@ import { replayBehaviour } from "../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../orchestrator/blame-behaviour.js";
 import { fuzzBehaviour } from "../orchestrator/fuzz-behaviour.js";
 import { coverageBehaviour } from "../orchestrator/coverage-behaviour.js";
+import { copyBehaviour } from "../orchestrator/copy-behaviour.js";
 import { encode } from "../verify/replay/run-scenario.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
@@ -228,6 +229,12 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { original: z.string(), reconstruction: z.string() },
       handler: async (a: { original: string; reconstruction: string }) =>
         replayBehaviour(store, a.original, a.reconstruction),
+    },
+    copy_behaviour: {
+      description:
+        "Carry the behaviours recorded for one build of a program to another build of it (same sources, another platform), as inferred: acceptance tests for a build that cannot be run here, checked by replaying them on its reconstruction.",
+      input: { reference: z.string(), target: z.string() },
+      handler: async (a: { reference: string; target: string }) => copyBehaviour(store, a.reference, a.target),
     },
     coverage_behaviour: {
       description:

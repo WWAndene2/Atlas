@@ -36,7 +36,13 @@ export async function replayBehaviour(
     const found = differences(value.expected, got, value.scenario.vary);
     const pass = found.length === 0;
     const updated: Hypothesis = store.recordVerification(h.id, {
-      confidence: pass ? "verified" : "observed",
+      // A failure leaves the behaviour as what it was before any check: observed when recorded on this binary,
+      // inferred when copied from another build (atlas copy behaviour), which this binary was never seen to do.
+      confidence: pass
+        ? "verified"
+        : (value as { copied_from?: string }).copied_from !== undefined
+          ? "inferred"
+          : "observed",
       verification: {
         check: "replay",
         result: pass ? "pass" : "fail",

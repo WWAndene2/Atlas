@@ -128,8 +128,12 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   scenario), and reports how many translated functions the acceptance tests reach, what each behaviour adds, and
   the largest none reaches, where the next behaviour would check the most untested code. On Lua: 432 of 709
   (60.9%) for the eight recorded behaviours, `many.lua` alone 422, in 96 s. x86-64 and AArch64 Linux programs
-  (`a64link.py` writes `ATLAS_COVERAGE` too); an AArch64 program's behaviours have to be recorded where its
-  original runs (a device or an emulator).
+  (`a64link.py` writes `ATLAS_COVERAGE` too); an AArch64 or Windows build that cannot run here gets its behaviours
+  from a build that can: `atlas copy behaviour <reference> <target>` (MCP `copy_behaviour`, `copy-behaviour.ts`)
+  carries a reference build's behaviours to another build of the same program, as `inferred` (never seen on the
+  target), the source's capture and the reference binary as evidence and the source named; a replay that fails
+  leaves a copy inferred. Lua: the eight Linux behaviours copied to `lua-arm64`, seven reproduced by its rebuilt
+  program (the eighth prints `os.time()`), and 432 of its 698 translated functions reached (61.9%).
 - Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
 <original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
   original differentially. The recorded behaviours with a standard input or input files are the seeds; each round

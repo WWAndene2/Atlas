@@ -13,6 +13,7 @@ import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
 import {
   runBlameBehaviour,
+  runCopyBehaviour,
   runCoverageBehaviour,
   runFuzzBehaviour,
   runRecordBehaviour,
@@ -108,6 +109,9 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
                                     runs differ, beyond the parts --vary masks (a time...)
+  copy behaviour <reference> <target>
+                                    the behaviours of one build carried to another build of the same
+                                    program (another platform), as inferred: their acceptance tests there
   coverage behaviour <original>      RUN the rebuilt program on every recorded behaviour: how many translated
                                     functions they reach, what each adds, the largest none reaches (x86-64)
   fuzz behaviour <original> <reconstruction> [--rounds <n>] [--seed <n>]
@@ -330,6 +334,9 @@ async function main(argv: string[]): Promise<number> {
           ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
+        break;
+      case "copy":
+        output = await runCopyBehaviour(store, rest);
         break;
       case "coverage":
         output = await runCoverageBehaviour(store, rest);
