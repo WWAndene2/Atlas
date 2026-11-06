@@ -19,6 +19,11 @@ so a signal arriving in the middle of translated code leaves that code as it was
 (AArch64's __stack_chk_guard, a global there) is a variable of the program. setjmp and longjmp run in the
 translated caller's frame (jumps.py, AArch64 registers). The program starts at the entry, whose call to
 __libc_start_main runs the translated main.
+
+A shared library (no PT_INTERP, an Android app's .so) becomes a host shared library instead: each function it
+exports is a host function of the same name that enters the guest with the arguments converted, the image is set
+up when the host loads the library, and nothing else is visible. Its exported data is not reachable that way, and
+the guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
 """
 
 import json
@@ -48,6 +53,14 @@ def c_string(text):
     return '"' + "".join(f"\\{b:03o}" for b in text.encode()) + '"'
 
 
+def is_library(path):
+    """Whether the ELF is a shared library (no PT_INTERP: nothing loads it as a program) rather than a program."""
+    from elftools.elf.elffile import ELFFile
+
+    with open(path, "rb") as f:
+        return not any(seg.header.p_type == "PT_INTERP" for seg in ELFFile(f).iter_segments())
+
+
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id("AARCH64")
@@ -68,10 +81,38 @@ def main():
         elif kind.endswith(("JUMP_SLOT", "GLOB_DAT", "ABS64")) and r.symbol is not None and r.symbol.is_import:
             slots.append((r.relative_addr + base, index[r.symbol.name], getattr(r, "addend", 0) or 0))
     translated = [int(a) + base for a in request["translated"]]
+    library = is_library(request["binary"])
+    # A library's exported functions, each a host function of the library linked (C names, so a host program links
+    # or dlsyms them as it would the original's). Data the library exports is not reachable this way.
+    exports = sorted({(sym.name, sym.relative_addr + base) for sym in obj.symbols
+                      if sym.is_export and sym.is_function and sym.name}) if library else []
     plt = {a + base: index[n] for n, a in obj.plt.items()}
     defaults = [(off(n), size(n), v) for n, v, *_ in arch.default_register_values
                 if n in arch.registers and n not in ("sp", "xsp")]
     nl = "\n"
+    # A program starts at its entry with argc, argv and envp on the stack, as the kernel lays them.
+    program_start = f"""int main(int argc, char **argv, char **envp) {{
+  if (atlas_setup(envp)) return 127;
+  atlas_state *s = main_state;
+  uint64_t sp = REG(uint64_t, SP);
+  int envc = 0; while (envp[envc]) envc++;
+  sp -= 8 * (uint64_t)(argc + envc + 3); sp &= ~15ULL;
+  uint64_t *p = (uint64_t *)(uintptr_t)sp;
+  p[0] = (uint64_t)argc;
+  for (int i = 0; i < argc; i++) p[1 + i] = (uint64_t)(uintptr_t)argv[i];
+  p[1 + argc] = 0;
+  for (int i = 0; i < envc; i++) p[2 + argc + i] = (uint64_t)(uintptr_t)envp[i];
+  p[2 + argc + envc] = 0;
+  REG(uint64_t, SP) = sp;
+  REG(uint64_t, X0) = 0; /* rtld_fini: no dynamic loader to call back at exit */
+  atlas_call(s, {obj.entry + base:#x}ULL);
+  return 0;
+}}"""
+    # A library is set up when the host loads it, before any of its functions is called.
+    library_start = """extern char **environ;
+__attribute__((constructor)) static void atlas_library_start(void) {
+  if (atlas_setup(environ)) abort();
+}"""
     own = [(index[n], v) for n, v in OWN_DATA.items() if n in index]
     c = f"""#define _GNU_SOURCE
 #include "atlas_lift.h"
@@ -108,6 +149,8 @@ static uint64_t callback_target[{CALLBACK_SLOTS}];
 static int callback_count;
 {nl.join(f'__attribute__((naked)) static void callback_stub_{k}(void) {{ __asm__ volatile("movabs ${k:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}' for k in range(CALLBACK_SLOTS))}
 static void *const callback_stub[{CALLBACK_SLOTS}] = {{{", ".join(f"(void *)callback_stub_{k}" for k in range(CALLBACK_SLOTS))}}};
+/* A library's exported functions: host functions of the same name that enter the guest at its address. */
+{nl.join(f'__attribute__((naked, visibility("default"))) void {name}(void) {{ __asm__ volatile("movabs ${(1 << 62) | a:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}' for name, a in exports)}
 static const int returns_handler[{len(imports) or 1}] = {{{", ".join("1" if n in RETURNS_HANDLER else "0" for n in imports) or "0"}}};
 static const int callback_arg[{len(imports) or 1}] = {{{", ".join(str(CALLBACK_ARGS.get(n, -1)) for n in imports) or "-1"}}};
 /* The stub bound to a guest function in the image, or the value unchanged (SIG_DFL, SIG_IGN, a host function). */
@@ -139,7 +182,8 @@ void atlas_enter_guest(uint64_t *frame, uint64_t k) {{
   for (int i = 0; i < 6; i++) REG(uint64_t, X0 + 8 * i) = frame[i];
   for (int i = 0; i < 8; i++) memcpy(s->r + Q0 + 16 * i, (uint8_t *)frame + 48 + 16 * i, 16);
   REG(uint64_t, SP) = (REG(uint64_t, SP) - 256) & ~15ULL;
-  atlas_call(s, callback_target[k]);
+  /* k: a callback slot, or (bit 62 set) the guest address of an exported function a host caller called. */
+  atlas_call(s, (k >> 62) ? (k & ((1ULL << 62) - 1)) : callback_target[k]);
   frame[0] = REG(uint64_t, X0);
   memcpy((uint8_t *)frame + 48, s->r + Q0, 16);
   memcpy(s->r, saved[--depth], sizeof s->r);
@@ -213,7 +257,9 @@ void atlas_syscall(atlas_state *s) {{
   fprintf(stderr, "atlas: the program made a system call of its own\\n"); abort();
 }}
 
-int main(int argc, char **argv, char **envp) {{
+/* The image mapped and relocated, the imports resolved, the guest state and its 8 MiB stack made. */
+static uint8_t *guest_stack;
+static int atlas_setup(char **envp) {{
   host_envp = envp;
   static const struct {{ uint64_t vaddr, memsize, offset, filesize; int exec; }} segs[] = {{
 {nl.join(f"    {{{v:#x}ULL, {m:#x}ULL, {o:#x}ULL, {fsz:#x}ULL, {int(x)}}}," for v, m, o, fsz, x in segs)}
@@ -242,32 +288,27 @@ int main(int argc, char **argv, char **envp) {{
   static atlas_state st;
   atlas_state *s = &st;
   main_state = s;
-  /* The guest's stack: 8 MiB of host memory; argc, argv and envp in place as the kernel lays them. */
-  uint8_t *stack = mmap(NULL, 8 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  uint64_t sp = ((uint64_t)(uintptr_t)(stack + (8 << 20) - 4096)) & ~15ULL;
-  int envc = 0; while (envp[envc]) envc++;
-  sp -= 8 * (uint64_t)(argc + envc + 3); sp &= ~15ULL;
-  uint64_t *p = (uint64_t *)(uintptr_t)sp;
-  p[0] = (uint64_t)argc;
-  for (int i = 0; i < argc; i++) p[1 + i] = (uint64_t)(uintptr_t)argv[i];
-  p[1 + argc] = 0;
-  for (int i = 0; i < envc; i++) p[2 + argc + i] = (uint64_t)(uintptr_t)envp[i];
-  p[2 + argc + envc] = 0;
 {nl.join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
-  REG(uint64_t, SP) = sp;
-  REG(uint64_t, X0) = 0; /* rtld_fini: no dynamic loader to call back at exit */
-  atlas_call(s, {obj.entry + base:#x}ULL);
+  guest_stack = mmap(NULL, 8 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (guest_stack == MAP_FAILED) {{ perror("atlas: the guest stack"); return 127; }}
+  REG(uint64_t, SP) = ((uint64_t)(uintptr_t)(guest_stack + (8 << 20) - 4096)) & ~15ULL;
   return 0;
 }}
+
+{"" if library else program_start}
+{library_start if library else ""}
 """
     out = request["out"]
     with open(out + ".main.c", "w") as f:
         f.write(c)
     with open(out + ".setjmp.h", "w") as f:
         f.write(SETJMP_HEADER)
-    subprocess.run(["gcc", "-O1", "-w", "-I", request["runtime"], "-include", out + ".setjmp.h", *request["lifted"],
-                    out + ".main.c", "-o", out, "-ldl", "-lm"], check=True)
-    print(json.dumps({"executable": out, "imports": len(imports), "own": sorted(n for n in OWN_DATA if n in index)}))
+    # A library is a host shared library whose only visible symbols are the original's exports.
+    shared = ["-shared", "-fPIC", "-fvisibility=hidden"] if library else []
+    subprocess.run(["gcc", "-O1", "-w", *shared, "-I", request["runtime"], "-include", out + ".setjmp.h",
+                    *request["lifted"], out + ".main.c", "-o", out, "-ldl", "-lm"], check=True)
+    print(json.dumps({"executable": out, "imports": len(imports), "own": sorted(n for n in OWN_DATA if n in index),
+                      "library": library, "exports": len(exports)}))
 
 
 if __name__ == "__main__":

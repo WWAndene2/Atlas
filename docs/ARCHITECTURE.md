@@ -190,7 +190,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   (System V arguments to x0-x5 and d0-d7, the guest state saved and restored around it, so a signal arriving in
   the middle of translated code leaves it as it was; the stack moved 256 bytes down); an old action handed back
   and the handler signal returns name the guest's handler again. On x86-64 guests (`link.py`) nothing is needed, the original's code being mapped
-  executable at its own addresses. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's;
+  executable at its own addresses. An AArch64 shared library (no interpreter: an Android app's `.so`) becomes a
+  host shared library: each exported function a host function of the same name entering the guest with the
+  arguments converted, the image set up when the host loads it, nothing else visible; a test calls three exports
+  of one through dlopen. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
+  data is not reachable, and one such library per process (the image at a fixed base);
   verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
   ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,

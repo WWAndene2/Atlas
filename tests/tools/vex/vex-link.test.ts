@@ -218,8 +218,9 @@ int main(int argc, char **argv) {
 const ELF_FUNCTIONS = `
 import cle, json, sys
 o = cle.Loader(sys.argv[1], auto_load_libs=False, main_opts={"base_addr": 0}).main_object
-print(json.dumps([{"address": s.relative_addr, "code": o.memory.load(s.relative_addr, s.size).hex()}
-                  for s in o.symbols if s.is_function and s.size and not s.is_import]))
+# One entry per address: a library lists its exports in both .symtab and .dynsym.
+seen = {s.relative_addr: s for s in o.symbols if s.is_function and s.size and not s.is_import}
+print(json.dumps([{"address": a, "code": o.memory.load(a, s.size).hex()} for a, s in sorted(seen.items())]))
 `;
 
 describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram", () => {
@@ -388,6 +389,64 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     });
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
     expect(run.stdout).toBe("got 10, old handler is ours: 1\ngot 12, previous is ours: 1\n");
+    expect(run.status).toBe(0);
+  }, 600_000);
+});
+
+// An AArch64 shared library (as an Android app's native code is) linked for this host: a host shared library whose
+// exports are the original's, called by a host program through dlopen.
+const A64_LIBRARY = `
+#include <stdio.h>
+#include <stdlib.h>
+int add(int a, int b) { return a + b; }
+double scale(double x, int n) { return x * n; }
+char *greet(const char *who) { char *s = malloc(64); snprintf(s, 64, "hello %s", who); return s; }
+`;
+const HOST_DRIVER = `
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+int main(int argc, char **argv) {
+  void *lib = dlopen(argv[1], RTLD_NOW);
+  if (!lib) { puts(dlerror()); return 1; }
+  int (*add)(int, int) = (int (*)(int, int))dlsym(lib, "add");
+  double (*scale)(double, int) = (double (*)(double, int))dlsym(lib, "scale");
+  char *(*greet)(const char *) = (char *(*)(const char *))dlsym(lib, "greet");
+  char *g = greet("host");
+  printf("%d %.2f %s\\n", add(40, 2), scale(1.25, 4), g);
+  free(g);
+  return 0;
+}
+`;
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram libraries", () => {
+  it("links an AArch64 shared library as a host library whose exports a host program calls", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-library-test-"));
+    writeFileSync(join(dir, "lib.c"), A64_LIBRARY);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "-fPIC", "-shared", "lib.c", "-o", "lib.so"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "lib.so")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "lib.so"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "lib.so"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "host.so"),
+      base,
+    });
+    writeFileSync(join(dir, "driver.c"), HOST_DRIVER);
+    execFileSync("gcc", ["-O1", "driver.c", "-o", "driver", "-ldl"], { cwd: dir });
+    const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
+    expect(run.stdout).toBe("42 5.00 hello host\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });
