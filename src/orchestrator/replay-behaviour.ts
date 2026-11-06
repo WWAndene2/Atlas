@@ -3,6 +3,7 @@
 // error, exit, output files) becomes verified; one it does not stays observed, with where the two differ. The
 // verification names the reconstruction by its SHA-256, so a later build is checked again rather than assumed.
 // Runs the reconstruction natively: the caller asked for it.
+import { join } from "node:path";
 import type { GraphStore, Hypothesis } from "../graph/index.js";
 import { differences, runScenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
@@ -21,6 +22,8 @@ export async function replayBehaviour(
   store: GraphStore,
   original: string,
   reconstruction: string,
+  /** A directory to write each replay's ATLAS_COVERAGE into (coverage-<n>.txt), for callers that measure it. */
+  coverageDir?: string,
 ): Promise<{ binary: string; reconstruction: string; results: ReplayResult[] }> {
   const binary = binaryId(await fileSha256(original));
   if (store.getNode(binary) === undefined) throw new NotFoundError(`${original} is not loaded; atlas load it first`);
@@ -32,7 +35,9 @@ export async function replayBehaviour(
   const results: ReplayResult[] = [];
   for (const h of behaviours) {
     const value = h.value as BehaviourValue;
-    const got = await runScenario(reconstruction, value.scenario);
+    const instrument: Record<string, string> =
+      coverageDir !== undefined ? { ATLAS_COVERAGE: join(coverageDir, `coverage-${results.length}.txt`) } : {};
+    const got = await runScenario(reconstruction, value.scenario, instrument);
     const found = differences(value.expected, got, value.scenario.vary);
     const pass = found.length === 0;
     const updated: Hypothesis = store.recordVerification(h.id, {

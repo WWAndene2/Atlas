@@ -167,7 +167,10 @@ export function reportMarkdown(report: RunReport): string {
             "- Behaviours: none recorded (`atlas record behaviour <program> -- <args>` adds the program's acceptance tests)",
           ]
         : [
-            `- Behaviours reproduced by the rebuilt program: ${b.behaviours.reproduced} of ${b.behaviours.recorded}`,
+            `- Behaviours reproduced by the rebuilt program: ${b.behaviours.reproduced} of ${b.behaviours.recorded}` +
+              (b.behaviours.covered !== undefined
+                ? `; they reach ${b.behaviours.covered} of ${b.behaviours.translated} translated functions (${((100 * b.behaviours.covered) / Math.max(b.behaviours.translated, 1)).toFixed(1)}%)`
+                : ""),
             ...b.behaviours.failed.map(
               (f) => `  - not ${f.hypothesis} ${JSON.stringify(f.argv)}: ${f.differences.join("; ")}`,
             ),

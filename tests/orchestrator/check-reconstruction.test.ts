@@ -68,6 +68,9 @@ describe.runIf(python !== undefined)("checkReconstruction", () => {
     await recordBehaviour(store, input.path, { argv: ["20"] });
     const check = await checkReconstruction(store, binary, input);
     expect(check).toMatchObject({ recorded: 2, reproduced: 2, failed: [] });
+    // The same replays measured coverage: the translated functions they reached (fib and main among them).
+    expect(check?.covered).toBeGreaterThan(1);
+    expect(check?.covered).toBeLessThanOrEqual(check?.translated ?? 0);
     expect(
       store
         .hypothesesFor(binary, "behaviour")

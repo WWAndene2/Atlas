@@ -4,7 +4,7 @@
 // does the reconstruction reproduces, beside how many functions are verified. The program is built in a temporary
 // directory and removed after; the replay records the outcome on each behaviour, naming the program by its SHA-256.
 // Nothing is built when no behaviour is recorded: the step costs nothing then.
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
@@ -20,6 +20,9 @@ export interface ReconstructionCheck {
   failed: { hypothesis: string; argv: string[]; differences: string[] }[];
   /** SHA-256 of the program the behaviours were replayed on. */
   reconstruction: string;
+  /** Translated functions the replays reached, of all translated (when the rebuilt program reports coverage). */
+  covered?: number;
+  translated: number;
 }
 
 export async function checkReconstruction(
@@ -34,11 +37,27 @@ export async function checkReconstruction(
   try {
     const lifted = await liftBinary(store, binary, dir, input.path, linkBase(input.path));
     const linked = await linkBinary(store, binary, input.path, dir, lifted.addresses);
-    const replay = await replayBehaviour(store, input.path, linked.executable);
+    const replay = await replayBehaviour(store, input.path, linked.executable, dir);
     const failed = replay.results
       .filter((r) => r.result === "fail")
       .map((r) => ({ hypothesis: r.hypothesis, argv: r.argv, differences: r.differences }));
-    return { recorded, reproduced: recorded - failed.length, failed, reconstruction: replay.reconstruction };
+    // The same replays measured coverage (ATLAS_COVERAGE): the union of what they reached.
+    const reached = new Set<string>();
+    let reported = false;
+    for (let k = 0; k < replay.results.length; k++) {
+      const text = await readFile(join(dir, `coverage-${k}.txt`), "utf8").catch(() => undefined);
+      if (text === undefined) continue;
+      reported = true;
+      for (const line of text.split("\n")) if (line !== "") reached.add(line);
+    }
+    return {
+      recorded,
+      reproduced: recorded - failed.length,
+      failed,
+      reconstruction: replay.reconstruction,
+      translated: lifted.addresses.length,
+      ...(reported ? { covered: reached.size } : {}),
+    };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
