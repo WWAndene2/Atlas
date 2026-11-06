@@ -683,3 +683,55 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     expect(run.status).toBe(0);
   }, 600_000);
 });
+
+// A translation made wrong on purpose (square returns 0), and the same function run as the original's own code
+// instead: the program is right again. What atlas blame behaviour narrows a failing behaviour down with.
+const SQUARE_PROGRAM = `
+#include <stdio.h>
+__attribute__((noinline)) int square(int x) { return x * x; }
+int main(int argc, char **argv) { printf("%d\\n", square(argc + 6)); return 0; }
+`;
+
+describe.runIf(python !== undefined)("linkProgram native", () => {
+  it("runs the functions named native as the original's machine code instead of their translation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-native-test-"));
+    writeFileSync(join(dir, "p.c"), SQUARE_PROGRAM);
+    execFileSync("gcc", ["-O1", "-fcf-protection=none", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const nm = execFileSync("nm", [join(dir, "p")], { encoding: "utf8" });
+    const square = Number.parseInt(/^([0-9a-f]+) T square$/m.exec(nm)?.[1] ?? "0", 16);
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "x86_64", functions, join(dir, "p"), base);
+    // The sabotage: square's translation returns 0 (rax), popping the return address as a ret would.
+    const name = `fn_${(square + base).toString(16)}`;
+    const c = lifted
+      .map((l) => ("c" in l ? l.c : ""))
+      .join("\n")
+      .replace(
+        `void ${name}(atlas_state *s) {`,
+        `void ${name}(atlas_state *s) { REG(uint64_t, 16) = 0; REG(uint64_t, 48) += 8; return;`,
+      );
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const link = async (native: number[]) =>
+      linkProgram(python as string, {
+        binary: join(dir, "p"),
+        lifted: [join(dir, "lifted.c")],
+        translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+        out: join(dir, `program-${native.length}`),
+        rewrites: [],
+        functions: {},
+        base,
+        native,
+      });
+    const wrong = await link([]);
+    expect(spawnSync(wrong.executable, [], { encoding: "utf8" }).stdout).toBe("0\n");
+    const right = await link([square]);
+    expect(spawnSync(right.executable, [], { encoding: "utf8" }).stdout).toBe("49\n");
+  }, 600_000);
+});

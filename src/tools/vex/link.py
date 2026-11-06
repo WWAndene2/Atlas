@@ -86,6 +86,10 @@ def main():
         elif kind.endswith("COPY") and r.symbol is not None:
             copies.append((r.relative_addr + base, index[r.symbol.name], r.symbol.size))
     translated = [int(a) + base for a in request["translated"]]
+    # native: functions run as the original's own machine code instead of their translation or rewrite (the image
+    # is mapped executable at its own addresses, and the host is the same CPU): atlas blame behaviour narrows a
+    # failing behaviour down to one function this way.
+    native = {int(a) + base for a in request.get("native", [])}
     # Linked at fixed addresses when the original's image lies below where a fixed-address host program loads
     # (0x400000): rewrites then reach the original's globals by address (their DAT_<address> symbols).
     # A base far above it (0x10000000) leaves that room free too.
@@ -182,8 +186,9 @@ void atlas_enter_guest(uint64_t *frame, uint64_t target) {{
 void atlas_call(atlas_state *s, uint64_t target) {{
   if (trace_calls) fprintf(trace_calls, "%#lx\\n", (unsigned long)target);
   switch (target) {{
-{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten))}
-{chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated if a not in rewritten)}
+{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *)(uintptr_t){a:#x}ULL); return;  /* the original, natively */" for a in sorted(native))}
+{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten) if a not in native)}
+{chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated if a not in rewritten and a not in native)}
   }}
   /* A rewrite that takes its own address (a Lua C function registering itself) hands out its host address:
    * calls through it reach the rewrite. */

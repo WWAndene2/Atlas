@@ -21,6 +21,8 @@ export interface LinkRequest {
   functions: Record<string, number>;
   /** Where the image is mapped; the translations must have been made at the same base. */
   base: number;
+  /** Graph addresses of functions run as the original's machine code instead of their translation or rewrite. */
+  native?: number[];
 }
 
 export interface LinkOutcome {
