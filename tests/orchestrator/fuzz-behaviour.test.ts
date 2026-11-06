@@ -35,6 +35,7 @@ describe("fuzzBehaviour", () => {
       limit: 1,
     });
     expect(result.found).toHaveLength(1);
+    expect(result.covered).toBeUndefined(); // a plain gcc build writes no ATLAS_COVERAGE
     const found = store.getHypothesis(result.found[0]?.hypothesis as string);
     expect(found).toMatchObject({ kind: "behaviour", confidence: "observed", author: { agent: "fuzzer" } });
     expect((found?.value as { scenario: { stdin: string } }).scenario.stdin).toContain("9");

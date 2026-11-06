@@ -4,7 +4,11 @@
 // the same twice but the reconstruction does otherwise, records the mutant as a new behaviour of the original
 // (observed, author "fuzzer"): a failing acceptance test found without writing it, ready for atlas blame behaviour.
 // Mutants the original does not repeat are counted and dropped. Runs both programs natively: the caller asked for it.
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
+import { readCoverage } from "../verify/replay/read-coverage.js";
 import { generator, mutateScenario } from "../verify/replay/mutate-scenario.js";
 import { differences, forReconstruction, runScenario, type Scenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
@@ -18,6 +22,8 @@ export interface FuzzResult {
   unstable: number;
   /** Mutants on which the reconstruction differs from the original, each recorded as a behaviour. */
   found: { hypothesis: string; differences: string[] }[];
+  /** Functions the reconstruction reached over the run, when it reports coverage (ATLAS_COVERAGE). */
+  covered?: number;
 }
 
 export async function fuzzBehaviour(
@@ -42,18 +48,31 @@ export async function fuzzBehaviour(
   const rounds = options.rounds ?? 50;
   const limit = options.limit ?? 10;
   const result: FuzzResult = { rounds: 0, unstable: 0, found: [] };
-  for (let round = 0; round < rounds && result.found.length < limit; round++) {
-    result.rounds++;
-    const mutant = mutateScenario(seeds[round % seeds.length] as Scenario, random) as Scenario;
-    const expected = await runScenario(original, mutant);
-    if (differences(expected, await runScenario(original, mutant), mutant.vary).length > 0) {
-      result.unstable++;
-      continue;
+  // The functions the reconstruction reached over the run, when it reports them (ATLAS_COVERAGE).
+  const covered = new Set<string>();
+  const work = await mkdtemp(join(tmpdir(), "atlas-fuzz-"));
+  try {
+    for (let round = 0; round < rounds && result.found.length < limit; round++) {
+      result.rounds++;
+      const mutant = mutateScenario(seeds[round % seeds.length] as Scenario, random) as Scenario;
+      const expected = await runScenario(original, mutant);
+      if (differences(expected, await runScenario(original, mutant), mutant.vary).length > 0) {
+        result.unstable++;
+        continue;
+      }
+      const file = join(work, "coverage.txt");
+      await rm(file, { force: true });
+      const got = await runScenario(reconstruction, forReconstruction(mutant), { ATLAS_COVERAGE: file });
+      const reached = await readCoverage(file);
+      if (reached !== undefined) for (const a of reached) covered.add(a);
+      const found = differences(expected, got, mutant.vary);
+      if (found.length === 0) continue;
+      const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
+      result.found.push({ hypothesis: hypothesis.id, differences: found });
     }
-    const found = differences(expected, await runScenario(reconstruction, forReconstruction(mutant)), mutant.vary);
-    if (found.length === 0) continue;
-    const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
-    result.found.push({ hypothesis: hypothesis.id, differences: found });
+  } finally {
+    await rm(work, { recursive: true, force: true });
   }
+  if (covered.size > 0) result.covered = covered.size;
   return result;
 }
