@@ -28,23 +28,33 @@ def jumps_c(off):
     saved = ", ".join(str(off(r)) for r in ("rsp", "rbp", "rbx", "r12", "r13", "r14", "r15", "rax"))
     rdi, rsi, rax, rsp = off("rdi"), off("rsi"), off("rax"), off("rsp")
     return f"""
+#include <stdio.h>
 struct jump {{ uint64_t guest; jmp_buf host; uint64_t regs[8]; uint64_t value; }};
-static struct jump jumps[256];
+static struct jump jumps[4096];
 static struct jump *landing;
 static const int jump_saved[8] = {{{saved}}};
-static struct jump *jump_for(uint64_t guest) {{
-  for (int i = 0; i < 256; i++)
-    if (jumps[i].guest == guest || jumps[i].guest == 0) {{ jumps[i].guest = guest; return &jumps[i]; }}
-  abort();
+/* The entry for a guest jmp_buf: its own, else a free one, else one whose jmp_buf lies below the stack pointer (on
+ * the guest stack, which grows down, that frame has returned: the buffer is dead; coroutines and deep pcalls make
+ * many). */
+static struct jump *jump_for(atlas_state *s, uint64_t guest) {{
+  struct jump *free_one = 0;
+  uint64_t sp = REG(uint64_t, {rsp});
+  for (int i = 0; i < 4096; i++) {{
+    if (jumps[i].guest == guest) return &jumps[i];
+    if (!free_one && (jumps[i].guest == 0 || jumps[i].guest < sp)) free_one = &jumps[i];
+  }}
+  if (!free_one) {{ fprintf(stderr, "atlas: more than 4096 live setjmp buffers\\n"); abort(); }}
+  free_one->guest = guest;
+  return free_one;
 }}
 static void longjmp_guest(atlas_state *s) {{
-  struct jump *j = jump_for(REG(uint64_t, {rdi}));
+  struct jump *j = jump_for(s, REG(uint64_t, {rdi}));
   j->value = REG(uint64_t, {rsi}) ? REG(uint64_t, {rsi}) : 1;
   landing = j;
   longjmp(j->host, 1);
 }}
 void *atlas_jump_buf(atlas_state *s) {{
-  struct jump *j = jump_for(REG(uint64_t, {rdi}));
+  struct jump *j = jump_for(s, REG(uint64_t, {rdi}));
   for (int k = 0; k < 8; k++) j->regs[k] = REG(uint64_t, jump_saved[k]);
   return &j->host;
 }}
