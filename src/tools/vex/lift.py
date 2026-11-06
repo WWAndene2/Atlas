@@ -228,7 +228,10 @@ class Function:
                         break
                     except KeyError:
                         continue
-            irsb = pyvex.lift(data, addr | 1 if self.thumb else addr, self.arch, opt_level=1, bytes_offset=0,
+            # Thumb: VEX takes the odd address, and bytes_offset 1 for data that starts at the even one (as angr's
+            # lifter passes them); with 0 it decodes from one byte before the instruction.
+            irsb = pyvex.lift(data, addr | 1 if self.thumb else addr, self.arch, opt_level=1,
+                              bytes_offset=1 if self.thumb else 0,
                               max_inst=1 if self.per_instruction else None)
         except pyvex.PyVEXError as error:
             raise Unsupported(f"undecodable at {addr:#x}: {error}")
@@ -380,6 +383,12 @@ class Function:
                             kind = TRAPS.get(st.jumpkind, 0)
                             body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {a:#x}ULL, {kind}); return; }}")
                             continue
+                        if st.jumpkind == "Ijk_NoDecode":
+                            # Thumb: an instruction not allowed inside an IT block (a conditional branch...) comes
+                            # with this exit, taken only when ITSTATE says it is in one: undefined, so a trap.
+                            at = st.dst.value & self.mask
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {at:#x}ULL, 3); return; }}")
+                            continue
                         if st.jumpkind == "Ijk_Ret":
                             # A conditional return (ARM's bxeq lr...).
                             body.append(f"      if ({self.expr(st.guard, tmps)}) return;")
@@ -457,8 +466,9 @@ class Function:
 
 
 def load(binary, base=0):
-    """The binary as angr loads it (at 0 if position-independent, as the graph has it), and every target of an
-    indirect jump its CFG resolves (switch tables)."""
+    """The binary as angr loads it (at 0 if position-independent, as the graph has it), every target of an
+    indirect jump its CFG resolves (switch tables), and the functions its CFG finds in Thumb state (32-bit ARM: odd
+    addresses in angr; the graph keeps the even address only, so the state is taken from here)."""
     import angr
     import logging
 
@@ -468,7 +478,8 @@ def load(binary, base=0):
     out = set()
     for jump in cfg.indirect_jumps.values():
         out.update(jump.resolved_targets or ())
-    return proj.loader.memory, out
+    thumb = {a & ~1 for a in cfg.functions if a & 1} if proj.arch.name.startswith("ARM") else set()
+    return proj.loader.memory, out, thumb
 
 
 def main():
@@ -477,11 +488,11 @@ def main():
     # base: where a position-independent image is placed (the graph has it at 0). A linked program maps the image
     # there, since Linux keeps the first 64 KiB, where a small program's code lies; translations use those addresses.
     base = int(request.get("base", 0))
-    memory, targets = load(request["binary"], base) if request.get("binary") else (None, set())
+    memory, targets, thumbs = load(request["binary"], base) if request.get("binary") else (None, set(), set())
     targets = sorted(targets)
     for f in request["functions"]:
         try:
-            thumb = bool(f.get("thumb"))
+            thumb = bool(f.get("thumb")) or f["address"] + base in thumbs
             try:
                 c = Function(arch, f["address"] + base, f["code"], targets, thumb, memory).translate()
             except Unsupported as reason:
