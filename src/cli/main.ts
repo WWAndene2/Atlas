@@ -11,7 +11,7 @@ import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
-import { runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
+import { runBlameBehaviour, runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
@@ -102,6 +102,11 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
                                     runs differ, beyond the parts --vary masks (a time...)
+  blame behaviour <original> <hyp_id>
+                                    the functions a behaviour the rebuilt program fails comes from: delta
+                                    debugging, each probe a rebuild with the other functions run as the
+                                    original's machine code; the faulty one marked likely, with the
+                                    translated callers on its path (x86-64 Linux; RUNS the program)
   verify behaviour <original> <reconstruction>
                                     RUN the reconstruction on every recorded scenario: reproduced exactly,
                                     verified; else where it differs
@@ -311,6 +316,9 @@ async function main(argv: string[]): Promise<number> {
           ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
+        break;
+      case "blame":
+        output = await runBlameBehaviour(store, rest);
         break;
       case "record":
         output = await runRecordBehaviour(store, rest, {

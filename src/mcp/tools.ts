@@ -32,6 +32,7 @@ import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
 import { recordBehaviour } from "../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../orchestrator/replay-behaviour.js";
+import { blameBehaviour } from "../orchestrator/blame-behaviour.js";
 import { encode } from "../verify/replay/run-scenario.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
@@ -225,6 +226,12 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { original: z.string(), reconstruction: z.string() },
       handler: async (a: { original: string; reconstruction: string }) =>
         replayBehaviour(store, a.original, a.reconstruction),
+    },
+    blame_behaviour: {
+      description:
+        "The functions a recorded behaviour the rebuilt program fails comes from (RUNS the program many times): delta debugging, each probe a rebuild with the other functions run as the original's machine code; the faulty one marked likely, with the translated callers on its path. x86-64 Linux.",
+      input: { original: z.string(), behaviour: z.string().describe("A behaviour hypothesis ID (hyp_...)") },
+      handler: async (a: { original: string; behaviour: string }) => blameBehaviour(store, a.original, a.behaviour),
     },
     check_format: {
       description:

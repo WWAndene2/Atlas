@@ -1,12 +1,14 @@
 // atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]... [--timeout
 // <s>] [--vary <regex>]... [-- <arguments>]: runs the original on a scenario and records what it did. atlas verify behaviour <original>
-// <reconstruction>: replays every recorded scenario against the reconstruction.
+// <reconstruction>: replays every recorded scenario against the reconstruction. atlas blame behaviour <original>
+// <hyp>: the functions a behaviour the rebuilt program fails comes from.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
 import { NotFoundError } from "../../orchestrator/function-context.js";
 import { InvalidScenarioError, recordBehaviour, UnstableBehaviourError } from "../../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../../orchestrator/replay-behaviour.js";
+import { blameBehaviour } from "../../orchestrator/blame-behaviour.js";
 import { encode, type Scenario } from "../../verify/replay/run-scenario.js";
 import { CliError, type Output } from "../output.js";
 
@@ -84,6 +86,38 @@ export async function runVerifyBehaviour(store: GraphStore, args: string[]): Pro
         `${passed} of ${replay.results.length} behaviours reproduced` +
         failed.map((r) => `\n  ${r.hypothesis} ${JSON.stringify(r.argv)}: ${r.differences.join("; ")}`).join(""),
     };
+  } catch (error) {
+    if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
+    throw error;
+  }
+}
+
+export async function runBlameBehaviour(store: GraphStore, args: string[]): Promise<Output> {
+  const [what, original, behaviour, ...extra] = args;
+  if (what !== "behaviour" || original === undefined || behaviour === undefined || extra.length > 0) {
+    throw new CliError(
+      "usage",
+      "usage: atlas blame behaviour <original> <hyp_id> (rebuilds and runs the program many times: x86-64 Linux)",
+    );
+  }
+  if (!existsSync(original)) throw new CliError("not_found", `no file ${original}`);
+  try {
+    const blame = await blameBehaviour(store, original, behaviour);
+    const text =
+      blame.result === "reproduced"
+        ? `${behaviour}: reproduced by the rebuilt program, nothing to blame (${blame.rebuilds} rebuilds)`
+        : blame.result === "not_functions"
+          ? `${behaviour}: fails with every function run as the original's code too: not a function's fault ` +
+            `(${blame.differences.join("; ")})`
+          : `${behaviour}: ${blame.differences.join("; ")}; in ${blame.rebuilds} rebuilds, narrowed to\n` +
+            blame.culprits
+              .map(
+                (c) =>
+                  `  ${c.likely ? "likely " : "caller "}${c.id}${c.label !== undefined ? ` ${c.label}` : ""}` +
+                  ` (${c.rewritten ? "its verified rewrite" : "its translation"})`,
+              )
+              .join("\n");
+    return { data: blame, text };
   } catch (error) {
     if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
     throw error;

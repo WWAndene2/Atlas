@@ -122,6 +122,16 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   `--vary '[0-9]{10}'` is reproduced by the rebuilt program a second later; `math.random()` without one is refused
   at recording, the message pointing to `--vary`. Limit: two runs only catch what differs between them; a clock
   read twice within one second agrees, so it must be named by whoever records the scenario.
+- Blame (`src/orchestrator/blame-behaviour.ts`): `atlas blame behaviour <original> <hyp>` (MCP `blame_behaviour`)
+  finds the functions a behaviour the rebuilt program fails comes from. On an x86-64 Linux host the original is
+  mapped executable at its own addresses, so `link.py` can run any function as the original's machine code (its
+  `native` list; the entry stays translated). The functions kept translated or rewritten are narrowed by delta
+  debugging (ddmin), each probe a rebuild and a replay, to the smallest set that still fails: the faulty function,
+  marked likely (it calls no other member, by the call edges), and the translated callers on its path (a native
+  caller reaches its callees natively). The two ends are checked first: reproduced, nothing to blame; failing
+  with every function native too, not a function's fault. On Lua: the reproduced scenario in 1 rebuild (98 s),
+  the `os.time()` one recorded without `--vary` classed as not a function's fault in 2 (181 s); a rebuild costs
+  about 80 s there, most of it compiling the translations again.
 - Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
   fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
   similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the
