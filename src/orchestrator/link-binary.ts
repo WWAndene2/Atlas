@@ -44,6 +44,8 @@ export async function linkBinary(
   path: string,
   dir: string,
   translated: number[],
+  /** x86-64 Linux programs: functions run as the original's machine code instead (atlas blame behaviour). */
+  native: number[] = [],
 ): Promise<LinkOutcome> {
   const architecture = store.getNode(binary)?.architecture;
   if (architecture === "arm-v5te" || architecture === "arm-v6k" || architecture === "arm-v7") {
@@ -128,6 +130,7 @@ export async function linkBinary(
     rewrites,
     functions,
     base: linkBase(path),
+    ...(native.length > 0 ? { native } : {}),
   });
   return { ...outcome, rewrites_skipped: [...unusable, ...outcome.rewrites_skipped] };
 }

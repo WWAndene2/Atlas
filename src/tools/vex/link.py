@@ -89,7 +89,8 @@ def main():
     # native: functions run as the original's own machine code instead of their translation or rewrite (the image
     # is mapped executable at its own addresses, and the host is the same CPU): atlas blame behaviour narrows a
     # failing behaviour down to one function this way.
-    native = {int(a) + base for a in request.get("native", [])}
+    # The entry stays translated: run natively, it would read argc and argv from the host's stack, not the guest's.
+    native = {int(a) + base for a in request.get("native", [])} - {obj.entry + base}
     # Linked at fixed addresses when the original's image lies below where a fixed-address host program loads
     # (0x400000): rewrites then reach the original's globals by address (their DAT_<address> symbols).
     # A base far above it (0x10000000) leaves that room free too.
