@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -733,5 +733,7 @@ describe.runIf(python !== undefined)("linkProgram native", () => {
     expect(spawnSync(wrong.executable, [], { encoding: "utf8" }).stdout).toBe("0\n");
     const right = await link([square]);
     expect(spawnSync(right.executable, [], { encoding: "utf8" }).stdout).toBe("49\n");
+    // The two links share the translations, compiled once.
+    expect(readdirSync(dir).filter((f) => /^lifted\.c\.[0-9a-f]{16}\.o$/.test(f))).toHaveLength(1);
   }, 600_000);
 });

@@ -14,6 +14,7 @@ translated caller's frame (ATLAS_CALL), and longjmp returns there with the guest
 starts at the original's entry, whose call to __libc_start_main runs the translated main. x86-64 Linux ELF.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -59,6 +60,26 @@ __attribute__((naked)) static void atlas_native(void *fn, struct atlas_native_fr
     "lea -16(%rbp),%rsp\n pop %r12\n pop %rbx\n pop %rbp\n ret\n");
 }
 """
+
+
+def compiled(source, flags, header, runtime):
+    """The object of a translations file, compiled once and kept beside it: the translations of a large program take
+    most of a link's time, and a link is repeated with the same translations (atlas blame behaviour's rebuilds,
+    atlas run). Keyed by the source, the flags, the included header and the runtime header, so any change of one
+    compiles it again."""
+    # The runtime header the source includes: the copy beside it when there is one (atlas lift writes it there).
+    beside = os.path.join(os.path.dirname(os.path.abspath(source)), "atlas_lift.h")
+    used = beside if os.path.exists(beside) else os.path.join(runtime, "atlas_lift.h")
+    key = hashlib.sha256()
+    # The included header counts by its content (below), not its path, which follows the output's name.
+    named = ["<included header>" if f.endswith(".setjmp.h") else f for f in flags]
+    for part in (open(source, "rb").read(), "\0".join(named).encode(), header.encode(), open(used, "rb").read()):
+        key.update(hashlib.sha256(part).digest())
+    obj = f"{source}.{key.hexdigest()[:16]}.o"
+    if not os.path.exists(obj):
+        subprocess.run(["gcc", *flags, "-c", source, "-o", obj + ".tmp"], check=True)
+        os.replace(obj + ".tmp", obj)  # whole or absent, should two links run at once
+    return obj
 
 
 def main():
@@ -271,8 +292,9 @@ int main(int argc, char **argv, char **envp) {{
         f.write(SETJMP_HEADER)
     position = ["-fno-pie", "-no-pie"] if fixed else []
     symbols = [f"-Wl,--defsym={n}={a:#x}" for n, a in sorted(data.items())]
-    subprocess.run(["gcc", "-O1", "-w", *position, "-I", request["runtime"], "-include", out + ".setjmp.h",
-                    *request["lifted"], out + ".main.c", *[r["object"] for r in usable], *symbols, "-o", out,
+    flags = ["-O1", "-w", *position, "-I", request["runtime"], "-include", out + ".setjmp.h"]
+    lifted = [compiled(source, flags, SETJMP_HEADER, request["runtime"]) for source in request["lifted"]]
+    subprocess.run(["gcc", *flags, *lifted, out + ".main.c", *[r["object"] for r in usable], *symbols, "-o", out,
                     "-ldl", "-lm"], check=True)
     unresolved = []
     print(json.dumps({"executable": out, "imports": len(imports), "unresolved": unresolved,

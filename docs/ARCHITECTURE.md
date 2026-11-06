@@ -130,8 +130,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   marked likely (it calls no other member, by the call edges), and the translated callers on its path (a native
   caller reaches its callees natively). The two ends are checked first: reproduced, nothing to blame; failing
   with every function native too, not a function's fault. On Lua: the reproduced scenario in 1 rebuild (98 s),
-  the `os.time()` one recorded without `--vary` classed as not a function's fault in 2 (181 s); a rebuild costs
-  about 80 s there, most of it compiling the translations again.
+  the `os.time()` one recorded without `--vary` classed as not a function's fault in 2 (105 s). `link.py` compiles
+  a translations file once into an object kept beside it (keyed by its content, the flags and the headers it
+  includes), so the rebuilds after the first only compile the small dispatch: the 2-rebuild case went from 181 s
+  to 105 s.
 - Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
   fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
   similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the
