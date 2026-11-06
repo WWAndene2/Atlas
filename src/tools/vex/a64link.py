@@ -193,7 +193,8 @@ static uint8_t initial_registers[sizeof ((atlas_state *)0)->r];
 static __thread atlas_state *thread_state;
 static atlas_state *guest_thread(void) {{
   if (thread_state != NULL) return thread_state;
-  atlas_state *s = aligned_alloc(16, sizeof *s);
+  /* aligned_alloc wants a size that is a multiple of the alignment (C11); the state's is not. */
+  atlas_state *s = aligned_alloc(16, (sizeof *s + 15) & ~(size_t)15);
   uint8_t *stack = mmap(NULL, 1 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (s == NULL || stack == MAP_FAILED) {{ fprintf(stderr, "atlas: no guest state for a new thread\\n"); abort(); }}
   memset(s, 0, sizeof *s);
