@@ -46,8 +46,9 @@ def jumps_c(off, args=SYSV_ARGS, saved=SYSV_SAVED, size=lambda r: 8, result="rax
     return f"""
 #include <stdio.h>
 struct jump {{ uint64_t guest; jmp_buf host; uint8_t regs[{total}]; uint64_t value; }};
-static struct jump jumps[4096];
-static struct jump *landing;
+/* Per host thread: each thread's guest calls setjmp and longjmp on its own frames. */
+static _Thread_local struct jump jumps[4096];
+static _Thread_local struct jump *landing;
 static const struct {{ int at, size; }} jump_saved[{len(saved)}] = {{{places}}};
 static void jump_save(atlas_state *s, uint8_t *to) {{
   for (unsigned k = 0; k < {len(saved)}; k++) {{ memcpy(to, s->r + jump_saved[k].at, jump_saved[k].size); to += jump_saved[k].size; }}

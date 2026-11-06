@@ -202,7 +202,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   program through Lua's C API (dlopen, luaL_newstate, luaL_openlibs, luaL_loadfilex, lua_pcallk), prints for the
   test script exactly what the same driver prints with Lua built natively for x86-64 from the same sources. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
   data (absolute symbols at the guest addresses, the image lying at a fixed base) is reached through dlsym or
-  -fPIC code, not through a host program's copy relocations; one such library per process. A guest call to an
+  -fPIC code, not through a host program's copy relocations; one such library per process. Each host thread
+  entering the guest (calling an export, running a callback, or a thread the guest started with pthread_create,
+  whose start routine is bound like a callback) gets a guest state of its own, the registers as setup left them
+  and a 1 MiB stack; setjmp's tables are per thread. Four host threads calling one export at once agree with
+  calls made one by one (test). A guest call to an
   address outside its image is a call of host code (a JNIEnv function, a host program's callback) with the
   conventions converted: an AArch64 JNI library (`Java_...` native methods calling GetStringUTFChars and
   NewStringUTF through JNIEnv) linked this way runs in a host Java VM, loaded by `System.load` (test). An address

@@ -25,7 +25,7 @@ exports is a host function of the same name that enters the guest with the argum
 up when the host loads the library, and nothing else is visible. Its exported data are absolute symbols at the
 guest addresses (reached through dlsym, not through copy relocations). A call to an address outside the guest
 image is a call of host code (a JNIEnv function, a host program's callback), made with the conventions converted.
-The guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
+Each host thread entering the guest has a guest state of its own. The guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
 """
 
 import json
@@ -42,7 +42,8 @@ from link import ENTER_GUEST, TRAMPOLINE
 # Imports that call a function the guest passes them (the argument's position): qsort's and bsearch's comparison,
 # and the handlers run at exit (glibc's atexit is linked into the program and registers through __cxa_atexit).
 CALLBACK_ARGS = {"qsort": 3, "bsearch": 4, "atexit": 0, "__cxa_atexit": 0, "on_exit": 0,
-                 "signal": 1, "bsd_signal": 1, "sysv_signal": 1, "__sysv_signal": 1}
+                 "signal": 1, "bsd_signal": 1, "sysv_signal": 1, "__sysv_signal": 1,
+                 "pthread_create": 2}
 # Those that return the handler they replace: a stub there is turned back into the guest's handler.
 RETURNS_HANDLER = {"signal", "bsd_signal", "sysv_signal", "__sysv_signal"}
 CALLBACK_SLOTS = 64
@@ -128,6 +129,7 @@ __attribute__((constructor)) static void atlas_library_start(void) {
     c = f"""#include "atlas_lift.h"
 #include <dlfcn.h>
 #include <errno.h>
+#include <pthread.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,14 +166,17 @@ static void *const callback_stub[{CALLBACK_SLOTS}] = {{{", ".join(f"(void *)call
 static const int returns_handler[{len(imports) or 1}] = {{{", ".join("1" if n in RETURNS_HANDLER else "0" for n in imports) or "0"}}};
 static const int callback_arg[{len(imports) or 1}] = {{{", ".join(str(CALLBACK_ARGS.get(n, -1)) for n in imports) or "-1"}}};
 /* The stub bound to a guest function in the image, or the value unchanged (SIG_DFL, SIG_IGN, a host function). */
+static pthread_mutex_t callback_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t bind_callback(uint64_t fn) {{
   if (fn < {min(v for v, *_ in segs):#x}ULL || fn >= {max(v + m for v, m, *_ in segs):#x}ULL) return fn;
+  pthread_mutex_lock(&callback_lock);
   int k = 0;
   while (k < callback_count && callback_target[k] != fn) k++;
   if (k == callback_count) {{
     if (k == {CALLBACK_SLOTS}) {{ fprintf(stderr, "atlas: more than {CALLBACK_SLOTS} guest callbacks\\n"); abort(); }}
     callback_target[callback_count++] = fn;
   }}
+  pthread_mutex_unlock(&callback_lock);
   return (uint64_t)(uintptr_t)callback_stub[k];
 }}
 /* The guest function a stub stands for, or the value unchanged. */
@@ -181,12 +186,29 @@ static uint64_t unbind_callback(uint64_t value) {{
   return value;
 }}
 static atlas_state *main_state;
+/* One guest state per host thread: the main thread's is made by atlas_setup; another thread entering the guest
+ * (calling an export, running a callback or a thread the guest started) gets a new state, the registers as setup
+ * left them and a 1 MiB stack of its own. */
+static uint8_t initial_registers[sizeof ((atlas_state *)0)->r];
+static __thread atlas_state *thread_state;
+static atlas_state *guest_thread(void) {{
+  if (thread_state != NULL) return thread_state;
+  atlas_state *s = aligned_alloc(16, sizeof *s);
+  uint8_t *stack = mmap(NULL, 1 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (s == NULL || stack == MAP_FAILED) {{ fprintf(stderr, "atlas: no guest state for a new thread\\n"); abort(); }}
+  memset(s, 0, sizeof *s);
+  memcpy(s->r, initial_registers, sizeof s->r);
+  REG(uint64_t, SP) = ((uint64_t)(uintptr_t)(stack + (1 << 20) - 4096)) & ~15ULL;
+  thread_state = s;
+  return s;
+}}
 /* The library calling stub k: its System V arguments become x0-x5 and d0-d7, the guest state is saved and
  * restored around the call, and x0 or d0 is its result. */
 void atlas_enter_guest(uint64_t *frame, uint64_t k) {{
-  atlas_state *s = main_state;
-  static uint8_t saved[64][sizeof s->r];
-  static int depth;
+  atlas_state *s = guest_thread();
+  static __thread uint8_t (*saved)[sizeof s->r];
+  static __thread int depth;
+  if (saved == NULL && (saved = malloc(64 * sizeof s->r)) == NULL) abort();
   if (depth == 64) {{ fprintf(stderr, "atlas: callbacks nested too deep\\n"); abort(); }}
   memcpy(saved[depth++], s->r, sizeof s->r);
   for (int i = 0; i < 6; i++) REG(uint64_t, X0 + 8 * i) = frame[i];
@@ -319,7 +341,9 @@ static int atlas_setup(char **envp) {{
 {nl.join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
   guest_stack = mmap(NULL, 8 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (guest_stack == MAP_FAILED) {{ perror("atlas: the guest stack"); return 127; }}
+  memcpy(initial_registers, s->r, sizeof s->r);
   REG(uint64_t, SP) = ((uint64_t)(uintptr_t)(guest_stack + (8 << 20) - 4096)) & ~15ULL;
+  thread_state = s;
   return 0;
 }}
 

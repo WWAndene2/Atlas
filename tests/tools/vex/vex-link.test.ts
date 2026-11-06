@@ -584,3 +584,102 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     expect(run.status).not.toBe(0);
   }, 600_000);
 });
+
+// Several host threads calling into an AArch64 library at once: each needs a guest state of its own.
+const THREAD_LIBRARY = `
+long work(long seed) { long h = seed; for (long i = 0; i < 2000000; i++) h = h * 6364136223846793005L + 1442695040888963407L; return h; }
+`;
+const THREAD_DRIVER = `
+#include <dlfcn.h>
+#include <pthread.h>
+#include <stdio.h>
+static long (*work)(long);
+static void *run(void *seed) { return (void *)work((long)seed); }
+int main(int argc, char **argv) {
+  void *lib = dlopen(argv[1], RTLD_NOW);
+  if (!lib) { puts(dlerror()); return 1; }
+  work = (long (*)(long))dlsym(lib, "work");
+  long alone[4];
+  for (long k = 0; k < 4; k++) alone[k] = work(k + 1);
+  pthread_t t[4];
+  for (long k = 0; k < 4; k++) pthread_create(&t[k], 0, run, (void *)(k + 1));
+  int same = 1;
+  for (long k = 0; k < 4; k++) { void *r; pthread_join(t[k], &r); same &= (long)r == alone[k]; }
+  printf("threads agree: %d\\n", same);
+  return 0;
+}
+`;
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram threads", () => {
+  it("gives each host thread calling into an AArch64 library a guest state of its own", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-threads-test-"));
+    writeFileSync(join(dir, "lib.c"), THREAD_LIBRARY);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "-fPIC", "-shared", "lib.c", "-o", "lib.so"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "lib.so")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "lib.so"), base);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "lib.so"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "host.so"),
+      base,
+    });
+    writeFileSync(join(dir, "driver.c"), THREAD_DRIVER);
+    execFileSync("gcc", ["-O1", "driver.c", "-o", "driver", "-ldl", "-lpthread"], { cwd: dir });
+    const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
+    expect(run.stdout).toBe("threads agree: 1\n");
+  }, 600_000);
+});
+
+// An AArch64 program starting threads itself, with its own start routine: each runs on a host thread.
+const THREAD_PROGRAM = `
+#include <pthread.h>
+#include <stdio.h>
+static void *square(void *n) { long v = (long)n; return (void *)(v * v); }
+int main(void) {
+  pthread_t t[4];
+  for (long k = 0; k < 4; k++) pthread_create(&t[k], 0, square, (void *)(k + 2));
+  long sum = 0;
+  for (int k = 0; k < 4; k++) { void *r; pthread_join(t[k], &r); sum += (long)r; }
+  printf("sum of squares %ld\\n", sum);
+  return 0;
+}
+`;
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram guest threads", () => {
+  it("runs the threads an AArch64 program starts with pthread_create", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-guest-threads-test-"));
+    writeFileSync(join(dir, "p.c"), THREAD_PROGRAM);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p", "-lpthread"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "p"), base);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stdout).toBe("sum of squares 54\n");
+    expect(run.status).toBe(0);
+  }, 600_000);
+});
