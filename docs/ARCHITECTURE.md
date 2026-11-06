@@ -278,7 +278,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   (`kernel.inc`: kernel objects behind handles, services by name, a log of every system call or command not
   served, written to `ATLAS_UNSERVED` at exit, most asked first) and its machine's profile, chosen by crosslink's
   `profile` (`ctr.inc`, the 3DS: Horizon's calls by svc immediate, IPC through the command buffer at TLS + 0x80,
-  srv:). What is unserved returns Horizon's "not implemented" rather than a faked success. One thread for now.
+  srv:). What is unserved returns Horizon's "not implemented" rather than a faked success. Threads
+  (`threads.inc`) are host threads with their own guest state, but one runs guest code at a time, handing over by
+  priority when it blocks, yields or readies a higher one: deterministic, as on an application core. A thread that
+  spins on memory without a system call never yields (timer preemption is not modelled).
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating

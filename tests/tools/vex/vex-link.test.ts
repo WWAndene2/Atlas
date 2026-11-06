@@ -144,36 +144,110 @@ void title(void) {
 __attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
 `;
 
+// Threads on the 3DS profile, as a title uses them. Each step prints a mark; the order of the marks is the
+// scheduling: a higher-priority worker runs as soon as it is created or readied, and blocks back to main.
+const CTR_THREADS = `
+typedef unsigned u32;
+#define SVC(n, a) do { register u32 r0 __asm__("r0") = a[0], r1 __asm__("r1") = a[1], r2 __asm__("r2") = a[2], \\
+  r3 __asm__("r3") = a[3], r4 __asm__("r4") = a[4], r5 __asm__("r5") = a[5]; \\
+  __asm__ volatile("svc " #n : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4), "+r"(r5) : : "memory"); \\
+  a[0] = r0; a[1] = r1; a[2] = r2; a[3] = r3; a[4] = r4; a[5] = r5; } while (0)
+#define FOREVER 0xFFFFFFFFu
+static void out(const char *m) { u32 a[6] = {(u32)m, 0}; while (m[a[1]]) a[1]++; SVC(0x3D, a); }
+static u32 wait1(u32 h, u32 low, u32 high) { u32 a[6] = {h, 0, low, high}; SVC(0x24, a); return a[0]; }
+static u32 signal(u32 ev) { u32 a[6] = {ev}; SVC(0x18, a); return a[0]; }
+static u32 tls(void) { u32 t; __asm__ volatile("mrc p15, 0, %0, c13, c0, 3" : "=r"(t)); return t; }
+u32 ev, sem, arb, seen_tls;
+volatile int shared, flag;
+__attribute__((aligned(8))) u32 stack[2048];
+__attribute__((noinline)) void worker(u32 arg) {
+  out("w1 ");
+  seen_tls = tls();
+  wait1(ev, FOREVER, FOREVER);
+  out("w2 ");
+  shared = (int)arg;
+  u32 a[6] = {0, sem, 1}; SVC(0x16, a);              /* ReleaseSemaphore: main is lower, no switch */
+  u32 b[6] = {arb, (u32)&flag, 1, 1}; SVC(0x22, b);   /* wait while flag < 1 */
+  out("w3 ");
+  u32 c[6] = {0}; SVC(0x09, c);                       /* ExitThread */
+}
+void title(void) {
+  int ok = 1;
+  u32 a[6] = {0, 0}; SVC(0x17, a); ev = a[1];                         /* CreateEvent, one-shot */
+  u32 b[6] = {0, 0, 1}; SVC(0x15, b); sem = b[1];                     /* CreateSemaphore(0, 1) */
+  u32 c[6] = {0}; SVC(0x21, c); arb = c[1];                           /* CreateAddressArbiter */
+  u32 d[6] = {0x2F, (u32)worker, 42, (u32)(stack + 2048), 0}; SVC(0x08, d); /* CreateThread, above main */
+  u32 th = d[1]; ok &= d[0] == 0;
+  out("m1 ");
+  ok &= seen_tls != tls() && seen_tls != 0;
+  signal(ev);                                                         /* the worker runs at once */
+  out("m2 ");
+  u32 e[6] = {0, 0, 2, 0, 0}; u32 hs[2] = {th, sem}; e[1] = (u32)hs;  /* any of thread, semaphore */
+  SVC(0x25, e); ok &= e[0] == 0 && e[1] == 1 && shared == 42;
+  ok &= wait1(ev, 0, 0) == 0x09401BFEu;                              /* consumed: a poll times out */
+  ok &= wait1(ev, 1000000, 0) == 0x09401BFEu;                        /* and so does a 1 ms wait */
+  u32 f[6] = {1000000, 0}; SVC(0x0A, f);                              /* SleepThread 1 ms */
+  flag = 1;
+  u32 g[6] = {arb, (u32)&flag, 0, 1}; SVC(0x22, g);                   /* signal one: the worker runs */
+  out("m3 ");
+  ok &= wait1(th, FOREVER, FOREVER) == 0;                             /* it ended */
+  u32 m[6] = {0, 1}; SVC(0x13, m); u32 mutex = m[1];                  /* CreateMutex, locked */
+  ok &= wait1(mutex, 0, 0) == 0;                                      /* its owner may take it again */
+  u32 x[6] = {mutex}; SVC(0x14, x); u32 y[6] = {mutex}; SVC(0x14, y); u32 z[6] = {mutex}; SVC(0x14, z);
+  ok &= x[0] == 0 && y[0] == 0 && z[0] != 0;
+  u32 p[6] = {0, 0xFFFF8000u}; SVC(0x0B, p); ok &= p[1] == 0x30;
+  if (ok) out("ok\\n");
+  wait1(ev, FOREVER, FOREVER);                                        /* nothing will signal it */
+}
+__attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
+`;
+
+// A freestanding ARM title built, translated and linked on the 3DS profile: the program's path.
+async function buildTitle(dir: string, source: string): Promise<string> {
+  writeFileSync(join(dir, "p.c"), source);
+  execFileSync("clang", [...ARM_FLAGS, "-marm", "p.c", "-o", "p"], { cwd: dir });
+  writeFileSync(join(dir, "functions.py"), FUNCTIONS);
+  const functions = JSON.parse(
+    execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }),
+  ) as { address: number; code: string }[];
+  const lifted = await liftFunctions(python as string, "arm-v7", functions, join(dir, "p"));
+  expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+  writeFileSync(
+    join(dir, "lifted.c"),
+    `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
+  );
+  const outcome = await crosslinkProgram(python as string, {
+    arch: "ARMEL",
+    endness: "Iend_LE",
+    binary: join(dir, "p"),
+    lifted: [join(dir, "lifted.c")],
+    translated: functions.map((f) => f.address),
+    out: join(dir, "program"),
+    base: 0,
+    profile: "ctr",
+  });
+  return outcome.executable;
+}
+
 describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profile", () => {
+  it("runs a title's threads in priority order, with their events, semaphores, arbiters and mutexes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
+    const program = await buildTitle(dir, CTR_THREADS);
+    const log = join(dir, "unserved.txt");
+    const run = spawnSync(program, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
+    expect(run.stderr).toBe("w1 m1 w2 m2 w3 m3 ok\natlas: every guest thread waits for ever\n");
+    expect(run.status).toBe(1);
+    expect(existsSync(log)).toBe(false);
+  }, 300_000);
+
   it("serves a title's Horizon system calls and srv:, and logs what is not served", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
-    writeFileSync(join(dir, "p.c"), CTR_PROGRAM);
-    execFileSync("clang", [...ARM_FLAGS, "-marm", "p.c", "-o", "p"], { cwd: dir });
-    writeFileSync(join(dir, "functions.py"), FUNCTIONS);
-    const functions = JSON.parse(
-      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }),
-    ) as { address: number; code: string }[];
-    const lifted = await liftFunctions(python as string, "arm-v7", functions, join(dir, "p"));
-    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
-    writeFileSync(
-      join(dir, "lifted.c"),
-      `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
-    );
-    const outcome = await crosslinkProgram(python as string, {
-      arch: "ARMEL",
-      endness: "Iend_LE",
-      binary: join(dir, "p"),
-      lifted: [join(dir, "lifted.c")],
-      translated: functions.map((f) => f.address),
-      out: join(dir, "program"),
-      base: 0,
-      profile: "ctr",
-    });
+    const program = await buildTitle(dir, CTR_PROGRAM);
     const log = join(dir, "unserved.txt");
-    const run = spawnSync(outcome.executable, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
+    const run = spawnSync(program, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
     expect(run.stderr).toBe("title up\nall ok\n");
     expect(run.status).toBe(0);
     expect(readFileSync(log, "utf8")).toBe("1 gsp::Gpu 0x13\n1 svc 0x7f\n");

@@ -16,6 +16,7 @@ struct console_object {
   enum console_kind kind;
   uint64_t value;                    /* the object's state: an event's signal, a mutex's owner, a memory block's address */
   const struct console_service *service; /* a session's or a port's service */
+  uint32_t count, limit;             /* a semaphore's count and maximum, an event's state and reset (threads.inc) */
 };
 
 #define CONSOLE_HANDLES 4096

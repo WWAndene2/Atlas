@@ -188,7 +188,10 @@ spreads across platforms instead of finishing one. So, from now on:
   Done: the core (`src/tools/vex/console/kernel.inc`: handles, the service registry, the unserved log) and the
   3DS profile's first part (`console/ctr.inc`, crosslink's `profile: "ctr"`: Horizon's system calls by svc
   immediate, the command buffer at TLS + 0x80, srv:, objects, heap and linear memory, the tick counter), tested
-  on a freestanding ARM title. Next: threads, then the services a real title's log names.
+  on a freestanding ARM title; threads (`console/threads.inc`: one guest thread runs at a time, by priority, until it
+  blocks, yields or readies a higher one; events, mutexes, semaphores, address arbiters, timeouts; a deadlock is
+  reported). Not modelled: preemption by a timer between system calls, the second core. Next: the services a real
+  title's log names.
 - **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
   then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
   emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.

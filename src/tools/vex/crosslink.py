@@ -83,9 +83,10 @@ def main():
 {tls_case}  atlas_do_syscall(s, number, {args}, &REG(uint32_t, {off[conv["result"]]}));"""
     elif profile == "ctr":
         # A 3DS title: no argument vector or environment, its stack and thread storage at the console's addresses.
-        regs = ", ".join(str(arch.registers[f"r{k}"][0]) for k in range(5))
-        platform = (f"static const uint32_t ctr_reg[5] = {{{regs}}};\n#define CTR_TLS_REG {tls}\n"
-                    '#include "console/kernel.inc"\n#include "console/ctr.inc"')
+        regs = ", ".join(str(arch.registers[f"r{k}"][0]) for k in range(6))
+        platform = (f"static const uint32_t ctr_reg[6] = {{{regs}}};\n"
+                    f"#define CTR_TLS_REG {tls}\n#define CTR_SP_REG {off['sp']}\n"
+                    '#include "console/kernel.inc"\n#include "console/threads.inc"\n#include "console/ctr.inc"')
         setup = f"  (void)argc; (void)argv; (void)envp;\n  ctr_setup(s);\n  REG(uint32_t, {off['sp']}) = CTR_STACK_TOP;"
         serve = "  ctr_syscall(s);"
     else:
