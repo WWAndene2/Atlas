@@ -103,7 +103,8 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     the "it runs" path: every function translated mechanically to C
                                     (through VEX, any architecture) with its runtime and a dispatch table,
                                     and the reasons for the functions it could not translate; with --link
-                                    (x86-64), a program built from them, verified rewrites in their place
+                                    a program for this host built from them: x86-64, verified rewrites in
+                                    their place; 32-bit ARM (static ELF), system calls emulated
   repair rewrite <hyp_id|all> [--cc <compiler> --cflags="<flags>"]
                                     before an agent: try the usual fixes (static, noreturn, attributes,
                                     types, operand order) on rewrites that compile to different bytes, keep

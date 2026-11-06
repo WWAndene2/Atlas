@@ -346,7 +346,12 @@ export function tools(store: GraphStore, graphPath: string) {
       input: {
         path: z.string(),
         out: z.string(),
-        link: z.boolean().optional().describe("Also build a program (x86-64), verified rewrites in their place"),
+        link: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also build a program for this host: x86-64, verified rewrites in their place; 32-bit ARM, translations only",
+          ),
         ...raw,
       },
       handler: async (a: {

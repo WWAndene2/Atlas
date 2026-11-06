@@ -1,5 +1,6 @@
-// Links a binary's translations, and its verified rewrites in their place, into a program for a host of the same
-// architecture (link.py). x86-64 Linux ELF for now.
+// Links a binary's translations into a program: for a host of the same architecture, with its verified rewrites in
+// their place (link.py, x86-64 Linux ELF for now); or for a guest of another CPU, its system calls emulated
+// (crosslink.py, statically linked 32-bit ARM Linux ELF for now).
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,6 +42,39 @@ export async function linkProgram(python: string, request: LinkRequest): Promise
       timeout: 3_600_000,
     });
     return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as LinkOutcome;
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
+export interface CrosslinkRequest {
+  /** archinfo's name and byte order of the guest. */
+  arch: string;
+  endness: string;
+  binary: string;
+  lifted: string[];
+  translated: number[];
+  out: string;
+  /** Where the image is mapped; the translations must have been made at the same base. */
+  base: number;
+}
+
+export interface CrosslinkOutcome {
+  executable: string;
+  translated: number;
+  entry: string;
+}
+
+export async function crosslinkProgram(python: string, request: CrosslinkRequest): Promise<CrosslinkOutcome> {
+  const work = await mkdtemp(join(tmpdir(), "atlas-crosslink-"));
+  try {
+    const path = join(work, "request.json");
+    await writeFile(path, JSON.stringify({ ...request, runtime: repositoryPath("src", "tools", "vex") }));
+    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "crosslink.py"), path], {
+      maxBuffer: 1 << 28,
+      timeout: 3_600_000,
+    });
+    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as CrosslinkOutcome;
   } finally {
     await rm(work, { recursive: true, force: true });
   }

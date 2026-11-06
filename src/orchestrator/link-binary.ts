@@ -1,11 +1,12 @@
 // The "it runs" path's last step: a binary's translations (lift-binary.ts) linked into a program, with every
 // verified rewrite taking its translation's place where it can (src/tools/vex/rewrites.py says why not). The
 // rewrites are compiled as they were verified: the binary's detected toolchain, Ghidra's prelude when they use it.
+// A 32-bit ARM binary is linked for this x86-64 host as a guest of another CPU (crosslink.py): translations only.
 import { closeSync, openSync, readSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { GraphStore } from "../graph/index.js";
 import { locateAngr } from "../tools/angr/index.js";
-import { linkProgram, type LinkOutcome } from "../tools/vex/index.js";
+import { ARCH, crosslinkProgram, linkProgram, type LinkOutcome } from "../tools/vex/index.js";
 import { ghidraPreludeFlags } from "../verify/recompile/ghidra-prelude.js";
 import { isRewriteValue } from "../verify/recompile/rewrite-value.js";
 import { binaryToolchain } from "./detect-toolchain.js";
@@ -22,7 +23,10 @@ export function linkBase(path: string): number {
   } finally {
     closeSync(fd);
   }
-  return header.readUInt32BE(0) === 0x7f454c46 && header.readUInt16LE(16) === 3 ? 0x10000000 : 0;
+  if (header.readUInt32BE(0) !== 0x7f454c46) return 0;
+  // e_type in the file's own byte order (EI_DATA: 1 little-endian, 2 big-endian); ET_DYN is 3.
+  const type = header[5] === 2 ? header.readUInt16BE(16) : header.readUInt16LE(16);
+  return type === 3 ? 0x10000000 : 0;
 }
 
 export async function linkBinary(
@@ -32,8 +36,12 @@ export async function linkBinary(
   dir: string,
   translated: number[],
 ): Promise<LinkOutcome> {
-  if (store.getNode(binary)?.architecture !== "x86_64") {
-    throw new Error("linking covers x86-64 programs on an x86-64 host for now");
+  const architecture = store.getNode(binary)?.architecture;
+  if (architecture === "arm-v5te" || architecture === "arm-v6k" || architecture === "arm-v7") {
+    return crosslink(store, binary, path, dir, translated, architecture);
+  }
+  if (architecture !== "x86_64") {
+    throw new Error("linking covers x86-64 programs, and 32-bit ARM ones as guests, on an x86-64 host for now");
   }
   const toolchain = binaryToolchain(store, binary);
   const functions: Record<string, number> = {};
@@ -68,4 +76,40 @@ export async function linkBinary(
     base: linkBase(path),
   });
   return { ...outcome, rewrites_skipped: [...unusable, ...outcome.rewrites_skipped] };
+}
+
+/**
+ * A 32-bit ARM program for this host: its translations with its system calls emulated (crosslink.py). Verified
+ * rewrites are C verified for the guest's CPU and ABI, so they cannot stand in for translations in a host program:
+ * each is reported as kept a translation.
+ */
+async function crosslink(
+  store: GraphStore,
+  binary: string,
+  path: string,
+  dir: string,
+  translated: number[],
+  architecture: "arm-v5te" | "arm-v6k" | "arm-v7",
+): Promise<LinkOutcome> {
+  const kept: { address: number; reason: string }[] = [];
+  for (const fn of store.nodesOfKind("function")) {
+    if (fn.binary !== binary || fn.address === undefined) continue;
+    if (store.hypothesesFor(fn.id, "rewrite").some((h) => h.confidence === "verified")) {
+      kept.push({
+        address: Number(BigInt(fn.address)),
+        reason: "a rewrite verified for the guest's CPU is not linked into a program for another CPU",
+      });
+    }
+  }
+  const outcome = await crosslinkProgram(locateAngr(), {
+    arch: ARCH[architecture].name,
+    endness: ARCH[architecture].endness,
+    // Absolute: the program reads the original's segments from it when it starts, wherever it is run from.
+    binary: resolve(path),
+    lifted: [join(dir, "lifted.c")],
+    translated,
+    out: join(dir, "program"),
+    base: linkBase(path),
+  });
+  return { executable: outcome.executable, imports: 0, rewrites: 0, rewrites_skipped: kept };
 }

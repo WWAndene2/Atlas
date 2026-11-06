@@ -11,7 +11,7 @@ import type { Architecture } from "../engine-analysis.js";
 const run = promisify(execFile);
 
 /** archinfo's name and byte order for each architecture Atlas names. */
-const ARCH: Record<Architecture, { name: string; endness: "Iend_LE" | "Iend_BE" }> = {
+export const ARCH: Record<Architecture, { name: string; endness: "Iend_LE" | "Iend_BE" }> = {
   x86: { name: "X86", endness: "Iend_LE" },
   x86_64: { name: "AMD64", endness: "Iend_LE" },
   "arm-v5te": { name: "ARMEL", endness: "Iend_LE" },

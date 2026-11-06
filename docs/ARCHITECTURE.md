@@ -137,9 +137,14 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating
   system is served by atlas_syscall, which carries out the common Linux calls on the guest's memory (the console
-  case in miniature: faithful code, emulated services). A freestanding ARM program (its own _start, syscalls by
-  hand) translated and run on x86-64 prints what it should and returns its exit code. Full static-glibc startup
-  (its TLS and allocator init) is further work.
+  case in miniature: faithful code, emulated services). `atlas lift --link` takes this path for a 32-bit ARM
+  binary (translations only: a rewrite verified for the guest's CPU cannot stand in a host program). Errors come
+  back as the kernel gives them (-errno); mmap2 honours MAP_FIXED and file mappings (a private copy; MAP_SHARED on a
+  file is refused) and refuses what would reach the stack; the start-up stack carries every argument and variable
+  and random AT_RANDOM bytes. A Thumb function's state is taken from angr's CFG (the graph keeps the even address).
+  A freestanding ARM program, in ARM and in Thumb code (`tests/tools/vex/vex-link.test.ts`), translated and run on
+  x86-64 prints what it should and returns its exit code. Full static-glibc startup (its TLS and allocator init) is
+  further work.
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 

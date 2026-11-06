@@ -36,7 +36,8 @@ export async function runLift(
       const dir = target.binaries.length === 1 ? out : `${out}/${b.label.replace(/[^\w.-]+/g, "_")}`;
       const base = link ? linkBase(b.input.path) : 0;
       const lifted = await liftBinary(store, binary, dir, b.input.raw === undefined ? b.input.path : undefined, base);
-      // With --link, the translations and the verified rewrites become one program (x86-64 on x86-64 for now).
+      // With --link, the translations and the verified rewrites become one program (x86-64 on x86-64; a 32-bit
+      // ARM program as a guest of another CPU, translations only).
       const linked = link ? await linkBinary(store, binary, b.input.path, dir, lifted.addresses) : undefined;
       results.push({ label: b.label, ...lifted, ...(linked !== undefined ? { linked } : {}) });
     }
