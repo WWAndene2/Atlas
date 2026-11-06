@@ -17,6 +17,8 @@ export interface LinkRequest {
   rewrites: { address: number; name: string; source: string; flags: string[] }[];
   /** The binary's functions by name (labels and name hypotheses) to their address. */
   functions: Record<string, number>;
+  /** Where the image is mapped; the translations must have been made at the same base. */
+  base: number;
 }
 
 export interface LinkOutcome {

@@ -29,7 +29,7 @@ import { carryKnowledge } from "../orchestrator/carry-knowledge.js";
 import { checkFormat } from "../orchestrator/check-format.js";
 import { traceTarget } from "../orchestrator/trace-target.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
-import { linkBinary } from "../orchestrator/link-binary.js";
+import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
 import { liftBinary } from "../orchestrator/lift-binary.js";
 import { repairCandidates, repairRewrite } from "../orchestrator/repair-rewrite.js";
 import { toolchainFor, verifyOne, verifyPending } from "../orchestrator/verify-rewrites.js";
@@ -362,7 +362,8 @@ export function tools(store: GraphStore, graphPath: string) {
           for (const b of target.binaries) {
             const id = binaryId(await fileSha256(b.input.path));
             const dir = target.binaries.length === 1 ? a.out : `${a.out}/${b.label.replace(/[^\w.-]+/g, "_")}`;
-            const lifted = await liftBinary(store, id, dir, b.input.raw === undefined ? b.input.path : undefined);
+            const base = a.link === true ? linkBase(b.input.path) : 0;
+            const lifted = await liftBinary(store, id, dir, b.input.raw === undefined ? b.input.path : undefined, base);
             const linked =
               a.link === true ? await linkBinary(store, id, b.input.path, dir, lifted.addresses) : undefined;
             results.push({ ...lifted, ...(linked !== undefined ? { linked } : {}) });

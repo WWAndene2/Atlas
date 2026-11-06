@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import type { GraphStore } from "../../graph/index.js";
 import { fileSha256 } from "../../orchestrator/file-hash.js";
-import { linkBinary } from "../../orchestrator/link-binary.js";
+import { linkBase, linkBinary } from "../../orchestrator/link-binary.js";
 import { liftBinary } from "../../orchestrator/lift-binary.js";
 import { binaryId } from "../../orchestrator/load-binary.js";
 import { resolveTarget } from "../../orchestrator/resolve-target.js";
@@ -34,7 +34,8 @@ export async function runLift(
         throw new CliError("not_found", `${b.label} is not loaded; atlas load it first`);
       // Jump tables are resolved from the file when angr can load it (a raw image it cannot).
       const dir = target.binaries.length === 1 ? out : `${out}/${b.label.replace(/[^\w.-]+/g, "_")}`;
-      const lifted = await liftBinary(store, binary, dir, b.input.raw === undefined ? b.input.path : undefined);
+      const base = link ? linkBase(b.input.path) : 0;
+      const lifted = await liftBinary(store, binary, dir, b.input.raw === undefined ? b.input.path : undefined, base);
       // With --link, the translations and the verified rewrites become one program (x86-64 on x86-64 for now).
       const linked = link ? await linkBinary(store, binary, b.input.path, dir, lifted.addresses) : undefined;
       results.push({ label: b.label, ...lifted, ...(linked !== undefined ? { linked } : {}) });

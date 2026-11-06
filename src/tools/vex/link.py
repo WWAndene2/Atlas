@@ -70,23 +70,30 @@ def main():
     imports = sorted({r.symbol.name for r in obj.relocs if r.symbol is not None
                       and (r.symbol.is_import or type(r).__name__.endswith("COPY"))} | set(obj.plt))
     index = {n: i for i, n in enumerate(imports)}
-    segs = [(s.vaddr, s.memsize, obj.binary_stream_offset if False else s.offset, s.filesize, s.is_executable)
+    # base: where a position-independent image is mapped (the graph and cle have it at 0; the translations were
+    # made at this base, lift.py's request "base"): every address of the original is shifted by it.
+    base = int(request.get("base", 0))
+    segs = [(s.vaddr + base, s.memsize, obj.binary_stream_offset if False else s.offset, s.filesize, s.is_executable)
             for s in obj.segments]
     relative, slots, copies = [], [], []
     for r in obj.relocs:
         kind = type(r).__name__
         if kind.endswith("RELATIVE"):
-            relative.append((r.relative_addr, r.addend))
+            relative.append((r.relative_addr + base, r.addend + base))
         elif kind.endswith(("JUMP_SLOT", "GLOB_DAT", "_64")) and r.symbol is not None and r.symbol.is_import:
-            slots.append((r.relative_addr, index[r.symbol.name], getattr(r, "addend", 0) if kind.endswith("_64") else 0))
+            slots.append((r.relative_addr + base, index[r.symbol.name], getattr(r, "addend", 0) if kind.endswith("_64") else 0))
         elif kind.endswith("COPY") and r.symbol is not None:
-            copies.append((r.relative_addr, index[r.symbol.name], r.symbol.size))
-    translated = [int(a) for a in request["translated"]]
+            copies.append((r.relative_addr + base, index[r.symbol.name], r.symbol.size))
+    translated = [int(a) + base for a in request["translated"]]
     # Linked at fixed addresses when the original's image lies below where a fixed-address host program loads
     # (0x400000): rewrites then reach the original's globals by address (their DAT_<address> symbols).
-    fixed = max(seg.vaddr + seg.memsize for seg in obj.segments) < 0x400000
-    usable, skipped = prepare(request.get("rewrites", []), request.get("functions", {}),
-                              os.path.dirname(os.path.abspath(request["out"])), fixed=fixed)
+    # A base far above it (0x10000000) leaves that room free too.
+    end = max(seg.vaddr + seg.memsize for seg in obj.segments) + base
+    fixed = end < 0x400000 or base >= 0x10000000
+    rewrites_in = [{**r, "address": r["address"] + base} for r in request.get("rewrites", [])]
+    functions_in = {n: a + base for n, a in request.get("functions", {}).items()}
+    usable, skipped = prepare(rewrites_in, functions_in, os.path.dirname(os.path.abspath(request["out"])),
+                              fixed=fixed, base=base)
     data = {}
     for r in usable:
         data.update(r["data"])
@@ -98,7 +105,7 @@ def main():
     # rep stos store every word at one address (seen as Lua's string table left uncleared).
     defaults = [(arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
                 if n in arch.registers and n not in ("rsp", "esp", "sp", "xsp", "gpr1", "fs", "fpcr")]
-    plt = {a: index[n] for n, a in obj.plt.items()}
+    plt = {a + base: index[n] for n, a in obj.plt.items()}
     names = ",".join(f'"{n}"' for n in imports)
     c = f"""#define _GNU_SOURCE
 #define ATLAS_IDENTITY
@@ -250,7 +257,7 @@ int main(int argc, char **argv, char **envp) {{
   REG(uint64_t, RSP) = sp;
 {chr(10).join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
   uint64_t fs; __asm__ volatile("mov %%fs:0, %0" : "=r"(fs)); REG(uint64_t, FS) = fs;
-  atlas_call(s, {obj.entry:#x}ULL);
+  atlas_call(s, {obj.entry + base:#x}ULL);
   return 0;
 }}
 """

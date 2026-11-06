@@ -41,14 +41,15 @@ def host_library_functions():
     return out
 
 
-def prepare(rewrites, functions, work, fixed=False):
+def prepare(rewrites, functions, work, fixed=False, base=0):
     """Which rewrites can be linked, and how.
 
     rewrites: [{"address": int, "name": str, "source": str, "flags": [str]}]; functions: the binary's functions by
     name (labels and name hypotheses) to their address. Returns (usable, skipped): usable entries carry the object,
     the renamed symbol, the callees to stub (name to address) and the data symbols to define (name to address);
     skipped ones the reason. fixed: the program is linked at fixed addresses (no PIE), so a rewrite's DAT_<address>
-    symbols can be defined as the original's addresses.
+    symbols can be defined as the original's addresses. base: where the image is mapped (the addresses in
+    FUN_/DAT_ names are the graph's, from 0).
     """
     library = host_library_functions()
     usable, skipped = [], []
@@ -66,9 +67,9 @@ def prepare(rewrites, functions, work, fixed=False):
             if sym in functions:
                 callees[sym] = functions[sym]
             elif sym.startswith("FUN_") and all(c in "0123456789abcdefABCDEF" for c in sym[4:]):
-                callees[sym] = int(sym[4:], 16)
+                callees[sym] = int(sym[4:], 16) + base
             elif fixed and sym.startswith("DAT_") and all(c in "0123456789abcdefABCDEF" for c in sym[4:]):
-                data[sym] = int(sym[4:], 16)
+                data[sym] = int(sym[4:], 16) + base
             else:
                 missing.append(sym)
         if missing:

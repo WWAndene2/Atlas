@@ -20,14 +20,20 @@ export interface LiftOutcome {
   files: string[];
 }
 
-export async function liftBinary(store: GraphStore, binary: string, out: string, path?: string): Promise<LiftOutcome> {
+export async function liftBinary(
+  store: GraphStore,
+  binary: string,
+  out: string,
+  path?: string,
+  base = 0,
+): Promise<LiftOutcome> {
   const node = store.getNode(binary);
   if (node?.architecture === undefined) throw new Error(`${binary} has no recorded architecture`);
   const functions = store
     .nodesOfKind("function")
     .filter((f) => f.binary === binary && f.code !== undefined && f.address !== undefined && f.thunk !== true)
     .map((f) => ({ address: Number(BigInt(f.address as string)), code: f.code as string }));
-  const lifted = await liftFunctions(locateAngr(), node.architecture, functions, path);
+  const lifted = await liftFunctions(locateAngr(), node.architecture, functions, path, base);
   const translated = lifted.filter((l): l is { address: string; c: string } => "c" in l);
   const unsupported: Record<string, number> = {};
   for (const l of lifted) {
@@ -42,14 +48,17 @@ export async function liftBinary(store: GraphStore, binary: string, out: string,
     join(out, "lifted.c"),
     `${prefix}#include "atlas_lift.h"\n\n${translated.map((t) => t.c).join("\n")}`,
   );
-  const names = translated.map((t) => `fn_${BigInt(t.address).toString(16)}`);
+  // Translations are named after their address at the base they were made at.
+  const names = translated.map((t) => `fn_${(BigInt(t.address) + BigInt(base)).toString(16)}`);
   await writeFile(
     join(out, "dispatch.c"),
     `${prefix}#include "atlas_lift.h"\n${names.map((n) => `void ${n}(atlas_state *s);`).join("\n")}\n\n` +
       "/* Called for a guest address no translation covers: the program decides (an import, a gap). */\n" +
       "void atlas_missing(atlas_state *s, uint64_t target);\n\n" +
       "void atlas_call(atlas_state *s, uint64_t target) {\n  switch (target) {\n" +
-      translated.map((t, i) => `    case ${t.address}ULL: ${names[i]}(s); return;`).join("\n") +
+      translated
+        .map((t, i) => `    case 0x${(BigInt(t.address) + BigInt(base)).toString(16)}ULL: ${names[i]}(s); return;`)
+        .join("\n") +
       "\n    default: atlas_missing(s, target);\n  }\n}\n",
   );
   await copyFile(RUNTIME_HEADER, join(out, "atlas_lift.h"));

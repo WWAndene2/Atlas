@@ -35,13 +35,14 @@ export async function liftFunctions(
   architecture: Architecture,
   functions: { address: number; code: string; thumb?: boolean }[],
   binary?: string,
+  base = 0,
 ): Promise<LiftedFunction[]> {
   const work = await mkdtemp(join(tmpdir(), "atlas-lift-"));
   try {
     const request = join(work, "request.json");
     await writeFile(
       request,
-      JSON.stringify({ arch: ARCH[architecture].name, endness: ARCH[architecture].endness, binary, functions }),
+      JSON.stringify({ arch: ARCH[architecture].name, endness: ARCH[architecture].endness, binary, functions, base }),
     );
     const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "lift.py"), request], {
       maxBuffer: 1 << 30,

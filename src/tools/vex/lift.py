@@ -389,14 +389,14 @@ class Function:
                 f"    switch (pc) {{\n" + "\n".join(out) + "\n    default: atlas_call(s, pc); return;\n    }\n  }\n}\n")
 
 
-def load(binary):
+def load(binary, base=0):
     """The binary as angr loads it (at 0 if position-independent, as the graph has it), and every target of an
     indirect jump its CFG resolves (switch tables)."""
     import angr
     import logging
 
     logging.getLogger("angr").setLevel(logging.ERROR)
-    proj = angr.Project(binary, auto_load_libs=False, main_opts={"base_addr": 0})
+    proj = angr.Project(binary, auto_load_libs=False, main_opts={"base_addr": base})
     cfg = proj.analyses.CFGFast(resolve_indirect_jumps=True, normalize=True)
     out = set()
     for jump in cfg.indirect_jumps.values():
@@ -407,12 +407,15 @@ def load(binary):
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id(request["arch"], request.get("endness", "any"))
-    memory, targets = load(request["binary"]) if request.get("binary") else (None, set())
+    # base: where a position-independent image is placed (the graph has it at 0). A linked program maps the image
+    # there, since Linux keeps the first 64 KiB, where a small program's code lies; translations use those addresses.
+    base = int(request.get("base", 0))
+    memory, targets = load(request["binary"], base) if request.get("binary") else (None, set())
     targets = sorted(targets)
     for f in request["functions"]:
         try:
-            c = Function(arch, f["address"], f["code"], targets, bool(f.get("thumb")), memory).translate()
-            print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)
+            c = Function(arch, f["address"] + base, f["code"], targets, bool(f.get("thumb")), memory).translate()
+            print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)  # the graph's address
         except Unsupported as reason:
             print(json.dumps({"address": hex(f["address"]), "unsupported": str(reason)}), flush=True)
         except Exception as error:  # a translator bug is reported per function, not a crash of the run
