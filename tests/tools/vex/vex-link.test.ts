@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { locateAngr } from "../../../src/tools/angr/index.js";
-import { a64linkProgram, crosslinkProgram, liftFunctions, winlinkProgram } from "../../../src/tools/vex/index.js";
+import {
+  a64linkProgram,
+  crosslinkProgram,
+  liftFunctions,
+  linkProgram,
+  winlinkProgram,
+} from "../../../src/tools/vex/index.js";
 
 function angr(): string | undefined {
   try {
@@ -248,5 +254,55 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     });
     expect(run.stdout).toBe("hello|42|-5|1.414|1|2|3|4|5|6|12.0|0.5\nabc 4\nenv 1\n");
     expect(run.status).toBe(3);
+  }, 600_000);
+});
+
+// An x86-64 Linux program handing its own comparison function to the C library (qsort, bsearch): link.py maps the
+// original's code at its own addresses, executable, so the library calls the function's original machine code, which
+// runs as it is on an x86-64 host.
+const CALLBACK_PROGRAM = `
+#include <stdio.h>
+#include <stdlib.h>
+static int descending(const void *a, const void *b) { return *(const int *)b - *(const int *)a; }
+int main(void) {
+  int v[] = {5, 1, 9, 3, 7, 2, 8};
+  qsort(v, 7, sizeof v[0], descending);
+  for (int i = 0; i < 7; i++) printf("%d ", v[i]);
+  int key = 3;
+  int *found = bsearch(&key, v, 7, sizeof v[0], descending);
+  printf("| %d at %d\\n", found ? *found : -1, found ? (int)(found - v) : -1);
+  return 0;
+}
+`;
+
+describe.runIf(python !== undefined)("linkProgram", () => {
+  it("lets the host's C library call a function of the program it was handed (qsort, bsearch)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-callback-test-"));
+    writeFileSync(join(dir, "p.c"), CALLBACK_PROGRAM);
+    execFileSync("gcc", ["-O1", "-fcf-protection=none", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000; // a position-independent image, mapped where atlas lift --link maps one
+    const lifted = await liftFunctions(python as string, "x86_64", functions, join(dir, "p"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      rewrites: [],
+      functions: {},
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\n");
+    expect(run.status).toBe(0);
   }, 600_000);
 });
