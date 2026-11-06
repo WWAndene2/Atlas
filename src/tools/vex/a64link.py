@@ -23,7 +23,9 @@ __libc_start_main runs the translated main.
 A shared library (no PT_INTERP, an Android app's .so) becomes a host shared library instead: each function it
 exports is a host function of the same name that enters the guest with the arguments converted, the image is set
 up when the host loads the library, and nothing else is visible. Its exported data are absolute symbols at the
-guest addresses (reached through dlsym, not through copy relocations), and the guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
+guest addresses (reached through dlsym, not through copy relocations). A call to an address outside the guest
+image is a call of host code (a JNIEnv function, a host program's callback), made with the conventions converted.
+The guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
 """
 
 import json
@@ -219,7 +221,19 @@ void atlas_call(atlas_state *s, uint64_t target) {{
 {nl.join(f"    case {a:#x}ULL: atlas_call(s, {t:#x}ULL); return;" for a, t in sorted(own_plt.items()))}
   }}
   int i = import_of(target);
-  if (i < 0) {{ fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target); abort(); }}
+  if (i < 0) {{
+    /* A stub handed back to the guest (its own function, through the host) is that function. */
+    uint64_t own = unbind_callback(target);
+    if (own != target) {{ atlas_call(s, own); return; }}
+    /* An address outside the guest image is host code: a function pointer the host gave the guest (a JNIEnv
+     * function, a callback of a host program), called with the conventions converted. */
+    if (target < {min(v for v, *_ in segs):#x}ULL || target >= {max(v + m for v, m, *_ in segs):#x}ULL) {{
+      call_host(s, (void *)(uintptr_t)target);
+      return;
+    }}
+    fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target);
+    abort();
+  }}
   const char *name = import_names[i];
   if ({" || ".join(f'!strcmp(name, "{n}")' for n in LONGJMP_NAMES)}) longjmp_guest(s);
   if (!strcmp(name, "__libc_start_main")) {{

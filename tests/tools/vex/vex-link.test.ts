@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -468,6 +468,86 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     rmSync(join(dir, "lib.so")); // the output does not need the original any more
     const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
     expect(run.stdout).toBe("data 42 lib 1.0\n42 5.00 hello host 6 11\n");
+    expect(run.status).toBe(0);
+  }, 600_000);
+});
+
+// An Android-style JNI library: native methods of a Java class, written against jni.h, which call back into the
+// Java VM through the JNIEnv table (host function pointers). Built for AArch64, linked for this host and loaded by a
+// real Java VM.
+const JNI_LIBRARY = `
+#include <jni.h>
+#include <stdio.h>
+JNIEXPORT jint JNICALL Java_Hello_add(JNIEnv *env, jclass cls, jint a, jint b) { return a + b; }
+JNIEXPORT jstring JNICALL Java_Hello_greet(JNIEnv *env, jclass cls, jstring who) {
+  const char *name = (*env)->GetStringUTFChars(env, who, 0);
+  char text[64];
+  snprintf(text, sizeof text, "hello %s from AArch64", name);
+  (*env)->ReleaseStringUTFChars(env, who, name);
+  return (*env)->NewStringUTF(env, text);
+}
+`;
+const JAVA_CLASS = `
+public class Hello {
+  static native int add(int a, int b);
+  static native String greet(String who);
+  public static void main(String[] args) {
+    System.load(args[0]);
+    System.out.println(add(40, 2) + " " + greet("java"));
+  }
+}
+`;
+
+function javaHome(): string | undefined {
+  const r = spawnSync("sh", ["-c", "dirname $(dirname $(readlink -f $(command -v javac)))"], { encoding: "utf8" });
+  const home = r.stdout.trim();
+  return r.status === 0 && home !== "" && existsSync(join(home, "include", "jni.h")) ? home : undefined;
+}
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc") && javaHome() !== undefined)("JNI", () => {
+  it("runs an AArch64 JNI library's native methods in a host Java VM, calling back through JNIEnv", async () => {
+    const home = javaHome() as string;
+    const dir = mkdtempSync(join(tmpdir(), "atlas-jni-test-"));
+    writeFileSync(join(dir, "hello.c"), JNI_LIBRARY);
+    execFileSync(
+      "aarch64-linux-gnu-gcc",
+      [
+        "-O1",
+        "-fPIC",
+        "-shared",
+        "-I",
+        join(home, "include"),
+        "-I",
+        join(home, "include", "linux"),
+        "hello.c",
+        "-o",
+        "libhello.so",
+      ],
+      { cwd: dir },
+    );
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "libhello.so")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "libhello.so"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "libhello.so"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "host-libhello.so"),
+      base,
+    });
+    writeFileSync(join(dir, "Hello.java"), JAVA_CLASS);
+    execFileSync("javac", ["Hello.java"], { cwd: dir, stdio: "ignore" });
+    const run = spawnSync("java", ["-cp", dir, "Hello", outcome.executable], { encoding: "utf8" });
+    expect(run.stdout).toBe("42 hello java from AArch64\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });

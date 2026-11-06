@@ -186,7 +186,9 @@ executable against the C library (`a64link.py`, the host's C library called with
 AArch64 prints on x86-64 what Linux Lua prints. Then calls from the C library back into guest code on AArch64 (qsort, bsearch, exit
 handlers, signal and sigaction; x86-64 guests need none, their code running as it is). Then an app's `.so` as a
 host shared library a host program calls (`a64link.py`): Lua's `liblua.so`, driven through its C API, prints what
-native Lua prints. Next: the library's exported data, and Java/JNI entry points, then the static-glibc startup. Then, in this order: the rest of
+native Lua prints. Then its exported data, and JNI: native methods running in a host Java VM, calling back through
+JNIEnv. Next: a whole app's `.apk` (its Java code and its native libraries together), then the static-glibc
+startup. Then, in this order: the rest of
 msvcrt and kernel32 beyond Lua's imports, and UCRT programs; verified rewrites in place on Windows, ARM and AArch64
 (compiled for the host with the guest's conventions converted); open and a reusing munmap for ARM guests; checking
 the originals themselves where an emulator or Wine is available. MinGW builds are not reproducible (the PE header's
