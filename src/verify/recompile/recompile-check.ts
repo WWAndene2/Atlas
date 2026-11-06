@@ -40,6 +40,13 @@ export interface RecompileRequest {
   /** The engine's view of the length (to the end of the run's last function): the candidate covers at least this. */
   minimumSize: number;
   toolchain: Toolchain;
+  /**
+   * The original's address (x86-64): a relocation naming an address (DAT_, FUN_, PTR_, LAB_<hex>, as Ghidra's C
+   * does) must then point where the original's instruction points. Relocation bytes are masked from the byte
+   * comparison, so without this a rewrite reading another global passes: one carried from Lua 5.4.6 read 5.4.6's
+   * address of the constant 1.0, a NaN in 5.4.7.
+   */
+  address?: number;
 }
 
 export type RecompileResult =
@@ -99,6 +106,21 @@ export async function recompileCheck(request: RecompileRequest): Promise<Recompi
     }
     let differing = 0;
     let firstDifference = -1;
+    if (request.address !== undefined) {
+      for (const h of holes) {
+        const named = /^(?:DAT|FUN|PTR|LAB)_([0-9a-f]+)$/i.exec(h.symbol ?? "");
+        if (named === null || h.addend === undefined || !/R_X86_64_(PC32|PLT32)$/.test(h.type ?? "")) continue;
+        if (h.offset + 4 > original.length) continue;
+        const disp = new DataView(original.buffer, original.byteOffset).getInt32(h.offset, true);
+        const wanted = request.address + h.offset + disp;
+        const given = parseInt(named[1] ?? "0", 16) + h.addend;
+        // PC-relative: field = S + A - P. Equal fields, same target.
+        if (given !== wanted) {
+          differing++;
+          if (firstDifference < 0 || h.offset < firstDifference) firstDifference = h.offset;
+        }
+      }
+    }
     for (let i = 0; i < Math.min(compiled.length, original.length); i++) {
       if (mask[i] === 0 && compiled[i] !== original[i]) {
         differing++;

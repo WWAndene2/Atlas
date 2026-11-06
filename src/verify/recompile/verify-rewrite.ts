@@ -54,6 +54,13 @@ function referenceCode(store: GraphStore, first: string, last?: string): { bytes
   };
 }
 
+/** The function's address when its binary is x86-64 (where relocation targets are checked), else undefined. */
+function addressChecked(store: GraphStore, node: string): number | undefined {
+  const fn = store.getNode(node);
+  const binary = fn?.binary === undefined ? undefined : store.getNode(fn.binary);
+  return binary?.architecture === "x86_64" && fn?.address !== undefined ? Number(BigInt(fn.address)) : undefined;
+}
+
 export interface VerifyOutcome {
   hypothesis: Hypothesis;
   check: RecompileResult;
@@ -72,6 +79,7 @@ export async function verifyRewrite(
   const value = hypothesis.value;
   const reference = referenceCode(store, hypothesis.node, value.last?.node);
   const flags = value.prelude === "ghidra" ? [...toolchain.flags, ...ghidraPreludeFlags()] : toolchain.flags;
+  const address = addressChecked(store, hypothesis.node);
   const check = await recompileCheck({
     source: value.source,
     name: value.name,
@@ -79,6 +87,8 @@ export async function verifyRewrite(
     original: reference.bytes,
     minimumSize: reference.minimumSize,
     toolchain: { cc: toolchain.cc, flags },
+    // x86-64: references by address (DAT_<hex>...) must point where the original's do.
+    ...(address !== undefined ? { address } : {}),
   });
   const toolchainText = `${toolchain.cc} ${toolchain.flags.join(" ")}`.trim();
   const updated = store.recordVerification(hypothesisId, {

@@ -97,3 +97,25 @@ describe("recompileCheck", () => {
     expect(r).toMatchObject({ result: "pass", size: body.length });
   });
 });
+
+describe("recompileCheck with the original's address", () => {
+  // A global read by address, as Ghidra's C names it: the relocation's bytes are masked from the comparison, so
+  // only the address check tells the right global from another.
+  const global = "extern double DAT_00002000;\ndouble get(void) { return DAT_00002000; }";
+  const compiled = compiledBytes(global, "get");
+  const at = (target: number) => {
+    // movsd disp32(%rip): the field at offset 4, relative to the end of the 8-byte instruction.
+    const bytes = new Uint8Array(compiled);
+    new DataView(bytes.buffer).setInt32(4, target - (0x1000 + 8), true);
+    return bytes;
+  };
+  const check = (original: Uint8Array) =>
+    recompileCheck({ source: global, name: "get", original, minimumSize: original.length, toolchain, address: 0x1000 });
+
+  it("passes when the rewrite reads the global the original reads", async () => {
+    expect((await check(at(0x2000))).result).toBe("pass");
+  });
+  it("fails when it reads another one", async () => {
+    expect(await check(at(0x2010))).toMatchObject({ result: "fail", reason: "mismatch" });
+  });
+});
