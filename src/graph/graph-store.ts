@@ -15,7 +15,7 @@ export class GraphIntegrityError extends Error {
 
 /** The outcome the verification loop records on a hypothesis. */
 export interface VerificationRecord {
-  confidence: Extract<Confidence, "verified" | "rejected" | "inferred" | "observed">;
+  confidence: Confidence;
   verification: NonNullable<Hypothesis["verification"]>;
 }
 
@@ -46,6 +46,10 @@ export class GraphStore {
   /** Opens (or creates) a graph. `path` is a file, or ":memory:" for a throwaway graph. */
   constructor(path: string) {
     this.db = new DatabaseSync(path);
+    // Several agents work one graph at once, each through its own process: a writer waits for another's lock rather
+    // than failing, and readers do not block the writer (WAL; a no-op for an in-memory graph).
+    this.db.exec("PRAGMA busy_timeout = 30000;");
+    if (path !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA_SQL);
   }
@@ -172,11 +176,12 @@ export class GraphStore {
     return row === undefined ? undefined : (JSON.parse(row.record) as Hypothesis);
   }
 
+  /** A node's hypotheses in the order they were added (an import adds them in its file's order). */
   hypothesesFor(nodeId: string, kind?: Hypothesis["kind"]): Hypothesis[] {
     const rows = (
       kind === undefined
-        ? this.db.prepare("SELECT record FROM hypotheses WHERE node = ? ORDER BY id").all(nodeId)
-        : this.db.prepare("SELECT record FROM hypotheses WHERE node = ? AND kind = ? ORDER BY id").all(nodeId, kind)
+        ? this.db.prepare("SELECT record FROM hypotheses WHERE node = ? ORDER BY rowid").all(nodeId)
+        : this.db.prepare("SELECT record FROM hypotheses WHERE node = ? AND kind = ? ORDER BY rowid").all(nodeId, kind)
     ) as { record: string }[];
     return rows.map((row) => JSON.parse(row.record) as Hypothesis);
   }
@@ -190,7 +195,8 @@ export class GraphStore {
 
   /** Runs `work` in one transaction: all of it is written, or none. */
   transaction(work: () => void): void {
-    this.db.exec("BEGIN");
+    // IMMEDIATE takes the write lock at once: two processes reading then writing cannot deadlock on an upgrade.
+    this.db.exec("BEGIN IMMEDIATE");
     try {
       work();
       this.db.exec("COMMIT");

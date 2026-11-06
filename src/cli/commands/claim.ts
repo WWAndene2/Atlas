@@ -1,0 +1,112 @@
+// atlas claim task rewrite --agent <name> [--released] [--lease <seconds>] [--binary <bin_>]
+// atlas release task <fn_id> --agent <name> [--note "<what was found>"]
+import type { GraphStore, TaskClaims } from "../../graph/index.js";
+import { rewriteQueue } from "../../orchestrator/rewrite-queue.js";
+import { releaseTask } from "../../orchestrator/release-task.js";
+import { rewriteTask } from "../../orchestrator/rewrite-task.js";
+import { parseLevels, taskLevel } from "../../orchestrator/task-levels.js";
+import { CliError, type Output } from "../output.js";
+
+export async function runClaimTask(
+  store: GraphStore,
+  claims: TaskClaims,
+  args: string[],
+  options: {
+    agent?: string;
+    lease?: string;
+    binary?: string;
+    released?: boolean;
+    level?: string;
+    of?: string;
+    bounds?: string;
+  },
+): Promise<Output> {
+  const [what, kind, ...extra] = args;
+  if (what !== "task" || kind !== "rewrite" || extra.length > 0 || options.agent === undefined) {
+    throw new CliError(
+      "usage",
+      "usage: atlas claim task rewrite --agent <name> [--level <k> --of <n> --bounds <b1,b2>] [--released] [--lease <seconds>]",
+    );
+  }
+  const seconds = Number(options.lease ?? "1800");
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new CliError("usage", "--lease takes a number of seconds");
+  const binaries = store.nodesOfKind("binary").filter((b) => options.binary === undefined || b.id === options.binary);
+  if (binaries.length !== 1) {
+    throw new CliError("usage", binaries.length === 0 ? "no binary" : "several binaries: name one with --binary");
+  }
+  const tasks = rewriteQueue(store, (binaries[0] as { id: string }).id);
+  const queue = tasks.map((q) => q.id);
+  const size = new Map(tasks.map((q) => [q.id, q.size ?? 0]));
+  // --level: this agent's level among --of levels split by --bounds (orchestrator/task-levels.ts); --released alone:
+  // only tasks given back, at any size.
+  let accept: (task: string, releases: number) => boolean = () => true;
+  if (options.level !== undefined) {
+    let levels;
+    try {
+      levels = parseLevels(options.of, options.bounds);
+    } catch (error) {
+      throw new CliError("usage", (error as Error).message);
+    }
+    const level = Number(options.level);
+    if (!Number.isInteger(level) || level < 0 || level >= levels.of)
+      throw new CliError("usage", "--level is 0 to --of minus 1");
+    accept = (task, releases) => taskLevel(size.get(task) ?? 0, releases, levels) === level;
+  } else if (options.released === true) {
+    accept = (_task, releases) => releases > 0;
+  }
+  const claim = claims.claimFirst(queue, options.agent, seconds * 1000, Date.now(), accept);
+  if (claim === undefined) {
+    return {
+      data: { claim: null, open: queue.length },
+      text: "no open task left for this agent",
+    };
+  }
+  const task = await rewriteTask(store, store.getNode(claim.task) as never);
+  const notes = claims.notes(claim.task);
+  return {
+    data: { claim, task, notes },
+    text: [
+      `${claim.agent} holds ${claim.task} until ${new Date(claim.expires).toISOString()}`,
+      ...notes.map((n) => `note from ${n.agent}: ${n.note}`),
+    ].join("\n"),
+  };
+}
+
+export function runReleaseTask(
+  store: GraphStore,
+  claims: TaskClaims,
+  args: string[],
+  options: { agent?: string; note?: string; of?: string; bounds?: string; budget?: string },
+): Output {
+  const [what, task, ...extra] = args;
+  if (what !== "task" || task === undefined || extra.length > 0 || options.agent === undefined) {
+    throw new CliError(
+      "usage",
+      'usage: atlas release task <fn_id> --agent <name> [--note "<what was found>"] [--of <n> --bounds <b1,b2>] [--budget <n>]',
+    );
+  }
+  let levels;
+  try {
+    levels =
+      options.of === undefined && options.bounds === undefined ? undefined : parseLevels(options.of, options.bounds);
+  } catch (error) {
+    throw new CliError("usage", (error as Error).message);
+  }
+  const budget = options.budget === undefined ? undefined : Number(options.budget);
+  if (budget !== undefined && (!Number.isInteger(budget) || budget < 1)) {
+    throw new CliError("usage", "--budget takes a number of agents (1 or more)");
+  }
+  const outcome = releaseTask(store, claims, {
+    task,
+    agent: options.agent,
+    ...(options.note !== undefined ? { note: options.note } : {}),
+    ...(levels !== undefined ? { levels } : {}),
+    ...(budget !== undefined ? { budget } : {}),
+  });
+  const text = !outcome.released
+    ? `another agent holds ${task}; the note is kept`
+    : outcome.unknown !== undefined
+      ? `${task} released and closed as an unknown (${outcome.unknown}): ${outcome.topReleases} agents gave it up at the top level`
+      : `${task} released`;
+  return { data: outcome, text };
+}

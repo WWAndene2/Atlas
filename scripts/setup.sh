@@ -119,6 +119,106 @@ else
   lack "Lua platform fixtures" "apt install zip gcc-mingw-w64-x86-64 gcc-aarch64-linux-gnu, then run this again"
 fi
 
+step "Compilers for toolchain detection (more installed, more targets detected)"
+# Detection can only find a compiler that is installed: several GCC and Clang releases, and cross compilers for the
+# architectures Atlas names (32-bit Windows, ARM Linux, MIPS, PowerPC). Recommended, not required.
+compilers=(gcc-9 gcc-10 gcc-11 gcc-12 gcc-14 clang-14 clang-15 clang-17 clang-19 gcc-mingw-w64-i686
+  gcc-arm-linux-gnueabihf gcc-mips-linux-gnu gcc-mipsel-linux-gnu gcc-powerpc-linux-gnu gcc-powerpc64-linux-gnu
+  gcc-11-aarch64-linux-gnu)
+drivers=(gcc-9 gcc-10 gcc-11 gcc-12 gcc-14 clang-14 clang-15 clang-17 clang-19 i686-w64-mingw32-gcc
+  arm-linux-gnueabihf-gcc mips-linux-gnu-gcc mipsel-linux-gnu-gcc powerpc-linux-gnu-gcc powerpc64-linux-gnu-gcc
+  aarch64-linux-gnu-gcc-11)
+absent=()
+for d in "${drivers[@]}"; do have "$d" || absent+=("$d"); done
+if [[ ${#absent[@]} -gt 0 ]] && have apt-get; then
+  as_root apt-get install -y -qq "${compilers[@]}" >/dev/null 2>&1 ||
+    { as_root apt-get update -qq >/dev/null 2>&1 && as_root apt-get install -y -qq "${compilers[@]}" >/dev/null 2>&1; } || true
+  absent=()
+  for d in "${drivers[@]}"; do have "$d" || absent+=("$d"); done
+fi
+if [[ ${#absent[@]} -eq 0 ]]; then
+  ok "${#drivers[@]} compilers"
+else
+  printf '   note: not installed, so not detectable: %s\n   how: apt install %s\n' "${absent[*]}" "${compilers[*]}"
+fi
+
+step "Previous Lua release, for knowledge carried over (atlas match graph)"
+if "$repo/tests/fixtures/lua-versions/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-versions/build"
+else
+  lack "Lua 5.4.6 fixture" "check the network to www.lua.org, then run this again"
+fi
+
+step "Toolchain ground-truth fixtures (GCC 11, Clang 17, MIPS, PowerPC)"
+if "$repo/tests/fixtures/lua-toolchains/build.sh" | sed 's/^/   /'; then
+  ok "$repo/tests/fixtures/lua-toolchains/build"
+else
+  lack "Lua toolchain fixtures" "install the compilers above, then run this again"
+fi
+
+step "Rizin, the second engine (atlas check functions)"
+# Exactly the reviewed release (docs/DEPENDENCY_REVIEWS.md), its static Linux x86-64 build, checked against the
+# SHA-256 recorded at review before unpacking. Recommended, not required.
+RIZIN_VERSION=0.9.1
+RIZIN_SHA256=9102249a9f0b6319c5334a2e5cf8d9cc3f2035e1d3def027c41f6a90f647e8cf
+rizin_dir="$tools/rizin-$RIZIN_VERSION"
+if [[ -x "$rizin_dir/bin/rizin" ]]; then
+  ok "Rizin $RIZIN_VERSION"
+elif [[ "$(uname -sm)" != "Linux x86_64" ]] || ! { have curl && have sha256sum && have tar; }; then
+  printf '   note: Rizin not installed (static build for Linux x86-64 only here)\n   how: install Rizin %s in %s\n' "$RIZIN_VERSION" "$rizin_dir"
+else
+  work=$(mktemp -d)
+  archive="rizin-v$RIZIN_VERSION-static-x86_64.tar.xz"
+  if curl -sSLf -o "$work/$archive" "https://github.com/rizinorg/rizin/releases/download/v$RIZIN_VERSION/$archive" &&
+    echo "$RIZIN_SHA256  $work/$archive" | sha256sum -c --quiet - &&
+    mkdir -p "$rizin_dir" && tar xf "$work/$archive" -C "$rizin_dir"; then
+    ok "Rizin $RIZIN_VERSION in $rizin_dir"
+  else
+    rm -rf "$rizin_dir"
+    printf '   note: Rizin download or checksum failed; run this again\n'
+  fi
+  rm -rf "$work"
+fi
+
+step "Kaitai Struct compiler (atlas check format)"
+# Exactly the reviewed release, checked against the SHA-256 recorded at review. Runs on the Java installed above.
+KSC_VERSION=0.11
+KSC_SHA256=ff89389d9dc9e770d78a24af328763cb1f8e7b31ce7766c9edf10669a060f2a2
+ksc_dir="$tools/kaitai-struct-compiler-$KSC_VERSION"
+if [[ -x "$ksc_dir/bin/kaitai-struct-compiler" ]]; then
+  ok "Kaitai Struct compiler $KSC_VERSION"
+elif ! { have curl && have sha256sum && { have unzip || have python3; }; }; then
+  printf '   note: Kaitai Struct compiler not installed\n   how: install curl, sha256sum and unzip, then run this again\n'
+else
+  work=$(mktemp -d)
+  archive="kaitai-struct-compiler-$KSC_VERSION.zip"
+  if curl -sSLf -o "$work/$archive" "https://github.com/kaitai-io/kaitai_struct_compiler/releases/download/$KSC_VERSION/$archive" &&
+    echo "$KSC_SHA256  $work/$archive" | sha256sum -c --quiet -; then
+    if have unzip; then unzip -q "$work/$archive" -d "$tools"; else python3 -m zipfile -e "$work/$archive" "$tools"; fi
+    chmod +x "$ksc_dir/bin/kaitai-struct-compiler"
+    ok "Kaitai Struct compiler $KSC_VERSION in $ksc_dir"
+  else
+    printf '   note: Kaitai Struct compiler download or checksum failed; run this again\n'
+  fi
+  rm -rf "$work"
+fi
+
+step "Python tools: angr (verify --equivalence, --differential), Frida (atlas trace), Kaitai runtime"
+# One Python environment of its own in the tools directory, exactly the reviewed versions (docs/DEPENDENCY_REVIEWS.md),
+# wheels only. Recommended, not required: without it those commands say what is missing.
+ANGR_VERSION=10.0.5
+FRIDA_VERSION=17.25.2
+KAITAI_RUNTIME_VERSION=0.11
+py="$tools/py/bin/python"
+if [[ -x "$py" ]] && "$py" -c "import angr, frida, kaitaistruct; assert angr.__version__ == '$ANGR_VERSION' and frida.__version__ == '$FRIDA_VERSION' and kaitaistruct.__version__ == '$KAITAI_RUNTIME_VERSION'" 2>/dev/null; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION, kaitaistruct $KAITAI_RUNTIME_VERSION"
+elif have python3 && python3 -m venv "$tools/py" >/dev/null 2>&1 &&
+  "$tools/py/bin/pip" install -q --only-binary=:all: "angr==$ANGR_VERSION" "frida==$FRIDA_VERSION" "kaitaistruct==$KAITAI_RUNTIME_VERSION" >/dev/null 2>&1; then
+  ok "angr $ANGR_VERSION, Frida $FRIDA_VERSION, kaitaistruct $KAITAI_RUNTIME_VERSION in $tools/py"
+else
+  printf '   note: angr and Frida not installed, so no equivalence, differential test, trace or format check\n   how: apt install python3-venv, then run this again\n'
+fi
+
 step "atlas command"
 launcher_dir="$HOME/.local/bin"
 mkdir -p "$launcher_dir"
@@ -135,10 +235,18 @@ if [[ -n "$previous" && "$previous" != "$repo/dist/src/cli/main.js" ]]; then
   echo "   note: atlas pointed to ${previous%/dist/src/cli/main.js}; it now runs $repo"
 fi
 mv "$launcher.tmp" "$launcher"
+# The MCP server, for AI clients that connect rather than run commands (configure the client to start atlas-mcp).
+cat >"$launcher_dir/atlas-mcp.tmp" <<EOF
+#!/usr/bin/env bash
+# Written by $repo/scripts/setup.sh
+exec node --disable-warning=ExperimentalWarning "$repo/dist/src/mcp/server.js" "\$@"
+EOF
+chmod +x "$launcher_dir/atlas-mcp.tmp"
+mv "$launcher_dir/atlas-mcp.tmp" "$launcher_dir/atlas-mcp"
 if [[ ":$PATH:" == *":$launcher_dir:"* ]]; then
-  ok "atlas ($launcher)"
+  ok "atlas and atlas-mcp ($launcher_dir)"
 else
-  ok "$launcher (not on PATH: add $launcher_dir to PATH, or call it by its full path)"
+  ok "$launcher and atlas-mcp (not on PATH: add $launcher_dir to PATH, or call them by their full path)"
 fi
 
 step "Summary"

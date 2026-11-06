@@ -1,11 +1,12 @@
 // Loads one binary with every engine that can run here. An engine that cannot run (not installed, wrong version) or
 // fails is skipped and reported, so the target still loads with the others; only when none succeeds is it an error.
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { basename } from "node:path";
 import type { GraphStore } from "../graph/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
+import { headerArchitecture } from "../tools/binary-header.js";
 import { ENGINES, type Engine } from "./engines.js";
+import { fileSha256 } from "./file-hash.js";
 import { loadAnalysis, type LoadResult } from "./load-binary.js";
 
 export interface EngineOutcome {
@@ -21,15 +22,25 @@ export class NoEngineError extends Error {
   }
 }
 
+async function head(path: string, size: number): Promise<Uint8Array> {
+  const file = await open(path, "r");
+  try {
+    const buffer = new Uint8Array(size);
+    const { bytesRead } = await file.read(buffer, 0, size, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await file.close();
+  }
+}
+
 export async function loadTarget(
   store: GraphStore,
   input: EngineInput,
   engines: readonly Engine[] = ENGINES,
   label: string = basename(input.path),
 ): Promise<EngineOutcome[]> {
-  const sha256 = createHash("sha256")
-    .update(await readFile(input.path))
-    .digest("hex");
+  const sha256 = await fileSha256(input.path);
+  const architecture = input.raw?.architecture ?? headerArchitecture(await head(input.path, 4096));
   const outcomes: EngineOutcome[] = [];
   for (const engine of engines) {
     try {
@@ -37,7 +48,7 @@ export async function loadTarget(
       const analysis = await analyse(input);
       // An engine reporting another file's hash would attach its facts to the wrong binary.
       if (analysis.sha256 !== sha256) throw new Error(`${engine.name} analysed a file with another SHA-256`);
-      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, label, analysis) });
+      outcomes.push({ engine: engine.name, loaded: loadAnalysis(store, label, analysis, undefined, architecture) });
     } catch (error) {
       outcomes.push({ engine: engine.name, skipped: (error as Error).message });
     }

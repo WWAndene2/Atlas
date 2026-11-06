@@ -47,6 +47,9 @@ public class AtlasExport extends GhidraScript {
       out.append(",\"size\":").append(f.getBody().getNumAddresses());
       out.append(",\"label\":").append(json(f.getName()));
       out.append(",\"thunk\":").append(f.isThunk());
+      String generated = generatedKind(f);
+      if (generated != null) out.append(",\"generated\":").append(json(generated));
+      if (!f.isExternal() && !isInExternalBlock(f.getEntryPoint())) out.append(",\"code\":").append(json(codeWindow(f)));
       // Imports of a dynamically linked file sit in a synthetic EXTERNAL block, outside the file's bytes.
       boolean external = f.isExternal() || isInExternalBlock(f.getEntryPoint());
       out.append(",\"external\":").append(external).append('}');
@@ -103,6 +106,41 @@ public class AtlasExport extends GhidraScript {
     try (Writer w = new OutputStreamWriter(new FileOutputStream(args[0]), StandardCharsets.UTF_8)) {
       w.write(out.toString());
     }
+  }
+
+  // The file's bytes from the entry up to the next function, at most 64 KiB: the reference a recompiled rewrite is
+  // compared with. Not Ghidra's body, which can stop short (code after a call Ghidra thinks never returns was measured
+  // missing from it on Lua).
+  private String codeWindow(Function f) throws Exception {
+    Address entry = f.getEntryPoint();
+    var block = currentProgram.getMemory().getBlock(entry);
+    if (block == null || !block.isInitialized()) return "";
+    long limit = block.getEnd().getOffset() + 1;
+    Function next = getFunctionAfter(entry);
+    if (next != null && next.getEntryPoint().getAddressSpace().equals(entry.getAddressSpace())) {
+      limit = Math.min(limit, next.getEntryPoint().getOffset());
+    }
+    int length = (int) Math.max(0, Math.min(limit - entry.getOffset(), 64 * 1024));
+    StringBuilder hex = new StringBuilder(length * 2);
+    for (byte b : getBytes(entry, length)) hex.append(String.format("%02x", b & 0xff));
+    return hex.toString();
+  }
+
+  // Sections only the linker writes (ELF: lazy-binding PLT, init and fini stubs). Ghidra names its memory blocks
+  // after the sections.
+  private static final java.util.Set<String> LINKER_SECTIONS =
+      java.util.Set.of(".plt", ".plt.sec", ".plt.got", ".init", ".fini", ".iplt");
+
+  /**
+   * "linker" for code in a linker-written section, "fragment" for a piece Ghidra found split off another function
+   * (it names those inside a namespace, switchD_...::caseD_...), else null. Found on Lua by the first parallel run:
+   * subagents were handed the PLT and cold switch cases as functions to rewrite.
+   */
+  private String generatedKind(Function f) {
+    var block = currentProgram.getMemory().getBlock(f.getEntryPoint());
+    if (block != null && LINKER_SECTIONS.contains(block.getName())) return "linker";
+    if (!f.getParentNamespace().isGlobal() && f.getParentNamespace().getName().startsWith("switchD_")) return "fragment";
+    return null;
   }
 
   private boolean isInExternalBlock(Address a) {

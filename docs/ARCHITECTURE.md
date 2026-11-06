@@ -58,11 +58,11 @@ Flawed methods behind those gaps, each answered by a principle below:
          ▼                     ▼                          ▼
    Orchestrator         Knowledge graph             Verification loop
    (task queue,         (SQLite + JSONL export,     (recompile + compare,
-    budgets, agents      schema/*.schema.json)       differential tests,
-    over model APIs)                                 type checks on traces)
+    claims for the       schema/*.schema.json)       differential tests,
+    session's agents)                                type checks on traces)
          │                     ▲                          │
          └──────────► Tools layer: one adapter per engine ◄─┘
-                      Ghidra, REA, later Rizin, angr, IDA, Frida
+                      Ghidra, REA, Rizin, angr, Frida, Kaitai; later IDA
 ```
 
 ### Tools layer: several engines, cross-checked
@@ -80,7 +80,205 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
 - **[REA](https://github.com/morluto/rea)** (`src/tools/rea/`, MIT): one MCP interface over Ghidra, IDA, Hopper,
   JEB, Rizin and objdump, many format parsers, dynamic tools, evidence records (`ev_...` with limitations and
   unknowns). Second engine, used under the conditions of its review (`docs/DEPENDENCY_REVIEWS.md`).
-- Later: Rizin directly, angr, IDA for operators with a licence. Atlas adds tools of its own only where scores on
+- angr (`src/tools/angr/`): symbolic equivalence of two machine codes of one x86-64 function, run by
+  `atlas verify --equivalence` when a rewrite's bytes differ (`src/orchestrator/check-behaviour.ts`): equivalent
+  marks it verified (check `structural`), different records a counterexample, inconclusive (indirect calls, callees of
+  unknown arity, input-bounded loops, symbolic addresses) changes nothing. Calls: the rewrite's calls are linked to
+  the original's callees (`src/orchestrator/link-calls.ts`: relocation symbol to graph function), each callee is an
+  opaque function returning the same value in both versions, and the calls must match in callee and arguments (up
+  to the arity in the rewrite's prototypes); what a callee writes to memory is not modelled. `--differential` runs both codes in angr on the same generated
+  inputs (edge values, small and random integers, random buffers): same results make the rewrite `observed`, a
+  difference records the input. It ends the input-bounded loops the symbolic check cannot.
+- Rizin (`src/tools/rizin/`): second engine. `atlas check functions <file>` sets the function entries it finds
+  beside the graph's and records the agreement as engine evidence (`src/orchestrator/cross-check-functions.ts`).
+  Measured on Lua x86-64: Rizin finds 588 of Ghidra's 805 entries and none Ghidra misses.
+- Frida (`src/tools/frida/`): `atlas trace <program> -- <arguments>` runs a loaded x86-64 Linux program and
+  hooks every function (`src/orchestrator/trace-target.ts`): one `trace` evidence per run, and per function that
+  ran a `signature` hypothesis at `observed` (calls; per argument register pointer, integer or mixed; return).
+  Measured on Lua running a script: 256 functions ran, the first argument of 173 Lua functions classified right
+  (the three non-pointers are `void`, `unsigned` and a NULL state). Registers past the real arity hold leftovers.
+- Kaitai Struct (`src/tools/kaitai/`): `atlas check format <file.ksy> <files...>` records a file format as a
+  format node (`fmt_<binary>_<id>`) and a format hypothesis holding the .ksy, then compiles it to a Python parser
+  and runs it on every file given (`src/orchestrator/check-format.ts`): all read makes it verified (check
+  `parser_run`); a failure records the file and the error; trailing bytes are reported.
+- Behaviour (`src/orchestrator/record-behaviour.ts`, `replay-behaviour.ts`, `src/verify/replay/`): the acceptance
+  tests of a whole program, technology-neutral. `atlas record behaviour <program> -- <arguments>` runs the original
+  on a scenario (arguments, standard input, environment variables, input files) and records a `behaviour`
+  hypothesis on its binary at `observed`, with a `capture` evidence: the scenario and what the program did
+  (standard output and error, exit code or signal, the output files named), bytes kept as text when valid UTF-8,
+  else base64. Every run sees the same conditions: a fresh working directory with the input files, argv[0]
+  `program`, the environment PATH, HOME at that directory, LC_ALL=C and TZ=UTC plus the scenario's variables, a
+  time limit, the program's process group stopped at it. The original runs three times (`--runs`), each run compared with the first, and a
+  scenario it does not repeat (a clock, an address, a random number) is refused. `atlas verify behaviour <original> <reconstruction>` replays every
+  scenario: the same outcome makes it `verified` (check `replay`, the reconstruction named by its SHA-256), a
+  difference keeps it `observed` with where the two part. A reconstruction runs with the scenario's time limit
+  widened 20 times (`RECONSTRUCTION_SLOWDOWN`): translated code is slower (Lua's `constructs.lua` test, 1.2 s
+  natively, 20 s translated), and a slow but right program must not read as a hang. MCP: `record_behaviour`, `verify_behaviour`.
+  `--each <dir>` records a test suite in one command: one scenario per file of the directory, the file among the
+  inputs and every `{}` in the arguments replaced by its name; a file the program does not repeat is skipped and
+  named. Lua 5.4.7's own suite (27 files, basic mode, `tracegc.lua` and `bwcoercion.lua` as shared inputs; archive
+  SHA-256 8a4898ff...f811e, lua.org publishes none) gives 24 behaviours in 9 s, three skipped (`attrib.lua`,
+  `math.lua`, `sort.lua`); with them the rebuilt Lua's coverage goes from 60.9% to 89.4% (634 of 709). Measured on
+  Lua: seven scenarios recorded on Linux Lua (scripts with tables, formats, maths, errors, coroutines and files, an
+  output file, standard input, a syntax error, an environment variable, `os.time()`); its recompiled program
+  (`atlas lift --link`), and the Windows and AArch64 builds' recompiled programs, reproduce the six that do not
+  depend on the clock, and the seventh is reported as differing. What legitimately varies (a time, a random
+  number, a process ID) is named with `--vary <regex>` (MCP `vary`), kept in the scenario: its matches in standard
+  output and error and in text output files are masked in both outcomes before every comparison, recording and
+  replay alike, and everything else must still be the same. On Lua, `print("now", os.time(), "end")` with
+  `--vary '[0-9]{10}'` is reproduced by the rebuilt program a second later; `math.random()` without one is refused
+  at recording, the message pointing to `--vary`. Limit: two runs only catch what differs between them; a clock
+  read twice within one second agrees, so it must be named by whoever records the scenario.
+- Coverage (`src/orchestrator/coverage-behaviour.ts`): `atlas coverage behaviour <original>` (MCP
+  `coverage_behaviour`) rebuilds the program and replays every behaviour with `ATLAS_COVERAGE` (`link.py`: one byte
+  per translated or rewritten function, the ones that ran written at exit; set as tooling, not part of the
+  scenario), and reports how many translated functions the acceptance tests reach, what each behaviour adds, and
+  the largest none reaches, where the next behaviour would check the most untested code. On Lua: 432 of 709
+  (60.9%) for the eight recorded behaviours, `many.lua` alone 422, in 96 s. x86-64 and AArch64 Linux programs
+  (`a64link.py` writes `ATLAS_COVERAGE` too); an AArch64 or Windows build that cannot run here gets its behaviours
+  from a build that can: `atlas copy behaviour <reference> <target>` (MCP `copy_behaviour`, `copy-behaviour.ts`)
+  carries a reference build's behaviours to another build of the same program, as `inferred` (never seen on the
+  target), the source's capture and the reference binary as evidence and the source named; a replay that fails
+  leaves a copy inferred. Lua: the eight Linux behaviours copied to `lua-arm64`, seven reproduced by its rebuilt
+  program (the eighth prints `os.time()`), and 432 of its 698 translated functions reached (61.9%); copied to
+  `lua.exe`, seven reproduced and 516 of its 830 translated functions reached (62.2%; `winlink.py` writes
+  `ATLAS_COVERAGE` too, MinGW's runtime adds functions).
+- Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
+<original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
+  original differentially. The recorded behaviours with a standard input or input files are the seeds; each round
+  mutates one's inputs (bit flips, replaced bytes, often those parsers care about, insertions, deleted and
+  duplicated runs; seeded, so a run repeats), runs the original twice as the oracle (a mutant it does not repeat
+  is dropped) and the reconstruction once, and records a mutant on which they differ as a new behaviour of the
+  original (observed, author `fuzzer`), ready for `atlas blame behaviour`. It is guided by coverage when the
+  reconstruction reports it (`ATLAS_COVERAGE`, the programs `atlas lift --link` builds): a mutant whose run reaches
+  a function no earlier run reached becomes a seed itself, so later rounds go deeper from it; the result gives the
+  functions reached and the mutants kept. A mutant recording then finds unstable (it runs the original three
+  times, the oracle twice) is counted as unstable and the run goes on. On Lua, 1,000 mutants of the recorded
+  scripts and standard input against each of the rebuilt Linux, Windows and AArch64 programs: no difference, in
+  about 6 s per 500; with Lua's own suite recorded, 300 guided mutants against the rebuilt Lua reach 627 functions,
+  24 kept as seeds, 3 unstable, no difference (150 s); a test shows a reconstruction that miscounts one digit caught from a seed without it.
+- Blame (`src/orchestrator/blame-behaviour.ts`): `atlas blame behaviour <original> <hyp>` (MCP `blame_behaviour`)
+  finds the functions a behaviour the rebuilt program fails comes from. On an x86-64 Linux host the original is
+  mapped executable at its own addresses, so `link.py` can run any function as the original's machine code (its
+  `native` list; the entry stays translated). The functions kept translated or rewritten are narrowed by delta
+  debugging (ddmin), each probe a rebuild and a replay, to the smallest set that still fails: the faulty function,
+  marked likely (it calls no other member, by the call edges), and the translated callers on its path (a native
+  caller reaches its callees natively). The two ends are checked first: reproduced, nothing to blame; failing
+  with every function native too, not a function's fault. On Lua: the reproduced scenario in 1 rebuild (98 s),
+  the `os.time()` one recorded without `--vary` classed as not a function's fault in 2 (105 s). `link.py` compiles
+  a translations file once into an object kept beside it (keyed by its content, the flags and the headers it
+  includes), so the rebuilds after the first only compile the small dispatch: the 2-rebuild case went from 181 s
+  to 105 s.
+- Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
+  fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
+  similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the
+  second by 0.05), proposes a match, the documented name and any verified rewrite, which the recompile check then
+  settles. Measured on Lua x86-64, GCC 11 build with symbols to the stripped GCC 13 build: 380 names, 379 right.
+  Across compilers (Clang 17 to GCC 13) it finds little (28 names, 24 right): same compiler family only for now.
+- Fields (`src/orchestrator/infer-fields.ts`, `src/tools/angr/fields.py`): `atlas infer fields <program>` runs
+  each function in angr from symbolic arguments (callees followed, bounded per function) and records, per pointer
+  argument, the fields accessed (offset, width, read/write) as a `signature` hypothesis (inferred, typer/angr);
+  checked against Frida traces when present (check `trace_types`).
+- Systems (`src/orchestrator/cluster-systems.ts`): `atlas cluster systems` cuts the functions, in address order,
+  into contiguous runs maximising modularity over calls plus a link between neighbours (exact dynamic programming);
+  each run is a `sys_` node, each member gets a `system` hypothesis (inferred). `atlas get system` gives an agent
+  the members, strings and calls out; `atlas propose summary` records its name and summary (`summary` hypothesis).
+- Static recompilation, the "it runs" path (`src/tools/vex/`, `src/orchestrator/lift-binary.ts`): `atlas lift
+<file> --out <dir>` translates every function's machine code to C through VEX (one translator for x86, x86-64,
+  ARM, ARM64, MIPS, PowerPC), with a runtime (`atlas_lift.h`: guest state at VEX's offsets, memory with the guest's
+  byte order, x86-64 condition codes, SSE low-lane floating point) and a dispatch table; a whole program recompiles
+  before any function is rewritten, and a verified rewrite then replaces its function's translation. Untranslated
+  functions are listed with their reason. `check_lifted.py` runs translations and the original (angr) on the same
+  inputs (x86-64 so far). Lua: x86-64 687 of 702 functions translated, ARM 1,243 of 1,256, MIPS 869 of 898, PowerPC
+  1,094 of 1,097, all compiling; checked on 80 x86-64 functions on inputs captured while Lua ran a script (`atlas trace` captures, paged
+  memory, one deterministic allocator for both sides, the C library's ctype tables and setjmp): 66 same, 0
+  different. On ARM, MIPS and PowerPC (calling conventions by table, generated inputs): 18, 9 and 9 of 40 same, 0
+  different.
+- Linking (`src/tools/vex/link.py`, `rewrites.py`, `jumps.py`; `src/orchestrator/link-binary.ts`): `atlas lift
+<file> --out <dir> --link` builds a program for an x86-64 host from an x86-64 binary's translations: the
+  original's segments at their own addresses, relocations applied, the C library called through a trampoline,
+  setjmp in the translated caller's frame, and every verified rewrite compiled as it was verified, in its
+  translation's place (stubs carry its calls back into the program; at fixed addresses when the original's image
+  allows, so its globals are reached by `DAT_<address>`). Lua: 102 of 111 verified rewrites in place, output
+  identical to the original's.
+- Windows programs on Linux (`src/tools/vex/winlink.py`, the `win_*.inc` services): a Windows x64 PE is mapped at
+  its ImageBase in identity memory, as `link.py` maps an ELF; each import slot holds a placeholder the dispatch
+  recognises (a data import's slot, `_fmode`..., the address of a host variable), and the import stubs in the code
+  (`jmp [slot]`) dispatch to their import too. A call to an import runs its service, a function with the Windows
+  prototype compiled `ms_abi`, through a trampoline that passes the guest's Windows x64 arguments as they are
+  (rcx, rdx, r8, r9, xmm0-3, the stack from the shadow space on): GCC converts to the host's convention. What
+  differs between msvcrt and glibc is converted in the service (32-bit `long`, setvbuf's modes, `clock`'s
+  milliseconds, 16-bit `wchar_t`, `struct tm`'s size, exit codes from system and _pclose, printf's Windows length
+  modifiers, the three `__iob_func` streams); kernel32 is emulated for one thread and no DLLs. Services that run
+  guest code (`_initterm`, `_onexit`, `atexit`, `exit`) and setjmp/longjmp (Windows x64 registers, `jumps.py`)
+  are served in the dispatch; the TEB (gs) is host memory; TLS callbacks run before the entry point. `lift.py`
+  translates the functions of the image's `.pdata` the graph lacks (Ghidra misses some after a call that does not
+  return), and x87 code (fninit, 80-bit loads and stores, fpatan, fscale, fyl2x, fprem1, f2xm1, fsin, fcos,
+  frndint, fxam, the control word) and lock cmpxchg (one thread). `atlas lift --link` takes this path for a PE:
+  MinGW Lua 5.4.7 (`tests/fixtures/lua-platforms`), all 823 functions and 7 more from `.pdata` translated, prints
+  on Linux what Linux Lua prints for a script of tables, formatting, maths, errors, coroutines, files and dates;
+  a MinGW test program checks the services (`tests/tools/vex/vex-link.test.ts`). Translations only: a rewrite
+  verified for Windows' calling convention cannot stand in a Linux program. Limits: only the msvcrt and kernel32
+  functions Lua's build imports are served (about 113; another import stops the program, named, when called, and
+  `winlink.py` lists it as unserved); programs linked against the UCRT (recent MSVC, `api-ms-win-crt-*`) are not
+  covered; one thread; LoadLibrary always fails; a hand-written function without a `.pdata` entry
+  (`___chkstk_ms`) is translated only if the graph has it. The original Windows program was not run here (no
+  Wine): Linux Lua built from the same sources is the reference.
+- AArch64 programs on x86-64 (`src/tools/vex/a64link.py`): an Android app's native executable, or any AArch64
+  Linux program built against the C library. Both are LP64 Linux with the same C library, so this follows
+  `link.py`: identity memory (a position-independent image at 0x10000000), relocations applied as the dynamic
+  loader would, each import the host's own function. Only the calling convention is converted, and both give
+  integer and floating-point arguments their own registers in order: x0-x5 become rdi..r9, x6, x7 and the stack
+  arguments the host's stack arguments, d0-d7 xmm0-7 (variadic ones too); x0, x1, d0, d1 come back. setjmp and
+  longjmp use AArch64's registers (`jumps.py`); AArch64's global `__stack_chk_guard`, which x86-64's C library
+  does not export, is a variable of the program. A guest function handed to qsort, bsearch or an exit handler
+  registration (`__cxa_atexit`, which glibc's atexit calls, `on_exit`), or installed as a signal handler with
+  signal or sigaction (the same struct layout on both), is replaced by a host stub bound to it, which enters the guest
+  (System V arguments to x0-x5 and d0-d7, the guest state saved and restored around it, so a signal arriving in
+  the middle of translated code leaves it as it was; the stack moved 256 bytes down); an old action handed back
+  and the handler signal returns name the guest's handler again. On x86-64 guests (`link.py`) nothing is needed, the original's code being mapped
+  executable at its own addresses. An AArch64 shared library (no interpreter: an Android app's `.so`) becomes a
+  host shared library: each exported function a host function of the same name entering the guest with the
+  arguments converted, the image set up when the host loads it, nothing else visible; the library's references
+  to its own exports (PLT calls and symbol relocations, which a shared library uses for any function it exports)
+  resolve to its own translations. `atlas lift --link` on such a `.so`, or on the `.apk` holding it, writes it under the original's name; the
+  original image is built into the output (`.incbin`, `src/tools/vex/embed.py`, as every linker does: `link.py`,
+  `winlink.py`, `crosslink.py` too), so it does not depend on where the original was (moved, deleted, or an
+  `.apk`'s temporary extract). Lua's
+  Android-style `liblua.so` (`tests/fixtures/lua-platforms`), all 686 functions translated, driven by a host
+  program through Lua's C API (dlopen, luaL_newstate, luaL_openlibs, luaL_loadfilex, lua_pcallk), prints for the
+  test script exactly what the same driver prints with Lua built natively for x86-64 from the same sources. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
+  data (absolute symbols at the guest addresses, the image lying at a fixed base) is reached through dlsym or
+  -fPIC code, not through a host program's copy relocations; one such library per process. Each host thread
+  entering the guest (calling an export, running a callback, or a thread the guest started with pthread_create,
+  whose start routine is bound like a callback) gets a guest state of its own, the registers as setup left them
+  and a 1 MiB stack; setjmp's tables are per thread. Four host threads calling one export at once agree with
+  calls made one by one (test). A guest call to an
+  address outside its image is a call of host code (a JNIEnv function, a host program's callback) with the
+  conventions converted: an AArch64 JNI library (`Java_...` native methods calling GetStringUTFChars and
+  NewStringUTF through JNIEnv) linked this way runs in a host Java VM, loaded by `System.load` (test). An address
+  outside the image that no loaded module holds (dladdr) is reported and stops the program, rather than jumped
+  to;
+  verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
+  `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
+  ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,
+  prints on x86-64 what Linux Lua prints for the same script as the Windows build; a test program checks the
+  conventions (`tests/tools/vex/vex-link.test.ts`). The original AArch64 program was not run here (no emulator):
+  Linux Lua built from the same sources is the reference.
+- Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
+  host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
+  its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating
+  system is served by atlas_syscall, which carries out the common Linux calls on the guest's memory (the console
+  case in miniature: faithful code, emulated services). `atlas lift --link` takes this path for a 32-bit ARM
+  binary (translations only: a rewrite verified for the guest's CPU cannot stand in a host program). Errors come
+  back as the kernel gives them (-errno); mmap2 honours MAP_FIXED and file mappings (a private copy; MAP_SHARED on a
+  file is refused) and refuses what would reach the stack; the start-up stack carries every argument and variable
+  and random AT_RANDOM bytes. A Thumb function's state is taken from angr's CFG (the graph keeps the even address).
+  A freestanding ARM program, in ARM and in Thumb code (`tests/tools/vex/vex-link.test.ts`), translated and run on
+  x86-64 prints what it should and returns its exit code. Full static-glibc startup (its TLS and allocator init) is
+  further work. Limits: open is not emulated, so a file mapping by mmap2 is untested, and munmap frees nothing (the
+  arena is not reused).
+- Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
 Container formats whose code no engine reads directly are opened by Atlas's own readers before the engines run
@@ -89,7 +287,7 @@ Container formats whose code no engine reads directly are opened by Atlas's own 
 - **Nintendo 3DS** (`src/tools/ctr/`): NCSD card images (`.3ds`, `.cci`) and NCCH partitions (`.cxi`). The code
   (ExeFS `.code`, BLZ-decompressed when flagged) is laid out by the extended header's segments and analysed as a
   raw ARMv6K image at the text address. Only decrypted content: an NCCH without the NoCrypto flag is refused,
-  because decrypting would bypass the console's protection (AGENTS.md 1.7). Written from the community
+  because decrypting would bypass the console's copy protection. Written from the community
   documentation (3dbrew) and checked against containers built to that documentation, not yet against a real dump.
 
 - **ZIP-based packages** (`src/tools/zip/`): Android `.apk`/`.aab`, iOS `.ipa`, `.jar`, `.zip`. Every member
@@ -107,7 +305,9 @@ of dynamically linked files, which Ghidra places in a synthetic `EXTERNAL` block
 Every adapter returns the same engine-neutral result (`src/tools/engine-analysis.ts`): functions, calls between
 them, strings, and the limitations of the run. The loader (`src/orchestrator/load-binary.ts`) writes it into the
 graph: a binary node (`bin_` + the first 16 hex digits of the file's SHA-256), a function node per function
-(`fn_<same 16 digits>_<address>`, with `thunk: true` on stubs such as import entries, which agents need not name or
+(`fn_<same 16 digits>_<address>`, with `generated: linker` on code in linker-written sections (PLT, init, fini) and
+`generated: fragment` on pieces Ghidra found split off another function (its `switchD_...::` namespaces), neither
+handed to agents; `thunk: true` on stubs such as import entries, which agents need not name or
 rewrite), a `calls` edge per caller and callee pair, a string node (`str_...`) per string with a `reads` edge from each
 function using it, all backed by one evidence record
 (source `engine`, the engine and its version). Loading again adds evidence instead of replacing it, so a call two
@@ -138,14 +338,18 @@ agents, clustering into systems, trace projection, knowledge carried over betwee
 
 - Turns a goal ("understand the rendering") into tasks on graph nodes, by priority (hot code from traces first,
   the goal's system first).
-- Until it exists (roadmap M6), the agent is the operator's own AI, reaching Atlas by the CLI or MCP
-  (`docs/ROADMAP.md`, How an AI uses Atlas). Then it runs agents as model API calls in parallel, not as chat
-  sessions. Each task gets its context from the graph:
-  the node, its neighbours, observed values, current hypotheses.
-- Enforces a compute budget per project and per task.
+- The agents are the operator's own AI session and the subagents it starts, reaching Atlas by the CLI or MCP
+  (`docs/ROADMAP.md`, How an AI uses Atlas); Atlas calls no model. Each task gets its context from the graph: the
+  node, its neighbours, observed values, current hypotheses.
 - In place today: loading a target with every engine that can run here (`load-target.ts`, the engine list in
   `engines.ts`): an engine that is missing or fails is skipped and reported, and loading fails only when none
   succeeds. A function's context (`function-context.ts`): callers, callees, strings read, hypotheses.
+- The rewrite work handed to agents: `rewrite-queue.ts` lists a binary's functions not yet covered by a verified
+  rewrite (alone or in a run), callees before callers, so callees' prototypes are known when their callers' turn
+  comes; `rewrite-task.ts` gives one function's task, self-contained so agents can work in parallel: the original
+  instructions (`src/tools/objdump/`, GNU objdump of the architecture), every attempt and its outcome, the closest
+  failed attempt's compiled instructions, the toolchain, callers' and callees' verified prototypes, strings,
+  neighbours in memory, and the commands to answer with. About 0.25 s per task.
 
 Agent roles: **namer**, **typer**, **rewriter** (function to C), **summariser** (per system), **format reader**
 (infers a file format from its loader, emits a Kaitai description).
@@ -163,6 +367,44 @@ Each hypothesis goes to the checker that fits it:
 
 Pass raises confidence; fail goes back to the agent with the failure, up to a retry budget, then becomes an
 `unknown`.
+
+In place today, the **recompile check** (`src/verify/recompile/`): a rewrite hypothesis holds a function's C
+(`rewrite-value.ts`); `atlas verify` compiles it with the target's toolchain (`--cc`, `--cflags`) and compares the
+machine code with the function's `code` in the graph (the file's bytes from its entry to the next function), masking
+the bytes relocations fill at link time. Every byte outside them must match: then the hypothesis is `verified`;
+otherwise the failure (compile error, or how many bytes differ and where) is recorded for the agent, its confidence
+unchanged. Object files are ELF (read with readelf, any architecture) or COFF (Windows toolchains, read by
+`object-file.ts`, which also strips the alignment padding COFF sections carry). Validated with Lua's real source
+against its builds: x86-64 Linux 152 of 154, ARMv6K 344 of 351, AArch64 Android 385 of 395, x86-64 Windows 106 of
+107 (the one: a C library inline, not Lua's). A function that jumps to a neighbour of the same source file (a short
+jump the assembler resolved in the original, a relocation when compiled alone) is checked in a **run**: the rewrite
+names its `last` function, the source defines the functions from the first to the last in original order, it is
+compiled without `-ffunction-sections`, and the run is compared with the graph's code from the first entry to the
+end of the last function. Validated: each of Lua's 30 source files, compiled whole, reproduces its run byte for byte. **Toolchain detection** (`src/orchestrator/detect-toolchain.ts`, `atlas detect toolchain <file>`): a real target does
+not say how it was compiled. Atlas reads its architecture from the header (recorded on the binary node) and the
+compiler version strings left in the file, then probes: Ghidra's C for a sample of the binary's functions is
+recompiled with each installed compiler for that architecture at each optimisation level, then with the variants
+that matter (ARM or Thumb, float ABI, PIC for libraries), and the candidate reproducing the most functions becomes a
+`toolchain` hypothesis on the binary, with its score and the candidates it tied with. `atlas verify` uses it when no
+`--cc` is given. Measured on Lua with no hint: correct compiler and level on all four builds (Linux gcc -O2, Windows
+MinGW -O2, Android AArch64 -fPIC -O2, raw ARMv6K -marm -mfloat-abi=hard -O2), in 0.5 to 2.5 minutes; -O3 and the
+soft-float variants tie, since most functions compile the same with them. Candidates are every installed release
+(setup installs GCC 9 to 14, Clang 14 to 19, and cross compilers for 32-bit Windows, ARM, MIPS and PowerPC); a
+compiler named by a version string in the file is preferred, the probe then choosing its flags. Ranking is by exact
+matches, then by closeness of code size (near misses count); candidates within 1% are reported as ties and the
+conventional choice wins (-O2 before -O3, the base variant first). Measured on eight Lua builds with nothing given
+but the file: all right but one, where Clang 15 and 17 tie (no version string, near-identical code; the level is
+right), 23 to 96 s each with compiles run in parallel. Limit: only installed compilers are candidates (not MSVC
+or console SDKs).
+
+`atlas decompile` gives each function as a whole translation unit (`AtlasDecompile.java`): the definitions of the
+types it uses (Ghidra's DataTypeWriter), `extern` declarations of its globals with Ghidra's types, its callees'
+prototypes (`noreturn` marked; callees without an analysed signature declared as `T name();`, keeping the return
+type), then the body. Measured on the four Lua builds against the body alone: compile errors 1,381 to 466, verified
+198 to 225 (Linux 19 to 20, Windows 67 to 85, Android 51 to 60, ARM 61 to 60).
+
+`atlas decompile` adds Ghidra's C for each function as a rewrite with
+`prelude: ghidra` (its built-in types, `ghidra-types.h`), the starting point an agent improves.
 
 ### Dynamic data
 
@@ -189,6 +431,79 @@ arrives partly named.
 
 The format agent infers a format from the code that reads it (the loader shows the structure) and emits a Kaitai
 description; the parser generated from it must read every file of that kind in the target.
+
+### Library recognition
+
+`atlas match libraries` (`src/orchestrator/match-libraries.ts`) finds the functions of a binary that are code of a
+static library: the detected toolchain's own (`libgcc`, the C and maths libraries, MinGW's; found with
+`-print-file-name` under the detected flags, so multilib toolchains answer for the right CPU) and any `--library`
+given, and the startup objects the linker adds to every program (`crt1.o`/`Scrt1.o`, `crti.o`, `crtbegin*.o`...).
+Each library function is its bytes in its object with relocation holes masked (`src/tools/archive/` reads `ar`
+archives); x86-64 `GOTPCRELX` relocations also mask the two bytes before the field, which the linker rewrites when
+it relaxes a GOT load into a `lea`. A binary's function matches when its code equals those bytes outside the holes,
+looked up by its first 8 bytes with the relocated ones zeroed (grouped by which of the 8 are relocated, so a
+function starting with an address is found); functions under 12 bytes are not matched; a function with no recorded
+size (hand-written assembly) runs to the next symbol. A match is a `match` hypothesis, plus a name when one
+library name fits, and takes the function out of the rewrite queue: library code is linked, not rewritten.
+Measured: raw ARMv6K Lua (newlib linked statically) 198 functions matched, 153 named, all right; Windows Lua (MinGW
+runtime) 100 matched, 96 named, 95 right (the other: two byte-identical trivial functions with different names);
+Android Lua 1 (its C library is dynamic: nothing to find); with the startup objects and the index on relocated
+prefixes, ARM Lua 206 matched, 159 named, all right, and the benchmark's `_start`, `deregister_tm_clones`,
+`register_tm_clones` and `__do_global_dtors_aux` found. A later toolchain detection supersedes an earlier one. The
+detection also notes what the imports show of the build: calls to the C library's checked variants (`__memcpy_chk`,
+...) mean `_FORTIFY_SOURCE`, which the rewrite task tells agents (`buildNotes`).
+
+### Name scoring
+
+`atlas propose name <fn> <name>` adds a name hypothesis. On a ground-truth target, `atlas score names --truth
+<unstripped build>` checks every proposed name against the build's symbols (`src/verify/symbols/`, symbols read by
+`src/tools/symbols/`: ELF and PE): verified when equal once compiler additions are removed (leading underscores,
+`.isra`, `.constprop`, `.part`, `.cold`), rejected otherwise, inconclusive where the key has no symbol. Functions whose
+true name is already their label (exported symbols left in a stripped binary: 155 of 706 on Lua) are counted apart,
+so the accuracy measures naming, not reading.
+
+### The whole job
+
+`atlas run <file> --goal "<goal>" [--report <file.md>]` (`src/orchestrator/run-target.ts`) chains every step on
+each binary the file holds: load with every engine, decompile, detect the toolchain, match libraries, verify every
+rewrite, replay the recorded behaviours on the rebuilt program (`src/orchestrator/check-reconstruction.ts`: built as
+`atlas lift --link` builds it, in a temporary directory; skipped, at no cost, when no behaviour is recorded), and
+report per binary the toolchain and its evidence, the functions that are stubs, library code, verified, and still
+open, how many behaviours the rebuilt program reproduces and where the others differ, and how many translated
+functions those replays reach (`ATLAS_COVERAGE`, measured in the same runs), the first open functions
+callees first, the time of each step, and any step that could not run (the run goes on without it). Linux Lua with
+the seven behaviours of the replay check: 6 of 7 reproduced (the seventh prints `os.time()`), the replay step
+106 s of the run. Agents working the open tasks in parallel (roadmap M6) will come between verification and the
+report. Raw ARM Lua: 881 functions, 9 stubs, 198 library, 60 verified, 618 open, in about 3 minutes.
+
+### MCP server
+
+`atlas-mcp [--graph <file>]` (`src/mcp/`, over stdio; launcher installed by setup) offers the CLI's operations as MCP
+tools in the same vocabulary (`run`, `load`, `get_function`, `list_functions`, `list_callers`, `list_callees`,
+`decompile`, `detect_toolchain`, `match_libraries`, `list_tasks_rewrite`, `get_task_rewrite`, `propose_rewrite`,
+`propose_name`, `verify`, `export`), calling the same orchestrator functions. Each answers one JSON document; an error
+is an error result holding `{"error": {"message"}}`. Built on the official MCP TypeScript SDK (1.32.2, MIT).
+
+### Parallel agents
+
+Atlas calls no model: the operator's AI session starts subagents, and Atlas coordinates them. `atlas claim task
+rewrite --agent <name>` gives the next open task nobody holds, callees first, with its full context, under a lease
+(30 minutes by default) recorded in a `claims` table beside the graph (`src/graph/task-claims.ts`, never exported);
+a verified task leaves the queue, a lapsed one returns to it, and a released one returns behind every task not yet
+tried, with the note its agent left (`release --note`; shown in the next claim and in `get task`). `claim --released`
+takes only given-back tasks. A task given back at the top level has nowhere to go: each such release counts against a
+retry budget (`release-task.ts`; two different agents by default, `release --budget`), and when it runs out the
+function's rewrite is recorded as an `unknown` node (`unk_rewrite_<function>`, its label saying so, the agents'
+notes kept with its claims) and the function leaves the queue. Agents of different models are routed by **level** (`src/orchestrator/task-levels.ts`):
+a task's level is its size tier (bounds 160 and 400 bytes by default, from what each model verified on Lua) plus the
+times it was given back, capped at the top; an agent at level k (`claim --level k --of n --bounds ...`) takes only
+level-k tasks, so small functions go to the cheapest model and what a level gives back moves up. `atlas plan agents
+--mode adaptive|high|medium|low` (`agent-plan.ts`; MCP `plan_agents`, with `claim_task_rewrite` and `release_task`)
+gives the session the model and claim command of each subagent: adaptive Haiku/Sonnet/Opus, high Opus, medium
+Sonnet/Opus, low Haiku with Opus for what Haiku gives back. Proposals carry the
+proposing agent's name (`--agent`), so each agent's (and model's) work can be measured. Several processes share one graph file:
+WAL journaling, a 30-second lock wait and immediate transactions keep it consistent (checked with eight claims at
+the same moment: eight different tasks). The protocol for sessions is in `AGENTS.md` 1.8.
 
 ### Command line
 

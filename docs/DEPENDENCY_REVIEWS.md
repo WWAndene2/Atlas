@@ -67,3 +67,67 @@ implausible for the project, so given no weight).
    install, no Frida). Never through REA's `install.sh`.
 2. Started only by `src/tools/rea/`, over stdio, never with `--http`.
 3. Atlas works without it: Ghidra headless is the first engine.
+
+## angr 10.0.5 (with z3-solver 5.3.1) — 5 November 2026
+
+**Scope of the check.** Installed from PyPI wheels only (`--only-binary=:all:`, no source build, no install script)
+into a Python environment of its own in the tools directory. The installed tree was inspected: 43 packages, 63
+native shared objects (among them Z3 and pyvex/VEX), about 500 MB. Not a line-by-line audit.
+
+**Seen:** BSD-2-Clause (angr, claripy, pyvex, cle, archinfo), MIT (Z3); Atlas runs `equivalence.py` as a
+subprocess and links none of it. No
+network use at run time found.
+
+**Conditions:**
+
+1. Exactly 10.0.5, installed by `scripts/setup.sh` from wheels; a bump needs a new entry.
+2. Run only as a subprocess on machine code Atlas extracted itself; target code is executed symbolically, never
+   natively.
+3. Opt-in (`atlas verify --equivalence`): nothing else depends on it.
+
+## Rizin 0.9.1 — 5 November 2026
+
+**Scope of the check.** The release's static Linux x86-64 archive (`rizin-v0.9.1-static-x86_64.tar.xz`, SHA-256
+`9102249a9f0b6319c5334a2e5cf8d9cc3f2035e1d3def027c41f6a90f647e8cf`) from the project's GitHub releases. The release publishes no checksum: the hash was recorded at the first
+download (trust on first use), approved by the operator. Run on
+Atlas's fixtures; its code was not audited.
+
+**Seen:** LGPL-3.0, run as a separate program (no linking into Atlas). A self-contained binary with its plugins
+built in; no network use seen in the analysis commands Atlas runs (`aaa`, `aflj`).
+
+**Conditions:**
+
+1. Exactly 0.9.1, installed by `scripts/setup.sh` only after the SHA-256 above matches; a bump needs a new entry.
+2. Run with `-N` (no user scripts or plugins) and only the analysis commands in `src/tools/rizin/`; never `-d`
+   (debugging runs the target).
+
+## Frida 17.25.2 — 5 November 2026
+
+**Scope of the check.** The PyPI wheel (`frida==17.25.2`, `--only-binary=:all:`), installed in the same tools
+environment as angr; no other package pulled in. Its native core (`_frida`, with the injected agent) cannot be
+audited from the wheel. Run on Atlas's fixtures.
+
+**Seen:** wxWindows Library Licence 3.1 (LGPL with a binary exception; compatible with distributing Atlas under MIT,
+since Atlas does not ship Frida). Local device only: no network use in what Atlas runs.
+
+**Conditions:**
+
+1. Exactly 17.25.2, installed by `scripts/setup.sh` from the wheel; a bump needs a new entry.
+2. `atlas trace` runs the target natively under the operator's account: only on a program the operator asked to
+   run, which the CLI help and MCP description say. Only the script in `src/tools/frida/trace.py` is injected.
+3. Local device only (`frida.get_local_device()`); no remote or USB devices without a new review.
+
+## Kaitai Struct compiler 0.11 and runtime (`kaitaistruct`) 0.11 — 5 November 2026
+
+**Scope of the check.** The compiler's release archive (`kaitai-struct-compiler-0.11.zip`, SHA-256
+`ff89389d9dc9e770d78a24af328763cb1f8e7b31ce7766c9edf10669a060f2a2`, recorded at the first download since the release
+publishes none) and the runtime's PyPI wheel, in the tools Python environment. Not audited line by line.
+
+**Seen:** compiler GPL-3.0, run as a separate program on the Java installed for Ghidra (Atlas does not link or ship
+it); runtime MIT, a single pure-Python module. The compiler only reads the .ksy and writes source; the generated
+Python only reads the file it parses.
+
+**Conditions:**
+
+1. Exactly 0.11 for both, the archive installed by `scripts/setup.sh` only after its SHA-256 matches.
+2. Generated parsers run in a subprocess on files the operator names; the generated code is not kept.

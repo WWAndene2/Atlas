@@ -12,6 +12,12 @@ export interface GraphNode {
   binary?: string;
   address?: string;
   size?: number;
+  /** On a binary: the CPU its code runs on (Atlas's architecture names, src/tools/engine-analysis.ts). */
+  architecture?: "x86" | "x86_64" | "arm-v5te" | "arm-v6k" | "arm-v7" | "arm64" | "mips" | "mipsel" | "ppc" | "ppc64";
+  /** On a function: the file's bytes from its entry up to the next function, hex; the recompile check's reference. */
+  code?: string;
+  /** On a function: code no source function of its own produces (linker stubs; pieces split off another function). */
+  generated?: "linker" | "fragment";
   /** On a function: a stub that only jumps elsewhere. */
   thunk?: boolean;
   label?: string;
@@ -40,7 +46,8 @@ export interface Evidence {
   created_at: string;
 }
 
-export type HypothesisKind = "name" | "signature" | "type" | "summary" | "system" | "format" | "rewrite" | "match";
+export type HypothesisKind =
+  "name" | "signature" | "type" | "summary" | "system" | "format" | "rewrite" | "match" | "toolchain" | "behaviour";
 
 export type Confidence = "guessed" | "inferred" | "observed" | "verified" | "rejected";
 
@@ -54,7 +61,7 @@ export interface Hypothesis {
   evidence: string[];
   author: { agent: string; task?: string };
   verification?: {
-    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run";
+    check?: "structural" | "differential" | "trace_types" | "symbols" | "parser_run" | "recompile" | "replay";
     result?: "pass" | "fail" | "inconclusive";
     details?: string;
   };

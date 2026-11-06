@@ -8,6 +8,10 @@
 #   build/liblua.so        Linux/Android-style AArch64 shared library (GCC), stripped of its local symbols
 #   build/liblua.so.debug  the same library unstripped: the answer key
 #   build/lua.apk          a ZIP package holding lib/arm64-v8a/liblua.so, as an Android package does
+#   build/lua-arm64        Lua's interpreter as an AArch64 Linux program (GCC), position-independent, linked
+#                          dynamically against the C library as an Android app's native executable is: the target
+#                          `atlas lift --link` runs on an x86-64 host
+#   build/lua-arm64.debug  the same link unstripped: the answer key
 #
 # Same pinned and SHA-256-checked Lua release as tests/fixtures/lua. Output kept out of git. Idempotent.
 # Needs curl, tar, sha256sum, zip, x86_64-w64-mingw32-gcc and aarch64-linux-gnu-gcc
@@ -19,7 +23,8 @@ LUA_SHA256="9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="$here/build"
-if [[ -f "$out/lua.exe" && -f "$out/lua.exe.debug" && -f "$out/liblua.so" && -f "$out/liblua.so.debug" && -f "$out/lua.apk" ]]; then
+if [[ -f "$out/lua.exe" && -f "$out/lua.exe.debug" && -f "$out/liblua.so" && -f "$out/liblua.so.debug" && -f "$out/lua.apk" &&
+  -f "$out/lua-arm64" && -f "$out/lua-arm64.debug" ]]; then
   echo "Lua platform fixtures already built in $out"
   exit 0
 fi
@@ -49,6 +54,10 @@ x86_64-w64-mingw32-strip --strip-all -o "$out/lua.exe" "$out/lua.exe.debug"
 # Android-style library: position-independent AArch64 code exporting Lua's C API, as a game's native library would.
 (cd "$src" && aarch64-linux-gnu-gcc -O2 -g -fPIC -shared -DLUA_USE_LINUX -o "$out/liblua.so.debug" "${library[@]}")
 aarch64-linux-gnu-strip --strip-unneeded -o "$out/liblua.so" "$out/liblua.so.debug"
+# AArch64 interpreter: one link kept unstripped, then stripped, as for Windows.
+(cd "$src" && aarch64-linux-gnu-gcc -O2 -DLUA_USE_LINUX -o "$out/lua-arm64.debug" "${interpreter[@]}" -lm -ldl)
+aarch64-linux-gnu-strip --strip-all -o "$out/lua-arm64" "$out/lua-arm64.debug"
+
 mkdir -p "$work/apk/lib/arm64-v8a"
 cp "$out/liblua.so" "$work/apk/lib/arm64-v8a/"
 printf '<manifest package="org.lua.fixture"/>\n' >"$work/apk/AndroidManifest.xml"

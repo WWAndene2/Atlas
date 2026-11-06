@@ -36,6 +36,7 @@ export function loadAnalysis(
   label: string,
   analysis: EngineAnalysis,
   now: Date = new Date(),
+  architecture?: GraphNode["architecture"],
 ): LoadResult {
   const { sha256, tool } = analysis;
   const binary = binaryId(sha256);
@@ -53,8 +54,19 @@ export function loadAnalysis(
 
   store.transaction(() => {
     store.putEvidence(evidence);
-    if (store.getNode(binary) === undefined) {
-      store.putNode({ schema_version: 1, id: binary, kind: "binary", label });
+    const existing = store.getNode(binary);
+    if (existing !== undefined && existing.architecture === undefined && architecture !== undefined) {
+      // A graph loaded before binaries recorded their architecture gets it on the next load.
+      store.putNode({ ...existing, architecture });
+    }
+    if (existing === undefined) {
+      store.putNode({
+        schema_version: 1,
+        id: binary,
+        kind: "binary",
+        label,
+        ...(architecture !== undefined ? { architecture } : {}),
+      });
     }
     for (const f of analysis.functions) {
       const id = functionId(sha256, f.address);
@@ -69,6 +81,8 @@ export function loadAnalysis(
         size: f.size,
         label: f.label,
         ...(f.thunk ? { thunk: true } : {}),
+        ...(f.generated !== undefined ? { generated: f.generated } : {}),
+        ...(f.code !== undefined ? { code: f.code } : {}),
       };
       store.putNode(node);
     }

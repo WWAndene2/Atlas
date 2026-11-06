@@ -1,8 +1,21 @@
 /**
  * CPU families Atlas can name for a raw image. Engine-neutral: each adapter maps them to its own identifiers.
- * arm-v6k is the ARM11 of the Nintendo 3DS; arm-v7 covers Cortex-A cores in ARM mode.
+ * arm-v6k is the ARM11 of the Nintendo 3DS; arm-v7 covers Cortex-A cores in ARM mode. mips is big-endian MIPS32 (Nintendo 64
+ * and many embedded systems), mipsel little-endian (PlayStation 1, 2 and Portable); ppc is 32-bit big-endian PowerPC
+ * (GameCube, Wii, Wii U), ppc64 64-bit big-endian (PlayStation 3, Xbox 360).
  */
-export const ARCHITECTURES = ["x86", "x86_64", "arm-v5te", "arm-v6k", "arm-v7", "arm64"] as const;
+export const ARCHITECTURES = [
+  "x86",
+  "x86_64",
+  "arm-v5te",
+  "arm-v6k",
+  "arm-v7",
+  "arm64",
+  "mips",
+  "mipsel",
+  "ppc",
+  "ppc64",
+] as const;
 export type Architecture = (typeof ARCHITECTURES)[number];
 
 /** A binary to analyse. Without raw, the engine reads the file's own header (ELF, PE, Mach-O...). */
@@ -23,6 +36,10 @@ export interface EngineFunction {
   label: string;
   /** A stub that only jumps to another function (a PLT entry, for example). */
   thunk: boolean;
+  /** Code no source function produces on its own: written by the linker, or split off another function. */
+  generated?: "linker" | "fragment";
+  /** The file's bytes from the entry up to the next function (at most 64 KiB), lowercase hex, when the engine gives them. */
+  code?: string;
 }
 
 export interface EngineCall {

@@ -6,8 +6,9 @@ import { resolveTarget } from "../../orchestrator/resolve-target.js";
 import { ARCHITECTURES, type Architecture, type EngineInput } from "../../tools/engine-analysis.js";
 import { CliError, type Output } from "../output.js";
 
-function input(path: string, arch: string | undefined, base: string | undefined): EngineInput {
-  if (arch === undefined && base === undefined) return { path };
+/** Validates --arch and --base: both or neither. */
+export function parseRaw(arch: string | undefined, base: string | undefined): { raw?: EngineInput["raw"] } {
+  if (arch === undefined && base === undefined) return {};
   if (arch === undefined || base === undefined) {
     throw new CliError("usage", "--arch and --base go together: a raw image needs both its CPU and its load address");
   }
@@ -15,7 +16,7 @@ function input(path: string, arch: string | undefined, base: string | undefined)
     throw new CliError("usage", `unknown architecture ${arch}; known: ${ARCHITECTURES.join(", ")}`);
   }
   if (!/^0x[0-9a-fA-F]+$/.test(base)) throw new CliError("usage", `--base ${base} is not a hex address (0x...)`);
-  return { path, raw: { architecture: arch as Architecture, base: `0x${BigInt(base).toString(16)}` } };
+  return { raw: { architecture: arch as Architecture, base: `0x${BigInt(base).toString(16)}` } };
 }
 
 export async function runLoad(
@@ -28,7 +29,7 @@ export async function runLoad(
   if (path === undefined || extra.length > 0) {
     throw new CliError("usage", "usage: atlas load <binary> [--arch <architecture> --base <0xaddress>]");
   }
-  const { raw } = input(path, arch, base);
+  const { raw } = parseRaw(arch, base);
   if (!existsSync(path)) throw new CliError("not_found", `no file ${path}`);
   const target = await resolveTarget(path, raw);
   const binaries: { label: string; engines?: EngineOutcome[]; error?: string }[] = target.unreadable.map((u) => ({
