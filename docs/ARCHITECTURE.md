@@ -286,6 +286,10 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   framebuffer presented at the next blank and writes it as a PPM under `ATLAS_FRAMES` (`frames.inc`, numbered per
   screen in the order shown); the GPU's own work (display transfer, command lists) is logged as unserved, its
   completion still raised so a title goes on.
+  Hardware registers (`devices.inc`): built with a window `[ATLAS_DEVICE_LOW, ATLAS_DEVICE_HIGH)`, the runtime sends
+  each access in it (one comparison per access, none without a window) to the device registered for its range; a
+  register nothing serves reads back what was written and is logged as unserved. Profiles: `linux`, `ctr` (3DS),
+  `bare` (no operating system: the program owns the machine; ARM semihosting prints and stops it).
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating

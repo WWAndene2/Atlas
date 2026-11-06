@@ -6,6 +6,34 @@ import { describe, expect, it } from "vitest";
 import { RUNTIME_HEADER } from "../../../src/tools/vex/index.js";
 
 const KERNEL = join(dirname(RUNTIME_HEADER), "console", "kernel.inc");
+const DEVICES = join(dirname(RUNTIME_HEADER), "console", "devices.inc");
+
+// Registers in the hardware window, as a translation reaches them (LOAD and STORE): a registered device serves its
+// range (offsets from its start, sizes as accessed); the rest of the window acts as memory and is logged; memory
+// outside the window is untouched by either.
+const DEVICE_HARNESS = `
+#include "atlas_lift.h"
+#include "${KERNEL}"
+#include "${DEVICES}"
+#include <assert.h>
+static uint64_t last_offset, last_value; static unsigned last_size;
+static uint64_t status(atlas_state *s, uint32_t offset, unsigned size) { (void)s; return 0x80 | offset | size << 8; }
+static void put(atlas_state *s, uint32_t offset, unsigned size, uint64_t v) {
+  (void)s; last_offset = offset; last_size = size; last_value = v;
+}
+int main(void) {
+  static uint8_t memory[0x2000];
+  atlas_state st = {0}; atlas_state *s = &st; s->mem = memory;
+  console_device_register(0x1000, 0x1010, status, put);
+  STORE16(0x1004, 0xBEEF);
+  assert(last_offset == 4 && last_size == 2 && last_value == 0xBEEF && memory[0x1004] == 0);
+  assert(LOAD8(0x1008) == (0x80 | 8 | 1 << 8) % 256 && LOAD32(0x100C) == (0x80 | 0xC | 4 << 8));
+  STORE32(0x1800, 0x12345678); assert(LOAD32(0x1800) == 0x12345678); /* in the window, no device: memory */
+  STORE32(0x0100, 7); assert(LOAD32(0x0100) == 7 && memory[0x0100] == 7); /* outside: plain memory */
+  console_unserved_write();
+  return 0;
+}
+`;
 
 // The generic core alone, in a C harness: handles, the service registry, the unserved log.
 const HARNESS = `
@@ -35,6 +63,27 @@ int main(void) {
 `;
 
 describe("console kernel core", () => {
+  it("sends accesses in the hardware window to the devices, and logs the registers nothing serves", () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-console-"));
+    writeFileSync(join(dir, "harness.c"), DEVICE_HARNESS);
+    execFileSync(
+      "gcc",
+      [
+        "-O1",
+        "-w",
+        "-DATLAS_DEVICE_LOW=0x1000",
+        "-DATLAS_DEVICE_HIGH=0x2000",
+        "-I",
+        dirname(RUNTIME_HEADER),
+        "harness.c",
+      ],
+      { cwd: dir },
+    );
+    const log = join(dir, "unserved.txt");
+    execFileSync(join(dir, "a.out"), { env: { ...process.env, ATLAS_UNSERVED: log } });
+    expect(readFileSync(log, "utf8")).toBe("1 device write 0x1800\n1 device read 0x1800\n");
+  });
+
   it("gives and closes handles, finds services, and logs what is unserved, most asked first", () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-console-"));
     writeFileSync(join(dir, "harness.c"), HARNESS);

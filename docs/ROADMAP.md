@@ -193,8 +193,11 @@ spreads across platforms instead of finishing one. So, from now on:
   reported). Not modelled: preemption by a timer between system calls, the second core. gsp::Gpu's first part
   (`console/ctr_gsp.inc`, formats from libctru's client): rights, the interrupt queue and its shared memory, the
   vertical blank at 59.83 Hz, framebuffers presented and written out as frames (`ATLAS_FRAMES`, `frames.inc`), GX
-  DMA and memory fill. Next: the other services every title starts with (APT, HID, FS), then the GPU's work
-  (display transfer, command lists).
+  DMA and memory fill. The core's entry points, for every machine: system calls and IPC (done), memory accesses
+  intercepted in a window of hardware registers (done: `console/devices.inc`, `ATLAS_DEVICE_LOW`/`HIGH` in the
+  runtime, crosslink's `devices`; an unserved register acts as memory and is logged), with a profile for machines
+  with no operating system (`bare`: ARM semihosting to print and stop); imports by ID (next). Then the services
+  every title starts with (APT, HID, FS) and the GPU's work.
 - **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
   then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
   emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.

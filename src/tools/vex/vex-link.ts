@@ -50,8 +50,13 @@ export interface CrosslinkRequest {
   out: string;
   /** Where the image is mapped; the translations must have been made at the same base. */
   base: number;
-  /** The platform the guest runs on: Linux system calls (the default), or a console's kernel ("ctr": the 3DS). */
-  profile?: "linux" | "ctr";
+  /**
+   * The platform the guest runs on: Linux system calls (the default), a console's kernel ("ctr": the 3DS), or no
+   * operating system ("bare").
+   */
+  profile?: "linux" | "ctr" | "bare";
+  /** The window [low, high) of the machine's hardware registers: accesses in it go to the profile's devices. */
+  devices?: [number, number];
 }
 
 export interface CrosslinkOutcome {

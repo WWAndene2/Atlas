@@ -13,7 +13,9 @@ Request, a JSON file named on the command line: {"arch", "endness", "binary": pa
 program), "lifted": [paths of the translations' C], "translated": [graph addresses], "base": where a
 position-independent image is mapped, "runtime": directory of atlas_lift.h, "out": path of the executable, "profile": the platform the guest runs on,
 "linux" (the default: Linux system calls, atlas_syscall.inc) or a console's (console/<profile>.inc on the console
-kernel's core, console/kernel.inc: "ctr" for the 3DS)}
+kernel's core, console/kernel.inc: "ctr" for the 3DS, "bare" for a machine with no operating system), "devices":
+[low, high] (optional: the window of hardware registers, accesses in it going to the profile's devices,
+console/devices.inc)}
 stdout: {"executable": path, "translated": int, "entry": hex}
 """
 
@@ -90,8 +92,25 @@ def main():
                     '#include "console/ctr.inc"\n#include "console/ctr_gsp.inc"')
         setup = f"  (void)argc; (void)argv; (void)envp;\n  ctr_setup(s);\n  REG(uint32_t, {off['sp']}) = CTR_STACK_TOP;"
         serve = "  ctr_syscall(s);"
+    elif profile == "bare":
+        # No operating system: the program starts at its entry with a stack, and owns the machine.
+        platform = (f"#define BARE_R0 {arch.registers['r0'][0]}\n#define BARE_R1 {arch.registers['r1'][0]}\n"
+                    '#include "console/kernel.inc"\n#include "console/bare.inc"')
+        setup = f"  (void)argc; (void)argv; (void)envp;\n  bare_setup(s);\n  REG(uint32_t, {off['sp']}) = {GUEST_TOP:#x};"
+        serve = "  bare_syscall(s);"
     else:
-        raise SystemExit(f"no platform profile {profile!r} (linux, ctr)")
+        raise SystemExit(f"no platform profile {profile!r} (linux, ctr, bare)")
+    # The hardware registers' window: every translation is compiled to send accesses in it to the devices.
+    devices = request.get("devices")
+    flags = []
+    if devices is not None:
+        low, high = (int(v) for v in devices)
+        flags = [f"-DATLAS_DEVICE_LOW={low:#x}ULL", f"-DATLAS_DEVICE_HIGH={high:#x}ULL"]
+        if profile == "linux":
+            platform += '\n#include "console/kernel.inc"\nstatic void atlas_devices_log(void) __attribute__((constructor));\n' \
+                        "static void atlas_devices_log(void) { atexit(console_unserved_write); }"
+        platform += '\n#include "console/devices.inc"'
+
     c = f"""#include "atlas_lift.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,7 +151,7 @@ void atlas_syscall(atlas_state *s) {{
     out = request["out"]
     with open(out + ".main.c", "w") as f:
         f.write(c)
-    subprocess.run(["gcc", "-O1", "-w", "-I", request["runtime"], *request["lifted"], out + ".main.c", "-o", out,
+    subprocess.run(["gcc", "-O1", "-w", *flags, "-I", request["runtime"], *request["lifted"], out + ".main.c", "-o", out,
                     "-lm"], check=True)
     print(json.dumps({"executable": out, "translated": len(translated), "entry": hex(obj.entry + base)}))
 

@@ -202,8 +202,13 @@ void title(void) {
 __attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
 `;
 
-// A freestanding ARM title built, translated and linked on the 3DS profile: the program's path.
-async function buildTitle(dir: string, source: string): Promise<string> {
+// A freestanding ARM program built, translated and linked on a profile (the 3DS's by default): its path.
+async function buildTitle(
+  dir: string,
+  source: string,
+  profile: "ctr" | "bare" = "ctr",
+  devices?: [number, number],
+): Promise<string> {
   writeFileSync(join(dir, "p.c"), source);
   execFileSync("clang", [...ARM_FLAGS, "-marm", "p.c", "-o", "p"], { cwd: dir });
   writeFileSync(join(dir, "functions.py"), FUNCTIONS);
@@ -227,7 +232,8 @@ async function buildTitle(dir: string, source: string): Promise<string> {
     translated: functions.map((f) => f.address),
     out: join(dir, "program"),
     base: 0,
-    profile: "ctr",
+    profile,
+    ...(devices !== undefined ? { devices } : {}),
   });
   return outcome.executable;
 }
@@ -279,6 +285,40 @@ void title(void) {
 }
 __attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
 `;
+
+// A bare-metal program (no operating system): it prints and stops through ARM semihosting, and drives a device
+// through registers in the hardware window, which nothing serves here: they act as memory and are logged.
+const BARE_PROGRAM = `
+typedef unsigned u32;
+static u32 semihost(u32 op, u32 arg) {
+  register u32 r0 __asm__("r0") = op, r1 __asm__("r1") = arg;
+  __asm__ volatile("svc 0x123456" : "+r"(r0) : "r"(r1) : "memory");
+  return r0;
+}
+#define UART ((volatile u32 *)0x1C090000u)
+void main_c(void) {
+  semihost(4, (u32)"bare up\\n");
+  UART[0] = 'a'; UART[0] = 'b'; UART[0] = 'c';
+  int ok = UART[0] == 'c' && UART[6] == 0 && UART[6] == 0;
+  if (ok) semihost(4, (u32)"ok\\n");
+  semihost(0x18, ok ? 0x20026 : 0x20023);
+}
+__attribute__((naked)) void _start(void) { __asm__("bl main_c\\n b ."); }
+`;
+
+describe.runIf(python !== undefined && armClang())("crosslinkProgram, bare profile", () => {
+  it("runs a program with no operating system: semihosting, and registers logged as unserved", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-bare-"));
+    const program = await buildTitle(dir, BARE_PROGRAM, "bare", [0x1c000000, 0x1d000000]);
+    const log = join(dir, "unserved.txt");
+    const run = spawnSync(program, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
+    expect(run.stdout).toBe("bare up\nok\n");
+    expect(run.status).toBe(0);
+    expect(readFileSync(log, "utf8")).toBe(
+      "3 device write 0x1c090000\n2 device read 0x1c090018\n1 device read 0x1c090000\n",
+    );
+  }, 300_000);
+});
 
 describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profile", () => {
   it("runs a title's threads in priority order, with their events, semaphores, arbiters and mutexes", async () => {

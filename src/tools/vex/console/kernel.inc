@@ -86,7 +86,7 @@ static void console_service_register(const char *name, console_handler handler) 
 /* ---- What the program asked for that is not served: what (a system call, a service's command, an import, a
  * register), which one, how many times. Written at exit, most asked first: what a title needs, read rather than
  * guessed. ATLAS_UNSERVED=<file>: one line each, "count what id"; otherwise a summary on standard error. */
-struct console_unserved_entry { const char *what; uint32_t id; uint64_t count; };
+struct console_unserved_entry { const char *what; uint32_t id; uint64_t count; int first; };
 #define CONSOLE_UNSERVED 1024
 static struct console_unserved_entry console_unserved_log[CONSOLE_UNSERVED];
 static int console_unserved_count;
@@ -99,12 +99,13 @@ static void console_unserved(const char *what, uint32_t id) {
     }
   }
   if (console_unserved_count < CONSOLE_UNSERVED)
-    console_unserved_log[console_unserved_count++] = (struct console_unserved_entry){strdup(what), id, 1};
+    console_unserved_log[console_unserved_count++] = (struct console_unserved_entry){strdup(what), id, 1, console_unserved_count};
 }
 
 static int console_unserved_order(const void *a, const void *b) {
   const struct console_unserved_entry *x = a, *y = b;
-  return x->count < y->count ? 1 : x->count > y->count ? -1 : 0;
+  if (x->count != y->count) return x->count < y->count ? 1 : -1;
+  return x->first - y->first; /* equal counts: in the order first asked (qsort alone is not stable) */
 }
 
 static void console_unserved_write(void) {

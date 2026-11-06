@@ -82,15 +82,32 @@ uint8_t *atlas_page(atlas_state *s, uint64_t a);
     else for (unsigned i = 0; i < N / 8; i++) atlas_page(s, a + i)[(a + i) & 0xfff] = b[i]; \
   }
 #else
+/* ATLAS_DEVICE_LOW and ATLAS_DEVICE_HIGH (a machine's hardware registers, console/devices.inc): accesses in
+ * [low, high) go to the program's devices instead of memory, values as the guest sees them (byte order applied). One
+ * comparison per access, and none at all when the machine has no such window. */
+#ifdef ATLAS_DEVICE_LOW
+uint64_t atlas_device_load(atlas_state *s, uint64_t a, unsigned size);
+void atlas_device_store(atlas_state *s, uint64_t a, unsigned size, uint64_t v);
+#define ATLAS_DEVICE(a) ((uint64_t)(a) - (uint64_t)ATLAS_DEVICE_LOW < (uint64_t)ATLAS_DEVICE_HIGH - ATLAS_DEVICE_LOW)
+#else
+#define ATLAS_DEVICE(a) 0
+#define atlas_device_load(s, a, n) 0
+#define atlas_device_store(s, a, n, v) ((void)0)
+#endif
 #define ATLAS_LOAD(N)                                                         \
   static inline uint##N##_t atlas_load##N(atlas_state *s, uint64_t a) {       \
     uint##N##_t v;                                                            \
     if (ATLAS_OUTSIDE(a, sizeof v)) return 0;                                 \
+    if (ATLAS_DEVICE(a)) return (uint##N##_t)atlas_device_load(s, a, N / 8);  \
     memcpy(&v, ATLAS_HOST(a), sizeof v);                                      \
     return SWAP##N(v);                                                        \
   }                                                                           \
   static inline void atlas_store##N(atlas_state *s, uint64_t a, uint##N##_t v) { \
     if (ATLAS_OUTSIDE(a, sizeof v)) return;                                   \
+    if (ATLAS_DEVICE(a)) {                                                    \
+      atlas_device_store(s, a, N / 8, v);                                     \
+      return;                                                                 \
+    }                                                                         \
     v = SWAP##N(v);                                                           \
     memcpy(ATLAS_HOST(a), &v, sizeof v);                                      \
   }
