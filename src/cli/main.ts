@@ -104,7 +104,7 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   infer types [--binary <bin_>]     struct types assembled from the inferred fields: arguments that access
                                     mostly the same fields share one struct (ty_ nodes, type hypotheses)
   record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]...
-                   [--vary <regex>]... [-- <args>]
+                   [--vary <regex>]... [--each <dir>] [-- <args>]
                                     RUN the original twice on a scenario (fresh directory, fixed environment):
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
@@ -190,6 +190,7 @@ async function main(argv: string[]): Promise<number> {
         timeout: { type: "string" },
         vary: { type: "string", multiple: true },
         rounds: { type: "string" },
+        each: { type: "string" },
         seed: { type: "string" },
         out: { type: "string" },
         link: { type: "boolean" },
@@ -358,6 +359,7 @@ async function main(argv: string[]): Promise<number> {
           ...(values.env !== undefined ? { env: values.env } : {}),
           ...(values.timeout !== undefined ? { timeout: values.timeout } : {}),
           ...(values.vary !== undefined ? { vary: values.vary } : {}),
+          ...(values.each !== undefined ? { each: values.each } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
         break;

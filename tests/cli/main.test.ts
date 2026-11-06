@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -356,4 +356,53 @@ describe("atlas CLI", () => {
     expect(code).toBe(1);
     expect(out).toMatchObject({ error: { code: "no_engine", message: expect.stringContaining("scripts/setup.sh") } });
   });
+});
+
+describe("atlas record behaviour --each", () => {
+  it("records one behaviour per file of a directory, the file's name in place of {}", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-each-"));
+    const suite = join(dir, "suite");
+    mkdirSync(suite);
+    for (const [name, text] of [
+      ["a.txt", "first\n"],
+      ["b.txt", "second\n"],
+      ["c.txt", "third\n"],
+    ]) {
+      writeFileSync(join(suite, name as string), text as string);
+    }
+    const store = new GraphStore(join(dir, "g.sqlite"));
+    const cat = "/bin/cat";
+    const { fileSha256 } = await import("../../src/orchestrator/file-hash.js");
+    const { binaryId } = await import("../../src/orchestrator/load-binary.js");
+    store.putNode({ schema_version: 1, id: binaryId(await fileSha256(cat)), kind: "binary", architecture: "x86_64" });
+    store.close();
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        cli,
+        "record",
+        "behaviour",
+        cat,
+        "--each",
+        suite,
+        "--graph",
+        join(dir, "g.sqlite"),
+        "--json",
+        "--",
+        "{}",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(r.status).toBe(0);
+    const out = JSON.parse(r.stdout) as { recorded: string[]; unstable: string[] };
+    expect(out.recorded).toHaveLength(3);
+    expect(out.unstable).toEqual([]);
+    const check = new GraphStore(join(dir, "g.sqlite"));
+    const outputs = out.recorded.map(
+      (id) => (check.getHypothesis(id)?.value as { expected: { stdout: { text: string } } }).expected.stdout.text,
+    );
+    expect(outputs.sort()).toEqual(["first\n", "second\n", "third\n"]);
+    check.close();
+  }, 60_000);
 });

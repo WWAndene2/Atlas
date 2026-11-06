@@ -5,8 +5,8 @@
 // <reconstruction>: mutants of the recorded inputs on which the two differ, recorded as behaviours. atlas coverage
 // behaviour <original>: the translated functions the recorded behaviours reach. atlas copy behaviour <reference>
 // <target>: behaviours of one build carried to another build of the same program.
-import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
 import { NotFoundError } from "../../orchestrator/function-context.js";
 import { InvalidScenarioError, recordBehaviour, UnstableBehaviourError } from "../../orchestrator/record-behaviour.js";
@@ -25,12 +25,13 @@ export interface RecordOptions {
   env?: string[];
   timeout?: string;
   vary?: string[];
+  each?: string;
   agent?: string;
 }
 
 const RECORD_USAGE =
   "usage: atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... " +
-  "[--env K=V]... [--timeout <seconds>] [--vary <regex>]... [-- <arguments>] (runs the program: only one you chose to run)";
+  "[--env K=V]... [--timeout <seconds>] [--vary <regex>]... [--each <dir>] [-- <arguments>] (runs the program: only one you chose to run; with --each, one scenario per file, {} in the arguments its name)";
 
 export async function runRecordBehaviour(store: GraphStore, args: string[], options: RecordOptions): Promise<Output> {
   const [what, program, ...argv] = args;
@@ -57,6 +58,7 @@ export async function runRecordBehaviour(store: GraphStore, args: string[], opti
     ...(timeout !== undefined ? { timeout_s: timeout } : {}),
     ...(options.vary !== undefined && options.vary.length > 0 ? { vary: options.vary } : {}),
   };
+  if (options.each !== undefined) return recordEach(store, program, scenario, options.each, options.agent);
   try {
     const { hypothesis, created } = await recordBehaviour(store, program, scenario, options.agent);
     const exit = (hypothesis.value as { expected: { exit: number | string } }).expected.exit;
@@ -70,6 +72,48 @@ export async function runRecordBehaviour(store: GraphStore, args: string[], opti
     if (error instanceof InvalidScenarioError) throw new CliError("usage", error.message);
     throw error;
   }
+}
+
+/**
+ * --each <dir>: one scenario per file of the directory (a test suite), the file added to the inputs and every {} in
+ * the arguments replaced by its name. A scenario the program does not repeat is counted and skipped, so one flaky
+ * test does not stop the suite.
+ */
+async function recordEach(
+  store: GraphStore,
+  program: string,
+  base: Scenario,
+  dir: string,
+  agent: string | undefined,
+): Promise<Output> {
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new CliError("not_found", `no directory ${dir}`);
+  const files = readdirSync(dir)
+    .filter((f) => statSync(join(dir, f)).isFile())
+    .sort();
+  if (!base.argv.some((a) => a.includes("{}"))) {
+    throw new CliError("usage", "--each: name the file in the arguments with {} (e.g. -- {} for a script)");
+  }
+  const recorded: string[] = [];
+  const unstable: string[] = [];
+  for (const file of files) {
+    const scenario: Scenario = {
+      ...base,
+      argv: base.argv.map((a) => a.split("{}").join(file)),
+      inputs: [...(base.inputs ?? []), { name: file, content: encode(readFileSync(join(dir, file))) }],
+    };
+    try {
+      recorded.push((await recordBehaviour(store, program, scenario, agent)).hypothesis.id);
+    } catch (error) {
+      if (!(error instanceof UnstableBehaviourError)) throw error;
+      unstable.push(file);
+    }
+  }
+  return {
+    data: { recorded, unstable },
+    text:
+      `${recorded.length} of ${files.length} files recorded as behaviours` +
+      (unstable.length > 0 ? `; not repeatable, skipped: ${unstable.join(", ")}` : ""),
+  };
 }
 
 export async function runVerifyBehaviour(store: GraphStore, args: string[]): Promise<Output> {
