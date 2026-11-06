@@ -184,11 +184,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   integer and floating-point arguments their own registers in order: x0-x5 become rdi..r9, x6, x7 and the stack
   arguments the host's stack arguments, d0-d7 xmm0-7 (variadic ones too); x0, x1, d0, d1 come back. setjmp and
   longjmp use AArch64's registers (`jumps.py`); AArch64's global `__stack_chk_guard`, which x86-64's C library
-  does not export, is a variable of the program. A guest function handed to qsort or bsearch is replaced by a host
-  stub bound to it, which enters the guest (System V arguments to x0-x5 and d0-d7, the guest state saved and
+  does not export, is a variable of the program. A guest function handed to qsort, bsearch or an exit handler
+  registration (`__cxa_atexit`, which glibc's atexit calls, `on_exit`) is replaced by a host stub bound to it, which enters the guest (System V arguments to x0-x5 and d0-d7, the guest state saved and
   restored around it, the stack moved 256 bytes down); on x86-64 guests (`link.py`) nothing is needed, the
   original's code being mapped executable at its own addresses. Limits: no other import calls guest code (sigaction
-  installs nothing, so a signal acts by default; atexit with a guest handler would stop at exit);
+  installs nothing, so a signal acts by default);
   verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
   ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,

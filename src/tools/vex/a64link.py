@@ -12,8 +12,9 @@ guest pointer is a host pointer), relocations applied as the dynamic loader woul
 for each import. Only the calling convention differs, and both give integer and floating-point arguments their own
 registers in order: the guest's x0-x5 become rdi..r9, x6, x7 and the stack arguments the host's stack arguments,
 d0-d7 xmm0-7 (variadic ones too: AArch64 Linux passes them as named ones); x0, x1 and d0, d1 take rax, rdx and
-xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. A guest function handed to qsort
-or bsearch is replaced by a host stub bound to it, which enters the guest with the conversion the other way. Signal handlers are guest code, so
+xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. A guest function handed to qsort,
+bsearch or an exit handler registration is replaced by a host stub bound to it, which enters the guest with the
+conversion the other way. Signal handlers are guest code, so
 sigaction records nothing and succeeds (a signal then acts by default). Data the host's C library does not export
 (AArch64's __stack_chk_guard, a global there) is a variable of the program. setjmp and longjmp run in the
 translated caller's frame (jumps.py, AArch64 registers). The program starts at the entry, whose call to
@@ -30,8 +31,9 @@ import cle
 from jumps import A64_ARGS, A64_FRAME, A64_SAVED, LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
 from link import ENTER_GUEST, TRAMPOLINE
 
-# Imports that call a function the guest passes them (the argument's position): qsort's and bsearch's comparison.
-CALLBACK_ARGS = {"qsort": 3, "bsearch": 4}
+# Imports that call a function the guest passes them (the argument's position): qsort's and bsearch's comparison,
+# and the handlers run at exit (glibc's atexit is linked into the program and registers through __cxa_atexit).
+CALLBACK_ARGS = {"qsort": 3, "bsearch": 4, "atexit": 0, "__cxa_atexit": 0, "on_exit": 0}
 CALLBACK_SLOTS = 64
 
 # Data imports the host's C library does not have, and their initial value.

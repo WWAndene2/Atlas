@@ -257,14 +257,16 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
   }, 600_000);
 });
 
-// An x86-64 Linux program handing its own comparison function to the C library (qsort, bsearch): link.py maps the
+// An x86-64 Linux program handing its own functions to the C library (qsort, bsearch, atexit): link.py maps the
 // original's code at its own addresses, executable, so the library calls the function's original machine code, which
 // runs as it is on an x86-64 host.
 const CALLBACK_PROGRAM = `
 #include <stdio.h>
 #include <stdlib.h>
 static int descending(const void *a, const void *b) { return *(const int *)b - *(const int *)a; }
+static void bye(void) { puts("bye"); }
 int main(void) {
+  atexit(bye);
   int v[] = {5, 1, 9, 3, 7, 2, 8};
   qsort(v, 7, sizeof v[0], descending);
   for (int i = 0; i < 7; i++) printf("%d ", v[i]);
@@ -276,7 +278,7 @@ int main(void) {
 `;
 
 describe.runIf(python !== undefined)("linkProgram", () => {
-  it("lets the host's C library call a function of the program it was handed (qsort, bsearch)", async () => {
+  it("lets the host's C library call a function of the program it was handed (qsort, bsearch, atexit)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-callback-test-"));
     writeFileSync(join(dir, "p.c"), CALLBACK_PROGRAM);
     execFileSync("gcc", ["-O1", "-fcf-protection=none", "p.c", "-o", "p"], { cwd: dir });
@@ -302,13 +304,13 @@ describe.runIf(python !== undefined)("linkProgram", () => {
       base,
     });
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
-    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\n");
+    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\nbye\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });
 
 describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram callbacks", () => {
-  it("lets the host's C library call an AArch64 function it was handed (qsort, bsearch)", async () => {
+  it("lets the host's C library call an AArch64 function it was handed (qsort, bsearch, atexit)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-a64-callback-test-"));
     writeFileSync(join(dir, "p.c"), CALLBACK_PROGRAM);
     execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p"], { cwd: dir });
@@ -332,7 +334,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
       base,
     });
     const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
-    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\n");
+    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\nbye\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });
