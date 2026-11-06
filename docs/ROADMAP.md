@@ -176,7 +176,7 @@ what the original prints on 13 scripts, and on a larger one in 20 of 20 runs wit
 memory. Then the C library's ctype tables and setjmp in the check (66 of 80 x86-64 functions same, 0 different),
 and the check on ARM, MIPS and PowerPC (angr runs the original; calling conventions by table; generated inputs,
 these binaries not running here): of 40 Lua functions each, 18, 9 and 9 same, none different, the rest stopped
-at untranslated callees or, on MIPS, traps. Then verified rewrites replacing their translations in the linked program (`src/tools/vex/rewrites.py`): of Lua's 111, 61 linked (48 need the original's data, 2 call through function pointers), output still the original's on 13 scripts and in 10 of 10 garbage-filled runs. Next, in order: Lua's own test suite and a second program, then a link for guests on another CPU (platform services
+at untranslated callees or, on MIPS, traps. Then verified rewrites replacing their translations in the linked program (`src/tools/vex/rewrites.py`): of Lua's 111, 102 linked once names come from name hypotheses too and the program is linked at fixed addresses when the original's image allows (its globals then reached by DAT_<address>); 6 need other data, 3 call through function pointers, output still the original's on 13 scripts and in 10 of 10 garbage-filled runs. Next, in order: Lua's own test suite and a second program, then a link for guests on another CPU (platform services
 emulated, the console case).
 
 ### Behaviour, assets and what a whole program must do (decided 5 November 2026)

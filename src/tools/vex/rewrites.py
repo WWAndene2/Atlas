@@ -14,13 +14,14 @@ import os
 import subprocess
 
 
-def compile_rewrite(rewrite, work, cc="gcc"):
+def compile_rewrite(rewrite, work, cc="gcc", fixed=False):
     """Compiles one rewrite to an object; returns its path and the symbols it leaves undefined."""
     obj = os.path.join(work, f"rewrite_{rewrite['address']:x}.o")
     src = os.path.join(work, f"rewrite_{rewrite['address']:x}.c")
     with open(src, "w") as f:
         f.write(rewrite["source"])
-    subprocess.run([cc, *rewrite["flags"], "-fPIE", "-c", src, "-o", obj], check=True, capture_output=True)
+    position = ["-fno-pie"] if fixed else ["-fPIE"]
+    subprocess.run([cc, *rewrite["flags"], *position, "-c", src, "-o", obj], check=True, capture_output=True)
     listed = subprocess.run(["nm", "-u", obj], check=True, capture_output=True, text=True).stdout
     undefined = [line.split()[-1] for line in listed.splitlines() if line.strip()]
     return obj, undefined
@@ -40,22 +41,24 @@ def host_library_functions():
     return out
 
 
-def prepare(rewrites, functions, work):
+def prepare(rewrites, functions, work, fixed=False):
     """Which rewrites can be linked, and how.
 
     rewrites: [{"address": int, "name": str, "source": str, "flags": [str]}]; functions: the binary's functions by
     name (labels and name hypotheses) to their address. Returns (usable, skipped): usable entries carry the object,
-    the renamed symbol and the callees to stub (name to address); skipped ones the reason.
+    the renamed symbol, the callees to stub (name to address) and the data symbols to define (name to address);
+    skipped ones the reason. fixed: the program is linked at fixed addresses (no PIE), so a rewrite's DAT_<address>
+    symbols can be defined as the original's addresses.
     """
     library = host_library_functions()
     usable, skipped = [], []
     for r in rewrites:
         try:
-            obj, undefined = compile_rewrite(r, work)
+            obj, undefined = compile_rewrite(r, work, fixed=fixed)
         except subprocess.CalledProcessError as error:
             skipped.append({"address": r["address"], "reason": f"does not compile for the host: {error.stderr[:200]}"})
             continue
-        callees, missing = {}, []
+        callees, data, missing = {}, {}, []
         for sym in undefined:
             # The library first: the binary's PLT stubs carry the imports' names, and those go to the library.
             if sym in library or sym.startswith("_GLOBAL_OFFSET_TABLE_"):
@@ -64,6 +67,8 @@ def prepare(rewrites, functions, work):
                 callees[sym] = functions[sym]
             elif sym.startswith("FUN_") and all(c in "0123456789abcdefABCDEF" for c in sym[4:]):
                 callees[sym] = int(sym[4:], 16)
+            elif fixed and sym.startswith("DAT_") and all(c in "0123456789abcdefABCDEF" for c in sym[4:]):
+                data[sym] = int(sym[4:], 16)
             else:
                 missing.append(sym)
         if missing:
@@ -79,5 +84,5 @@ def prepare(rewrites, functions, work):
         symbol = f"atlas_rewrite_{r['address']:x}"
         renamed = obj[:-2] + ".renamed.o"
         subprocess.run(["objcopy", "--redefine-sym", f"{r['name']}={symbol}", obj, renamed], check=True)
-        usable.append({"address": r["address"], "object": renamed, "symbol": symbol, "callees": callees})
+        usable.append({"address": r["address"], "object": renamed, "symbol": symbol, "callees": callees, "data": data})
     return usable, skipped

@@ -82,8 +82,14 @@ def main():
         elif kind.endswith("COPY") and r.symbol is not None:
             copies.append((r.relative_addr, index[r.symbol.name], r.symbol.size))
     translated = [int(a) for a in request["translated"]]
+    # Linked at fixed addresses when the original's image lies below where a fixed-address host program loads
+    # (0x400000): rewrites then reach the original's globals by address (their DAT_<address> symbols).
+    fixed = max(seg.vaddr + seg.memsize for seg in obj.segments) < 0x400000
     usable, skipped = prepare(request.get("rewrites", []), request.get("functions", {}),
-                              os.path.dirname(os.path.abspath(request["out"])))
+                              os.path.dirname(os.path.abspath(request["out"])), fixed=fixed)
+    data = {}
+    for r in usable:
+        data.update(r["data"])
     rewritten = {r["address"]: r for r in usable}
     callees = {}
     for r in usable:
@@ -246,8 +252,11 @@ int main(int argc, char **argv, char **envp) {{
         f.write(c)
     with open(out + ".setjmp.h", "w") as f:
         f.write(SETJMP_HEADER)
-    subprocess.run(["gcc", "-O1", "-w", "-I", request["runtime"], "-include", out + ".setjmp.h", *request["lifted"],
-                    out + ".main.c", *[r["object"] for r in usable], "-o", out, "-ldl", "-lm"], check=True)
+    position = ["-fno-pie", "-no-pie"] if fixed else []
+    symbols = [f"-Wl,--defsym={n}={a:#x}" for n, a in sorted(data.items())]
+    subprocess.run(["gcc", "-O1", "-w", *position, "-I", request["runtime"], "-include", out + ".setjmp.h",
+                    *request["lifted"], out + ".main.c", *[r["object"] for r in usable], *symbols, "-o", out,
+                    "-ldl", "-lm"], check=True)
     unresolved = []
     print(json.dumps({"executable": out, "imports": len(imports), "unresolved": unresolved,
                       "rewrites": len(usable), "rewrites_skipped": skipped}))
