@@ -113,7 +113,7 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   scenario: the same outcome makes it `verified` (check `replay`, the reconstruction named by its SHA-256), a
   difference keeps it `observed` with where the two part. A reconstruction runs with the scenario's time limit
   widened 20 times (`RECONSTRUCTION_SLOWDOWN`): translated code is slower (Lua's `constructs.lua` test, 1.2 s
-  natively, 61 s translated), and a slow but right program must not read as a hang. MCP: `record_behaviour`, `verify_behaviour`.
+  natively, 20 s translated), and a slow but right program must not read as a hang. MCP: `record_behaviour`, `verify_behaviour`.
   `--each <dir>` records a test suite in one command: one scenario per file of the directory, the file among the
   inputs and every `{}` in the arguments replaced by its name; a file the program does not repeat is skipped and
   named. Lua 5.4.7's own suite (27 files, basic mode, `tracegc.lua` and `bwcoercion.lua` as shared inputs; archive

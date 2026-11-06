@@ -173,7 +173,7 @@ export function differences(expected: Outcome, got: Outcome, vary: string[] = []
 
 /**
  * How much longer than the scenario's time limit a reconstruction may run: translated code is slower than the
- * original's (Lua's constructs.lua test: 1.2 s natively, 61 s translated), and a reconstruction that is slow but
+ * original's (Lua's constructs.lua test: 1.2 s natively, 20 s translated), and a reconstruction that is slow but
  * right must not read as a hang.
  */
 export const RECONSTRUCTION_SLOWDOWN = 20;
