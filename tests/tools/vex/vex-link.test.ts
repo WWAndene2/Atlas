@@ -306,3 +306,33 @@ describe.runIf(python !== undefined)("linkProgram", () => {
     expect(run.status).toBe(0);
   }, 600_000);
 });
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram callbacks", () => {
+  it("lets the host's C library call an AArch64 function it was handed (qsort, bsearch)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-callback-test-"));
+    writeFileSync(join(dir, "p.c"), CALLBACK_PROGRAM);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "p"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stdout).toBe("9 8 7 5 3 2 1 | 3 at 4\n");
+    expect(run.status).toBe(0);
+  }, 600_000);
+});

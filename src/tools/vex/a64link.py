@@ -12,7 +12,8 @@ guest pointer is a host pointer), relocations applied as the dynamic loader woul
 for each import. Only the calling convention differs, and both give integer and floating-point arguments their own
 registers in order: the guest's x0-x5 become rdi..r9, x6, x7 and the stack arguments the host's stack arguments,
 d0-d7 xmm0-7 (variadic ones too: AArch64 Linux passes them as named ones); x0, x1 and d0, d1 take rax, rdx and
-xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. Signal handlers are guest code, so
+xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. A guest function handed to qsort
+or bsearch is replaced by a host stub bound to it, which enters the guest with the conversion the other way. Signal handlers are guest code, so
 sigaction records nothing and succeeds (a signal then acts by default). Data the host's C library does not export
 (AArch64's __stack_chk_guard, a global there) is a variable of the program. setjmp and longjmp run in the
 translated caller's frame (jumps.py, AArch64 registers). The program starts at the entry, whose call to
@@ -27,7 +28,11 @@ import archinfo
 import cle
 
 from jumps import A64_ARGS, A64_FRAME, A64_SAVED, LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
-from link import TRAMPOLINE
+from link import ENTER_GUEST, TRAMPOLINE
+
+# Imports that call a function the guest passes them (the argument's position): qsort's and bsearch's comparison.
+CALLBACK_ARGS = {"qsort": 3, "bsearch": 4}
+CALLBACK_SLOTS = 64
 
 # Data imports the host's C library does not have, and their initial value.
 OWN_DATA = {"__stack_chk_guard": 0x2F8D6E1A5C4B3907}
@@ -92,6 +97,30 @@ static void call_host(atlas_state *s, void *fn) {{
 }}
 
 {jumps_c(off, A64_ARGS, A64_SAVED, size, **A64_FRAME)}
+{ENTER_GUEST}
+/* A guest function handed to the library (qsort's comparison): stub k enters the guest at callback_target[k]. */
+static uint64_t callback_target[{CALLBACK_SLOTS}];
+static int callback_count;
+{nl.join(f'__attribute__((naked)) static void callback_stub_{k}(void) {{ __asm__ volatile("movabs ${k:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}' for k in range(CALLBACK_SLOTS))}
+static void *const callback_stub[{CALLBACK_SLOTS}] = {{{", ".join(f"(void *)callback_stub_{k}" for k in range(CALLBACK_SLOTS))}}};
+static const int callback_arg[{len(imports) or 1}] = {{{", ".join(str(CALLBACK_ARGS.get(n, -1)) for n in imports) or "-1"}}};
+static atlas_state *main_state;
+/* The library calling stub k: its System V arguments become x0-x5 and d0-d7, the guest state is saved and
+ * restored around the call, and x0 or d0 is its result. */
+void atlas_enter_guest(uint64_t *frame, uint64_t k) {{
+  atlas_state *s = main_state;
+  static uint8_t saved[64][sizeof s->r];
+  static int depth;
+  if (depth == 64) {{ fprintf(stderr, "atlas: callbacks nested too deep\\n"); abort(); }}
+  memcpy(saved[depth++], s->r, sizeof s->r);
+  for (int i = 0; i < 6; i++) REG(uint64_t, X0 + 8 * i) = frame[i];
+  for (int i = 0; i < 8; i++) memcpy(s->r + Q0 + 16 * i, (uint8_t *)frame + 48 + 16 * i, 16);
+  REG(uint64_t, SP) = (REG(uint64_t, SP) - 256) & ~15ULL;
+  atlas_call(s, callback_target[k]);
+  frame[0] = REG(uint64_t, X0);
+  memcpy((uint8_t *)frame + 48, s->r + Q0, 16);
+  memcpy(s->r, saved[--depth], sizeof s->r);
+}}
 static int import_of(uint64_t target) {{
   switch (target) {{
 {nl.join(f"    case {a:#x}ULL: return {i};" for a, i in sorted(plt.items()))}
@@ -129,6 +158,20 @@ void atlas_call(atlas_state *s, uint64_t target) {{
     return;
   }}
   if (!import_host[i]) {{ fprintf(stderr, "atlas: import %s not found on this host\\n", name); abort(); }}
+  if (callback_arg[i] >= 0) {{
+    /* A guest function handed over (an address in the image; the host's own functions are left alone): the
+     * library gets the stub bound to it. */
+    uint64_t fn = REG(uint64_t, X0 + 8 * callback_arg[i]);
+    if (fn >= {min(v for v, *_ in segs):#x}ULL && fn < {max(v + m for v, m, *_ in segs):#x}ULL) {{
+      int k = 0;
+      while (k < callback_count && callback_target[k] != fn) k++;
+      if (k == callback_count) {{
+        if (k == {CALLBACK_SLOTS}) {{ fprintf(stderr, "atlas: more than {CALLBACK_SLOTS} guest callbacks\\n"); abort(); }}
+        callback_target[callback_count++] = fn;
+      }}
+      REG(uint64_t, X0 + 8 * callback_arg[i]) = (uint64_t)(uintptr_t)callback_stub[k];
+    }}
+  }}
   call_host(s, import_host[i]);
 }}
 void atlas_trap(atlas_state *s, uint64_t at, int kind) {{
@@ -166,6 +209,7 @@ int main(int argc, char **argv, char **envp) {{
     if (slots[k][0]) *(uint64_t *)(uintptr_t)slots[k][0] = (uint64_t)(uintptr_t)import_host[slots[k][1]] + slots[k][2];
   static atlas_state st;
   atlas_state *s = &st;
+  main_state = s;
   /* The guest's stack: 8 MiB of host memory; argc, argv and envp in place as the kernel lays them. */
   uint8_t *stack = mmap(NULL, 8 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   uint64_t sp = ((uint64_t)(uintptr_t)(stack + (8 << 20) - 4096)) & ~15ULL;
