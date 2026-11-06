@@ -163,7 +163,7 @@ describe.runIf(python !== undefined && has("x86_64-w64-mingw32-gcc") && has("x86
     it("runs a Windows x64 program on this Linux host, its C library and kernel32 served", async () => {
       const dir = mkdtempSync(join(tmpdir(), "atlas-winlink-test-"));
       writeFileSync(join(dir, "p.c"), WINDOWS_PROGRAM);
-      execFileSync("x86_64-w64-mingw32-gcc", ["-O2", "p.c", "-o", "p.exe"], { cwd: dir });
+      execFileSync("x86_64-w64-mingw32-gcc", ["-O2", "-D__USE_MINGW_ANSI_STDIO=0", "p.c", "-o", "p.exe"], { cwd: dir });
       writeFileSync(join(dir, "functions.py"), PE_FUNCTIONS);
       const functions = JSON.parse(
         execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p.exe"), "x86_64-w64-mingw32-nm"], {
