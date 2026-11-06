@@ -103,10 +103,14 @@ describe("recompileCheck with the original's address", () => {
   // only the address check tells the right global from another.
   const global = "extern double DAT_00002000;\ndouble get(void) { return DAT_00002000; }";
   const compiled = compiledBytes(global, "get");
+  // movsd disp32(%rip) (f2 0f 10 05), after an endbr64 where the compiler adds one: the field follows the opcode,
+  // relative to the end of the 8-byte instruction.
+  const start = compiled.findIndex(
+    (_, i) => compiled[i] === 0xf2 && compiled[i + 1] === 0x0f && compiled[i + 3] === 0x05,
+  );
   const at = (target: number) => {
-    // movsd disp32(%rip): the field at offset 4, relative to the end of the 8-byte instruction.
     const bytes = new Uint8Array(compiled);
-    new DataView(bytes.buffer).setInt32(4, target - (0x1000 + 8), true);
+    new DataView(bytes.buffer).setInt32(start + 4, target - (0x1000 + start + 8), true);
     return bytes;
   };
   const check = (original: Uint8Array) =>
