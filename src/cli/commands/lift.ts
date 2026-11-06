@@ -37,7 +37,7 @@ export async function runLift(
       const base = link ? linkBase(b.input.path) : 0;
       const lifted = await liftBinary(store, binary, dir, b.input.raw === undefined ? b.input.path : undefined, base);
       // With --link, the translations and the verified rewrites become one program (x86-64 on x86-64; a 32-bit
-      // ARM program as a guest of another CPU, translations only).
+      // ARM program as a guest of another CPU and a Windows x64 program, translations only).
       const linked = link ? await linkBinary(store, binary, b.input.path, dir, lifted.addresses) : undefined;
       results.push({ label: b.label, ...lifted, ...(linked !== undefined ? { linked } : {}) });
     }
@@ -53,7 +53,8 @@ export async function runLift(
             ? ""
             : `\n  linked: ${r.linked.executable}, ${r.linked.rewrites} verified rewrites in place of their translations` +
               ` (${r.linked.rewrites_skipped.length} kept as translations)`;
-        return `${r.label}: ${r.translated} of ${r.functions} functions translated to C in ${r.files[0]?.replace(/\/[^/]+$/, "")}${reasons ? ` (not: ${reasons})` : ""}${linked}`;
+        const extra = r.extra > 0 ? `, and ${r.extra} the graph does not have (from the image's .pdata)` : "";
+        return `${r.label}: ${r.translated - r.extra} of ${r.functions} functions translated to C${extra} in ${r.files[0]?.replace(/\/[^/]+$/, "")}${reasons ? ` (not: ${reasons})` : ""}${linked}`;
       })
       .join("\n");
     return { data: { binaries: results }, text };

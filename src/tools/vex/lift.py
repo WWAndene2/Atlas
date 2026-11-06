@@ -39,6 +39,11 @@ CTYPE = {"Ity_I1": "uint8_t", "Ity_I8": "uint8_t", "Ity_I16": "uint16_t", "Ity_I
          "Ity_V128": "unsigned __int128"}
 # Floating-point and vector operations, implemented in atlas_lift.h under the operation's own name: the lane
 # operations of SSE (Add64F0x2...) on the low lane, comparisons, conversions with VEX's rounding-mode argument.
+# VEX helpers with side effects (Dirty statements) that the runtime (atlas_lift.h) implements, and whether each takes
+# the translation's state first (one that reaches guest memory does: its addresses are guest addresses).
+DIRTY = {"amd64g_dirtyhelper_FINIT": False, "amd64g_dirtyhelper_loadF80le": True,
+         "amd64g_dirtyhelper_storeF80le": True}
+
 RUNTIME_OPS = {
     "Iop_AndV128": "atlas_and_v128", "Iop_OrV128": "atlas_or_v128", "Iop_XorV128": "atlas_xor_v128",
     "Iop_NotV128": "atlas_not_v128", "Iop_64UtoV128": "atlas_64uto_v128", "Iop_32UtoV128": "atlas_32uto_v128",
@@ -58,6 +63,12 @@ RUNTIME_OPS = {
        for w in (8, 16, 32, 64)},
     "Iop_ShlN64x2": "atlas_shln64x2", "Iop_ShrN64x2": "atlas_shrn64x2",
     "Iop_PRemF64": "atlas_premf64", "Iop_PRemC3210F64": "atlas_premc3210f64",
+    "Iop_AtanF64": "atlas_atanf64", "Iop_ScaleF64": "atlas_scalef64", "Iop_Yl2xF64": "atlas_yl2xf64",
+    "Iop_Yl2xp1F64": "atlas_yl2xp1f64", "Iop_SinF64": "atlas_sinf64", "Iop_CosF64": "atlas_cosf64",
+    "Iop_RoundF64toInt": "atlas_round", "Iop_2xm1F64": "atlas_2xm1f64", "Iop_PRem1F64": "atlas_prem1f64",
+    "Iop_PRem1C3210F64": "atlas_prem1c3210f64",
+    "Iop_MAddF64": "atlas_maddf64", "Iop_MSubF64": "atlas_msubf64", "Iop_ZeroHI64ofV128": "atlas_zerohi64ofv128",
+    "Iop_Reverse8sIn64_x2": "atlas_reverse8sin64x2",
     "Iop_ReinterpF64asI64": "atlas_reinterp_f64_i64", "Iop_ReinterpI64asF64": "atlas_reinterp_i64_f64",
     "Iop_ReinterpF32asI32": "atlas_reinterp_f32_i32", "Iop_ReinterpI32asF32": "atlas_reinterp_i32_f32",
 }
@@ -203,7 +214,7 @@ class Function:
             if name is None:
                 raise Unsupported(f"load of {e.ty}")
             return f"LOAD{name}({self.expr(e.addr, tmps)})"
-        if isinstance(e, (pyvex.expr.Binop, pyvex.expr.Unop, pyvex.expr.Triop)) and e.op in RUNTIME_OPS:
+        if isinstance(e, (pyvex.expr.Binop, pyvex.expr.Unop, pyvex.expr.Triop, pyvex.expr.Qop)) and e.op in RUNTIME_OPS:
             return f"{RUNTIME_OPS[e.op]}({', '.join(self.expr(a, tmps) for a in e.args)})"
         if isinstance(e, pyvex.expr.Binop):
             return binop(e.op, *(self.expr(a, tmps) for a in e.args))
@@ -361,6 +372,27 @@ class Function:
                         if ty not in MEMORY:
                             raise Unsupported(f"store of {ty}")
                         body.append(f"      STORE{MEMORY[ty]}({self.expr(st.addr, tmps)}, {self.expr(st.data, tmps)});")
+                    elif isinstance(st, pyvex.stmt.Dirty):
+                        # A helper with side effects on the guest state (x87's fninit...): called as VEX would, with
+                        # the guest state for GSPTR; the runtime implements only the helpers in DIRTY.
+                        if st.cee.name not in DIRTY:
+                            raise Unsupported(f"helper {st.cee.name}")
+                        args = ", ".join("s->r" if isinstance(x, pyvex.expr.GSPTR) else self.expr(x, tmps)
+                                         for x in st.args)
+                        call = f"{st.cee.name}({'s, ' if DIRTY[st.cee.name] else ''}{args})"
+                        if st.tmp != 0xFFFFFFFF:
+                            call = f"t{st.tmp} = {call}"
+                        guard = self.expr(st.guard, tmps)
+                        body.append(f"      if ({guard}) {call};" if guard not in ("1", "((uint8_t)1)") else f"      {call};")
+                    elif isinstance(st, pyvex.stmt.CAS):
+                        # A compare-and-swap (x86's lock cmpxchg): a translated program runs on one thread, so the
+                        # read, the comparison and the write in turn are the same. A double-width CAS is refused.
+                        ty = irsb.tyenv.lookup(st.oldLo)
+                        if st.oldHi != 0xFFFFFFFF or ty not in MEMORY:
+                            raise Unsupported(f"compare-and-swap of {ty}{' pair' if st.oldHi != 0xFFFFFFFF else ''}")
+                        addr = self.expr(st.addr, tmps)
+                        body.append(f"      t{st.oldLo} = LOAD{MEMORY[ty]}({addr}); if (t{st.oldLo} == "
+                                    f"{self.expr(st.expdLo, tmps)}) STORE{MEMORY[ty]}({addr}, {self.expr(st.dataLo, tmps)});")
                     elif isinstance(st, pyvex.stmt.LoadG):
                         # A guarded load (ARM's conditional loads): the converted value if the guard holds, else alt.
                         loaded = {"ILGop_Ident32": "LOAD32", "ILGop_Ident64": "LOAD64", "ILGop_16Uto32": "LOAD16",
@@ -382,6 +414,10 @@ class Function:
                             # A trap the guest raises (division by zero, ud2): the program's atlas_trap decides.
                             kind = TRAPS.get(st.jumpkind, 0)
                             body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {a:#x}ULL, {kind}); return; }}")
+                            continue
+                        if st.jumpkind == "Ijk_EmWarn":
+                            # VEX's warning that the x87 control word asks for what it does not model (a precision
+                            # other than double): the processor goes on, and so does the translation.
                             continue
                         if st.jumpkind == "Ijk_NoDecode":
                             # Thumb: an instruction not allowed inside an IT block (a conditional branch...) comes
@@ -482,6 +518,28 @@ def load(binary, base=0):
     return proj.loader.memory, out, thumb
 
 
+def unlisted_pe_functions(binary, functions):
+    """A Windows x64 image lists every function with unwind data in its exception directory (.pdata): those the
+    request does not have (an engine can miss one, as Ghidra did a function after a call that does not return) are
+    translated too, so a linked program has them (marked "extra" in the output). Not a PE, or none: nothing."""
+    import pefile
+
+    try:
+        pe = pefile.PE(binary, fast_load=True)
+        pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_EXCEPTION"]])
+    except pefile.PEFormatError:
+        return []
+    base = pe.OPTIONAL_HEADER.ImageBase
+    have = {f["address"] for f in functions}
+    out = []
+    for entry in getattr(pe, "DIRECTORY_ENTRY_EXCEPTION", []):
+        start, end = base + entry.struct.BeginAddress, base + entry.struct.EndAddress
+        if start not in have and end > start:
+            code = pe.get_data(entry.struct.BeginAddress, end - start).hex()
+            out.append({"address": start, "code": code, "extra": True})
+    return out
+
+
 def main():
     request = json.load(open(sys.argv[1]))
     arch = archinfo.arch_from_id(request["arch"], request.get("endness", "any"))
@@ -490,7 +548,9 @@ def main():
     base = int(request.get("base", 0))
     memory, targets, thumbs = load(request["binary"], base) if request.get("binary") else (None, set(), set())
     targets = sorted(targets)
-    for f in request["functions"]:
+    functions = list(request["functions"]) + (unlisted_pe_functions(request["binary"], request["functions"])
+                                              if request.get("binary") else [])
+    for f in functions:
         try:
             thumb = bool(f.get("thumb")) or f["address"] + base in thumbs
             try:
@@ -504,7 +564,8 @@ def main():
                     c = Function(arch, f["address"] + base, f["code"], targets, not thumb, memory).translate()
                 except Unsupported:
                     raise reason from None  # the guessed state's reason is the one to report
-            print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)  # the graph's address
+            extra = {"extra": True} if f.get("extra") else {}
+            print(json.dumps({"address": hex(f["address"]), "c": c, **extra}), flush=True)  # the graph's address
         except Unsupported as reason:
             print(json.dumps({"address": hex(f["address"]), "unsupported": str(reason)}), flush=True)
         except Exception as error:  # a translator bug is reported per function, not a crash of the run

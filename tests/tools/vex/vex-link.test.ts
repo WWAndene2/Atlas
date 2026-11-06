@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { locateAngr } from "../../../src/tools/angr/index.js";
-import { crosslinkProgram, liftFunctions } from "../../../src/tools/vex/index.js";
+import { a64linkProgram, crosslinkProgram, liftFunctions, winlinkProgram } from "../../../src/tools/vex/index.js";
 
 function angr(): string | undefined {
   try {
@@ -98,4 +98,155 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram", () => {
       expect(run.status).toBe(7);
     }, 300_000);
   }
+});
+
+function has(tool: string): boolean {
+  return spawnSync("sh", ["-c", `command -v ${tool}`]).status === 0;
+}
+
+// A Windows x64 program (MinGW, msvcrt): Windows' printf sizes (l is 32 bits, I64 64), setjmp and longjmp across
+// frames, files, the environment, atexit and the exit code, all through the services winlink.py links in.
+const WINDOWS_PROGRAM = `
+#include <math.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static jmp_buf env;
+static void deep(int n) { if (n == 0) longjmp(env, 42); deep(n - 1); }
+static void bye(void) { fputs("bye\\n", stdout); }
+int main(int argc, char **argv) {
+  atexit(bye);
+  int got = setjmp(env);
+  if (got == 0) deep(5);
+  long l = -5; long long big = 1LL << 40;
+  fprintf(stdout, "%s|%d|%ld|%I64d|%lld|%5.2f|%x|%c|%%\\n", argv[argc - 1], got, l, big, big, pow(2.0, 0.5), 255u, 'z');
+  FILE *f = fopen(argv[1], "wb");
+  fwrite("abc\\n", 1, 4, f); fclose(f);
+  char buf[16] = {0};
+  f = fopen(argv[1], "rb"); fseek(f, 1, SEEK_SET);
+  fgets(buf, sizeof buf, f); long at = ftell(f); fclose(f); remove(argv[1]);
+  fprintf(stdout, "%s%ld %s\\n", buf, at, getenv("ATLAS_WIN_TEST") ? getenv("ATLAS_WIN_TEST") : "-");
+  return strlen(argv[argc - 1]) == 5 ? 3 : 1;
+}
+`;
+
+// The program's functions from its COFF symbol table (the answer key; the graph supplies them in use), each up to
+// the next: hand-written ones like ___chkstk_ms have no .pdata entry.
+const PE_FUNCTIONS = `
+import json, subprocess, sys
+import pefile
+pe = pefile.PE(sys.argv[1])
+base = pe.OPTIONAL_HEADER.ImageBase
+text = next(s for s in pe.sections if s.Characteristics & 0x20000000)
+lo, hi = base + text.VirtualAddress, base + text.VirtualAddress + text.Misc_VirtualSize
+nm = subprocess.run([sys.argv[2], sys.argv[1]], capture_output=True, text=True, check=True).stdout
+starts = sorted({int(l.split()[0], 16) for l in nm.splitlines() if len(l.split()) == 3 and l.split()[1] in "Tt"})
+starts = [a for a in starts if lo <= a < hi]
+print(json.dumps([{"address": a, "code": pe.get_data(a - base, b - a).hex()} for a, b in zip(starts, starts[1:] + [hi])]))
+`;
+
+describe.runIf(python !== undefined && has("x86_64-w64-mingw32-gcc") && has("x86_64-w64-mingw32-nm"))(
+  "winlinkProgram",
+  () => {
+    it("runs a Windows x64 program on this Linux host, its C library and kernel32 served", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "atlas-winlink-test-"));
+      writeFileSync(join(dir, "p.c"), WINDOWS_PROGRAM);
+      execFileSync("x86_64-w64-mingw32-gcc", ["-O2", "p.c", "-o", "p.exe"], { cwd: dir });
+      writeFileSync(join(dir, "functions.py"), PE_FUNCTIONS);
+      const functions = JSON.parse(
+        execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p.exe"), "x86_64-w64-mingw32-nm"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      ) as { address: number; code: string }[];
+      const lifted = await liftFunctions(python as string, "x86_64", functions, join(dir, "p.exe"));
+      expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+      writeFileSync(
+        join(dir, "lifted.c"),
+        `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
+      );
+      const outcome = await winlinkProgram(python as string, {
+        binary: join(dir, "p.exe"),
+        lifted: [join(dir, "lifted.c")],
+        translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+        out: join(dir, "program"),
+      });
+      expect(outcome.unserved).toEqual([]);
+      const run = spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], {
+        encoding: "utf8",
+        env: { ...process.env, ATLAS_WIN_TEST: "env" },
+      });
+      expect(run.stdout).toBe("hello|42|-5|1099511627776|1099511627776| 1.41|ff|z|%\nbc\n4 env\nbye\n");
+      expect(run.status).toBe(3);
+    }, 600_000);
+  },
+);
+
+// An AArch64 Linux program linked against the C library (as an Android app's native executable is): mixed
+// integer and floating-point arguments, a variadic call with more arguments than registers, setjmp and longjmp
+// across frames, files, the environment, a stack-protected function (AArch64's global __stack_chk_guard) and the
+// exit code, all through the host's C library.
+const A64_PROGRAM = `
+#include <math.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static jmp_buf env;
+static void deep(int n) { if (n == 0) longjmp(env, 42); deep(n - 1); }
+static int guarded(const char *s) { char buf[64]; strncpy(buf, s, sizeof buf - 1); buf[63] = 0; return (int)strlen(buf); }
+int main(int argc, char **argv) {
+  int got = setjmp(env);
+  if (got == 0) deep(5);
+  printf("%s|%d|%ld|%.3f|%d|%d|%d|%d|%d|%d|%.1f|%.1f\\n", argv[argc - 1], got, -5L, pow(2.0, 0.5), 1, 2, 3, 4, 5, 6,
+         ldexp(1.5, 3), frexp(8.0, &got));
+  FILE *f = fopen(argv[1], "w"); fprintf(f, "abc %d\\n", got); fclose(f);
+  char line[32] = {0};
+  f = fopen(argv[1], "r"); fgets(line, sizeof line, f); fclose(f); remove(argv[1]);
+  printf("%s%s %d\\n", line, getenv("ATLAS_A64_TEST") ? getenv("ATLAS_A64_TEST") : "-", guarded(argv[0]) > 0);
+  return 3;
+}
+`;
+
+const ELF_FUNCTIONS = `
+import cle, json, sys
+o = cle.Loader(sys.argv[1], auto_load_libs=False, main_opts={"base_addr": 0}).main_object
+print(json.dumps([{"address": s.relative_addr, "code": o.memory.load(s.relative_addr, s.size).hex()}
+                  for s in o.symbols if s.is_function and s.size and not s.is_import]))
+`;
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram", () => {
+  it("runs an AArch64 Linux program on this x86-64 host, its imports served by the host's C library", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64link-test-"));
+    writeFileSync(join(dir, "p.c"), A64_PROGRAM);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O2", "-fstack-protector-all", "p.c", "-o", "p", "-lm"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    // A position-independent image, mapped at 0x10000000 as atlas lift --link maps one (linkBase).
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "p"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      base,
+    });
+    expect(outcome.own).toEqual(["__stack_chk_guard"]);
+    const run = spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], {
+      encoding: "utf8",
+      env: { ...process.env, ATLAS_A64_TEST: "env" },
+    });
+    expect(run.stdout).toBe("hello|42|-5|1.414|1|2|3|4|5|6|12.0|0.5\nabc 4\nenv 1\n");
+    expect(run.status).toBe(3);
+  }, 600_000);
 });

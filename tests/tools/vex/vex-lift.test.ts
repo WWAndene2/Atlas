@@ -56,8 +56,12 @@ int main(void) {
     expect(() => execFileSync(join(dir, "harness"))).not.toThrow();
   }, 120_000);
   it("reports what it cannot translate instead of translating it wrong", async () => {
-    // cpuid, then ret: VEX models it as a call to a helper with side effects (a Dirty statement), not translated.
+    // cpuid, then ret: VEX models it as a call to a helper with side effects (a Dirty statement); the runtime
+    // implements only some of those (lift.py's DIRTY), so the reason names the helper.
     const [lifted] = await liftFunctions(python as string, "x86_64", [{ address: 0x1000, code: "0fa2c3" }]);
-    expect(lifted).toMatchObject({ address: "0x1000", unsupported: "statement Dirty" });
+    expect(lifted).toMatchObject({
+      address: "0x1000",
+      unsupported: expect.stringMatching(/^helper amd64g_dirtyhelper_CPUID/),
+    });
   }, 60_000);
 });

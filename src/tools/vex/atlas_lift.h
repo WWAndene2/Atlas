@@ -133,6 +133,11 @@ static inline v128 atlas_setv128lo32(v128 a, uint32_t l) { return (a & ~(v128)0x
 /* Interleaves (VEX: the left operand's lanes go high): LO64x2 = [L.lo64 | R.lo64], LO32x4 = L1 R1 L0 R0. */
 static inline v128 atlas_interleavelo64x2(v128 l, v128 r) { return ((v128)(uint64_t)l << 64) | (uint64_t)r; }
 static inline v128 atlas_interleavehi64x2(v128 l, v128 r) { return (l & ((v128)~0ULL << 64)) | (uint64_t)(r >> 64); }
+static inline v128 atlas_zerohi64ofv128(v128 a) { return (uint64_t)a; }
+/* rev64 on a vector: the bytes of each 64-bit lane in reverse order. */
+static inline v128 atlas_reverse8sin64x2(v128 a) {
+  return ((v128)__builtin_bswap64((uint64_t)(a >> 64)) << 64) | __builtin_bswap64((uint64_t)a);
+}
 static inline v128 atlas_lane32(v128 v, int i) { return (uint32_t)(v >> (32 * i)); }
 static inline v128 atlas_interleavelo32x4(v128 l, v128 r) {
   return atlas_lane32(r, 0) | atlas_lane32(l, 0) << 32 | atlas_lane32(r, 1) << 64 | atlas_lane32(l, 1) << 96;
@@ -214,6 +219,31 @@ static inline uint32_t atlas_premc3210f64(uint32_t rm, double a, double b) {
   return (uint32_t)(((q >> 2) & 1) << 8 | (q & 1) << 9 | ((q >> 1) & 1) << 14);
 }
 static inline double atlas_sqrtf64(uint32_t rm, double a) { (void)rm; return sqrt(a); }
+/* AArch64's fused multiply-add (fmadd, fmsub): a * b + c and a * b - c, rounded once. */
+static inline double atlas_maddf64(uint32_t rm, double a, double b, double c) { (void)rm; return fma(a, b, c); }
+static inline double atlas_msubf64(uint32_t rm, double a, double b, double c) { (void)rm; return fma(a, b, -c); }
+/* fprem1: the IEEE remainder (quotient rounded to nearest), its condition bits as fprem's from that quotient. */
+static inline double atlas_prem1f64(uint32_t rm, double a, double b) { (void)rm; return remainder(a, b); }
+static inline uint32_t atlas_prem1c3210f64(uint32_t rm, double a, double b) {
+  (void)rm;
+  if (isnan(a) || isnan(b) || isinf(a) || b == 0) return 0;
+  uint64_t q = (uint64_t)(int64_t)fabs(nearbyint(a / b));
+  return (uint32_t)(((q >> 2) & 1) << 8 | (q & 1) << 9 | ((q >> 1) & 1) << 14);
+}
+/* f2xm1: 2^a - 1. */
+static inline double atlas_2xm1f64(uint32_t rm, double a) { (void)rm; return expm1(a * M_LN2); }
+/* x87 fpatan: arctan(a / b), in the quadrant of (b, a). fscale: a * 2^b, b rounded toward zero. */
+static inline double atlas_atanf64(uint32_t rm, double a, double b) { (void)rm; return atan2(a, b); }
+/* fyl2x: a * log2(b); fyl2xp1: a * log2(b + 1). fsin, fcos. frndint is atlas_round, in the rounding mode given. */
+static inline double atlas_yl2xf64(uint32_t rm, double a, double b) { (void)rm; return a * log2(b); }
+static inline double atlas_yl2xp1f64(uint32_t rm, double a, double b) { (void)rm; return a * log1p(b) / M_LN2; }
+static inline double atlas_sinf64(uint32_t rm, double a) { (void)rm; return sin(a); }
+static inline double atlas_cosf64(uint32_t rm, double a) { (void)rm; return cos(a); }
+static inline double atlas_scalef64(uint32_t rm, double a, double b) {
+  (void)rm;
+  double n = trunc(b);
+  return isnan(n) ? n : ldexp(a, n > 1e5 ? 100000 : n < -1e5 ? -100000 : (int)n);
+}
 
 /* ---- x86-64 condition codes, from VEX's lazy flags thunk (cc_op, dep1, dep2, ndep), as in VEX's
  * guest_amd64_helpers.c: operation families in blocks of four sizes (B, W, L, Q). */
@@ -291,6 +321,44 @@ static inline uint64_t amd64g_calculate_condition(uint64_t cond, uint64_t op, ui
   }
   return (uint64_t)(r ^ (int)(cond & 1));
 }
+/* ---- x86-64 helpers with side effects (lift.py's DIRTY), on the guest state at VEX's AMD64 offsets. */
+/* fninit: the x87 stack empty and its top at 0, round to nearest, condition codes clear (VEX's
+ * amd64g_dirtyhelper_FINIT). */
+static inline void amd64g_dirtyhelper_FINIT(uint8_t *r) {
+  memset(r + 2400, 0, 4);  /* FTOP */
+  memset(r + 2408, 0, 64); /* the eight registers */
+  memset(r + 2472, 0, 8);  /* their tags: empty */
+  memset(r + 2480, 0, 8);  /* FPROUND: nearest */
+  memset(r + 2488, 0, 8);  /* FC3210 */
+}
+/* x87 control word (VEX's guest_amd64_helpers.c): fnstcw gives the rounding mode with every exception masked and
+ * extended precision; fldcw keeps only the rounding mode (the emulation-warning half, the high word, is 0: what
+ * VEX does not model is left as the processor has it). */
+static inline uint64_t amd64g_create_fpucw(uint64_t fpround) { return ((fpround & 3) << 10) | 0x037F; }
+static inline uint64_t amd64g_check_fldcw(uint64_t fpucw) { return (fpucw >> 10) & 3; }
+/* fxam: the class of st(0) in C3, C2, C0 (FSW bits 14, 10, 8), its sign in C1 (bit 9); tag 0 is an empty register. */
+static inline uint64_t amd64g_calculate_FXAM(uint64_t tag, uint64_t bits) {
+  uint64_t sign = ((bits >> 63) & 1) << 9, exp = (bits >> 52) & 0x7ff, mant = bits & 0xfffffffffffffULL;
+  enum { C0 = 1 << 8, C2 = 1 << 10, C3 = 1 << 14 };
+  if (tag == 0) return C3 | C0 | sign;                 /* empty */
+  if (exp == 0) return (mant ? C3 | C2 : C3) | sign;   /* denormal, zero */
+  if (exp == 0x7ff) return (mant ? C0 : C2 | C0) | sign; /* NaN, infinity */
+  return C2 | sign;                                    /* normal */
+}
+/* x87's 80-bit loads and stores (fld and fstp of a ten-byte operand): VEX holds x87 values as doubles, so the
+ * value is converted, rounded to nearest, as VEX's helpers do. Through the host's long double, which is the same
+ * 80-bit format on an x86 host; a host without it has no definition, and a translation using them does not build. */
+#if defined(__LDBL_MANT_DIG__) && __LDBL_MANT_DIG__ == 64
+static inline uint64_t amd64g_dirtyhelper_loadF80le(atlas_state *s, uint64_t a) {
+  long double x = 0;
+  for (int i = 0; i < 10; i++) ((uint8_t *)&x)[i] = LOAD8(a + i);
+  return atlas_reinterp_f64_i64((double)x);
+}
+static inline void amd64g_dirtyhelper_storeF80le(atlas_state *s, uint64_t a, uint64_t bits) {
+  long double x = atlas_reinterp_i64_f64(bits);
+  for (int i = 0; i < 10; i++) STORE8(a + i, ((uint8_t *)&x)[i]);
+}
+#endif
 /* ---- ARM condition flags, from VEX's thunk (as guest_arm_helpers.c): cc_op COPY 0 (dep1 holds NZCV in bits 31-28),
  * ADD 1, SUB 2, ADC 3 and SBB 4 (ndep: old C), LOGIC 5 (dep1 result, dep2 shifter carry, ndep old V), MUL 6 and
  * MULL 7 (ndep: old C in bit 1, old V in bit 0). Results: NZCV in bits 31-28. */
@@ -326,6 +394,45 @@ static inline uint32_t armg_calculate_condition(uint32_t cond_n_op, uint32_t d1,
     case 5: r = !(n ^ v); break;      /* GE / LT */
     case 6: r = !z & !(n ^ v); break; /* GT / LE */
     default: return 1;                /* AL */
+  }
+  return r ^ ((cond_n_op >> 4) & 1);
+}
+/* ---- AArch64 condition flags, from VEX's thunk (guest_arm64_helpers.c, the codes as angr's ccall.py lists them):
+ * cc_op COPY 0 (dep1 holds NZCV in bits 31-28), ADD 1/2, SUB 3/4, ADC 5/6 and SBC 7/8 (ndep: old C), LOGIC 9/10
+ * (dep1 the result), each 32 then 64 bits. Results: NZCV in bits 31-28. */
+static inline uint64_t arm64g_calculate_flags_nzcv(uint64_t op, uint64_t d1, uint64_t d2, uint64_t nd) {
+  if (op == 0) return d1 & 0xf0000000u;
+  if (op > 10) return 0;
+  int wide = (op % 2) == 0; /* ADD64 2, SUB64 4, ADC64 6, SBC64 8, LOGIC64 10 */
+  uint64_t mask = wide ? ~0ULL : 0xffffffffULL, top = wide ? 63 : 31;
+  d1 &= mask; d2 &= mask; nd &= 1;
+  uint64_t r, n, z, c = 0, v = 0;
+  switch ((op + 1) / 2) {
+    case 1: r = (d1 + d2) & mask; c = r < d1; v = ((r ^ d1) & (r ^ d2)) >> top & 1; break;
+    case 2: r = (d1 - d2) & mask; c = d1 >= d2; v = ((d1 ^ d2) & (d1 ^ r)) >> top & 1; break;
+    case 3: r = (d1 + d2 + nd) & mask; c = nd ? r <= d1 : r < d1; v = ((r ^ d1) & (r ^ d2)) >> top & 1; break;
+    case 4: r = (d1 - d2 - (nd ^ 1)) & mask; c = nd ? d1 >= d2 : d1 > d2; v = ((d1 ^ d2) & (d1 ^ r)) >> top & 1; break;
+    default: r = d1; break; /* LOGIC: C and V clear */
+  }
+  n = r >> top & 1; z = r == 0;
+  return (n << 31) | (z << 30) | (c << 29) | (v << 28);
+}
+static inline uint64_t arm64g_calculate_flag_c(uint64_t op, uint64_t d1, uint64_t d2, uint64_t nd) {
+  return (arm64g_calculate_flags_nzcv(op, d1, d2, nd) >> 29) & 1;
+}
+/* cond_n_op: the condition in bits 7-4, the cc_op below; conditions in pairs (EQ/NE...), AL and NV always. */
+static inline uint64_t arm64g_calculate_condition(uint64_t cond_n_op, uint64_t d1, uint64_t d2, uint64_t nd) {
+  uint64_t f = arm64g_calculate_flags_nzcv(cond_n_op & 0xf, d1, d2, nd);
+  uint64_t n = f >> 31 & 1, z = f >> 30 & 1, c = f >> 29 & 1, v = f >> 28 & 1, r;
+  switch ((cond_n_op >> 5) & 7) {
+    case 0: r = z; break;
+    case 1: r = c; break;
+    case 2: r = n; break;
+    case 3: r = v; break;
+    case 4: r = c & !z; break;
+    case 5: r = !(n ^ v); break;
+    case 6: r = !z & !(n ^ v); break;
+    default: return 1;
   }
   return r ^ ((cond_n_op >> 4) & 1);
 }

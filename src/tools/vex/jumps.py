@@ -4,7 +4,9 @@ A guest's setjmp must run the host's setjmp in the translated caller's own frame
 back in it while it is alive, as in C: SETJMP_HEADER, included before every translation, expands ATLAS_CALL there.
 jumps_c gives the support code: a host jmp_buf per guest jmp_buf, with the guest registers setjmp saw, restored when
 longjmp lands, and longjmp_guest for the longjmp imports. x86-64 registers: System V by default, Windows x64 with
-WIN64_ARGS and WIN64_SAVED (jmp_buf and value in rcx and rdx; rsi, rdi and xmm6-xmm15 callee-saved too).
+WIN64_ARGS and WIN64_SAVED (jmp_buf and value in rcx and rdx; rsi, rdi and xmm6-xmm15 callee-saved too); AArch64
+with A64_ARGS, A64_SAVED and A64_FRAME (x0 and x1; x19-x30, sp, d8-d15; the result in x0, and no return address to
+pop: bl leaves it in x30).
 """
 
 SETJMP_HEADER = """#include <setjmp.h>
@@ -28,13 +30,17 @@ SYSV_ARGS = ("rdi", "rsi")
 SYSV_SAVED = ("rsp", "rbp", "rbx", "r12", "r13", "r14", "r15", "rax")
 WIN64_ARGS = ("rcx", "rdx")
 WIN64_SAVED = (*SYSV_SAVED, "rsi", "rdi", *(f"xmm{i}" for i in range(6, 16)))
+A64_ARGS = ("x0", "x1")
+A64_SAVED = ("sp", *(f"x{i}" for i in range(19, 31)), *(f"d{i}" for i in range(8, 16)), "x0")
+A64_FRAME = {"result": "x0", "sp": "sp", "pop": 0}
 
 
-def jumps_c(off, args=SYSV_ARGS, saved=SYSV_SAVED, size=lambda r: 8):
+def jumps_c(off, args=SYSV_ARGS, saved=SYSV_SAVED, size=lambda r: 8, result="rax", sp="rsp", pop=8):
     """The support code, `off` giving a register's offset in the guest state and `size` its size in bytes; `args`
-    the registers holding a jmp_buf and longjmp's value, `saved` the registers a longjmp restores."""
+    the registers holding a jmp_buf and longjmp's value, `saved` the registers a longjmp restores, `result` where
+    setjmp's value goes, `sp` the stack pointer and `pop` the bytes of return address a call left on the stack."""
     rdi, rsi = off(args[0]), off(args[1])
-    rax, rsp = off("rax"), off("rsp")
+    rax, rsp = off(result), off(sp)
     total = sum(size(r) for r in saved)
     places = ", ".join(f"{{{off(r)}, {size(r)}}}" for r in saved)
     return f"""
@@ -75,11 +81,11 @@ void *atlas_jump_buf(atlas_state *s) {{
   return &j->host;
 }}
 /* setjmp's first return: 0, and the return address the guest's call pushed popped. */
-void atlas_jump_first(atlas_state *s) {{ REG(uint64_t, {rax}) = 0; REG(uint64_t, {rsp}) += 8; }}
+void atlas_jump_first(atlas_state *s) {{ REG(uint64_t, {rax}) = 0; REG(uint64_t, {rsp}) += {pop}; }}
 /* Back from a longjmp: the registers as setjmp saw them, the value longjmp passed. */
 void atlas_jump_back(atlas_state *s) {{
   jump_restore(s, landing->regs);
   REG(uint64_t, {rax}) = landing->value;
-  REG(uint64_t, {rsp}) += 8;
+  REG(uint64_t, {rsp}) += {pop};
 }}
 """

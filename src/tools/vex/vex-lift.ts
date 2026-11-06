@@ -28,7 +28,9 @@ export function bigEndian(architecture: Architecture): boolean {
   return ARCH[architecture].endness === "Iend_BE";
 }
 
-export type LiftedFunction = { address: string; c: string } | { address: string; unsupported: string };
+/** extra: a function the request did not list, found by the translator (a Windows image's exception directory). */
+export type LiftedFunction =
+  { address: string; c: string; extra?: boolean } | { address: string; unsupported: string; extra?: boolean };
 
 export async function liftFunctions(
   python: string,

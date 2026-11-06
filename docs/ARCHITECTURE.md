@@ -133,6 +133,38 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   translation's place (stubs carry its calls back into the program; at fixed addresses when the original's image
   allows, so its globals are reached by `DAT_<address>`). Lua: 102 of 111 verified rewrites in place, output
   identical to the original's.
+- Windows programs on Linux (`src/tools/vex/winlink.py`, the `win_*.inc` services): a Windows x64 PE is mapped at
+  its ImageBase in identity memory, as `link.py` maps an ELF; each import slot holds a placeholder the dispatch
+  recognises (a data import's slot, `_fmode`..., the address of a host variable), and the import stubs in the code
+  (`jmp [slot]`) dispatch to their import too. A call to an import runs its service, a function with the Windows
+  prototype compiled `ms_abi`, through a trampoline that passes the guest's Windows x64 arguments as they are
+  (rcx, rdx, r8, r9, xmm0-3, the stack from the shadow space on): GCC converts to the host's convention. What
+  differs between msvcrt and glibc is converted in the service (32-bit `long`, setvbuf's modes, `clock`'s
+  milliseconds, 16-bit `wchar_t`, `struct tm`'s size, exit codes from system and _pclose, printf's Windows length
+  modifiers, the three `__iob_func` streams); kernel32 is emulated for one thread and no DLLs. Services that run
+  guest code (`_initterm`, `_onexit`, `atexit`, `exit`) and setjmp/longjmp (Windows x64 registers, `jumps.py`)
+  are served in the dispatch; the TEB (gs) is host memory; TLS callbacks run before the entry point. `lift.py`
+  translates the functions of the image's `.pdata` the graph lacks (Ghidra misses some after a call that does not
+  return), and x87 code (fninit, 80-bit loads and stores, fpatan, fscale, fyl2x, fprem1, f2xm1, fsin, fcos,
+  frndint, fxam, the control word) and lock cmpxchg (one thread). `atlas lift --link` takes this path for a PE:
+  MinGW Lua 5.4.7 (`tests/fixtures/lua-platforms`), all 823 functions and 7 more from `.pdata` translated, prints
+  on Linux what Linux Lua prints for a script of tables, formatting, maths, errors, coroutines, files and dates;
+  a MinGW test program checks the services (`tests/tools/vex/vex-link.test.ts`). Translations only: a rewrite
+  verified for Windows' calling convention cannot stand in a Linux program.
+- AArch64 programs on x86-64 (`src/tools/vex/a64link.py`): an Android app's native executable, or any AArch64
+  Linux program built against the C library. Both are LP64 Linux with the same C library, so this follows
+  `link.py`: identity memory (a position-independent image at 0x10000000), relocations applied as the dynamic
+  loader would, each import the host's own function. Only the calling convention is converted, and both give
+  integer and floating-point arguments their own registers in order: x0-x5 become rdi..r9, x6, x7 and the stack
+  arguments the host's stack arguments, d0-d7 xmm0-7 (variadic ones too); x0, x1, d0, d1 come back. setjmp and
+  longjmp use AArch64's registers (`jumps.py`); AArch64's global `__stack_chk_guard`, which x86-64's C library
+  does not export, is a variable of the program. Limits: guest code is not called from the host's C library
+  (sigaction installs nothing, so a signal acts by default; qsort or bsearch with a guest comparison would stop);
+  verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
+  `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
+  ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,
+  prints on x86-64 what Linux Lua prints for the same script as the Windows build; a test program checks the
+  conventions (`tests/tools/vex/vex-link.test.ts`).
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating

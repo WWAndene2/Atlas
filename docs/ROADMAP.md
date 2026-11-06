@@ -180,7 +180,11 @@ at untranslated callees or, on MIPS, traps. Then verified rewrites replacing the
 memory, Linux system calls emulated (`atlas_syscall.inc`), ARM Thumb/ARM, set_tls, reached by `atlas lift --link`
 on a 32-bit ARM binary. A freestanding ARM program, ARM or Thumb code, runs on x86-64 and prints what it should (a
 test); a statically linked glibc program translates (2,177 of 2,267 functions) but
-its startup (TLS, allocator) is not yet served. Next: Windows and Android programs, then that startup.
+its startup (TLS, allocator) is not yet served. Then Windows programs on Linux (`winlink.py`, msvcrt and kernel32
+served, x87 and lock cmpxchg translated): MinGW Lua prints what Linux Lua prints. Then Android programs: an AArch64
+executable against the C library (`a64link.py`, the host's C library called with the conventions converted): Lua for
+AArch64 prints on x86-64 what Linux Lua prints. Next: calls from the C library back into guest code (qsort, signal
+handlers), an app's `.so` loaded by a host driver, then the static-glibc startup.
 
 ### Behaviour, assets and what a whole program must do (decided 5 November 2026)
 

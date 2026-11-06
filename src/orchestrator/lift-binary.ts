@@ -15,6 +15,8 @@ export interface LiftOutcome {
   addresses: number[];
   functions: number;
   translated: number;
+  /** Translated functions the graph does not have (a Windows image lists every function in its .pdata). */
+  extra: number;
   /** Reason (addresses blanked) to the number of functions it stopped. */
   unsupported: Record<string, number>;
   files: string[];
@@ -34,7 +36,7 @@ export async function liftBinary(
     .filter((f) => f.binary === binary && f.code !== undefined && f.address !== undefined && f.thunk !== true)
     .map((f) => ({ address: Number(BigInt(f.address as string)), code: f.code as string }));
   const lifted = await liftFunctions(locateAngr(), node.architecture, functions, path, base);
-  const translated = lifted.filter((l): l is { address: string; c: string } => "c" in l);
+  const translated = lifted.filter((l): l is { address: string; c: string; extra?: boolean } => "c" in l);
   const unsupported: Record<string, number> = {};
   for (const l of lifted) {
     if ("unsupported" in l) {
@@ -62,7 +64,8 @@ export async function liftBinary(
       "\n    default: atlas_missing(s, target);\n  }\n}\n",
   );
   await copyFile(RUNTIME_HEADER, join(out, "atlas_lift.h"));
-  const report = { binary, functions: functions.length, translated: translated.length, unsupported };
+  const extra = lifted.filter((l) => l.extra === true && "c" in l).length;
+  const report = { binary, functions: functions.length, translated: translated.length, extra, unsupported };
   const addresses = translated.map((t) => Number(BigInt(t.address)));
   await writeFile(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   return {

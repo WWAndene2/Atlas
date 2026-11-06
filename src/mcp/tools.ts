@@ -350,7 +350,7 @@ export function tools(store: GraphStore, graphPath: string) {
           .boolean()
           .optional()
           .describe(
-            "Also build a program for this host: x86-64, verified rewrites in their place; 32-bit ARM, translations only",
+            "Also build a program for this host: x86-64, verified rewrites in their place; 32-bit ARM or Windows x64, translations only",
           ),
         ...raw,
       },
