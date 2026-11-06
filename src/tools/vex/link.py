@@ -177,6 +177,9 @@ void atlas_call(atlas_state *s, uint64_t target) {{
 {chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten))}
 {chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated if a not in rewritten)}
   }}
+  /* A rewrite that takes its own address (a Lua C function registering itself) hands out its host address:
+   * calls through it reach the rewrite. */
+{chr(10).join(f"  if (target == (uint64_t)(uintptr_t){r['symbol']}) {{{{ call_host(s, (void *){r['symbol']}); return; }}}}" for r in usable)}
   int i = import_of(target);
   if (i < 0) {{ fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target); abort(); }}
   const char *name = import_names[i];
