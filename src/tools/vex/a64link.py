@@ -14,8 +14,8 @@ registers in order: the guest's x0-x5 become rdi..r9, x6, x7 and the stack argum
 d0-d7 xmm0-7 (variadic ones too: AArch64 Linux passes them as named ones); x0, x1 and d0, d1 take rax, rdx and
 xmm0, xmm1 back. A call leaves its return address in x30, so nothing is popped. A guest function handed to qsort,
 bsearch or an exit handler registration is replaced by a host stub bound to it, which enters the guest with the
-conversion the other way. Signal handlers are guest code, so
-sigaction records nothing and succeeds (a signal then acts by default). Data the host's C library does not export
+conversion the other way; sigaction installs a guest handler the same way (the guest state saved around it,
+so a signal arriving in the middle of translated code leaves that code as it was). Data the host's C library does not export
 (AArch64's __stack_chk_guard, a global there) is a variable of the program. setjmp and longjmp run in the
 translated caller's frame (jumps.py, AArch64 registers). The program starts at the entry, whose call to
 __libc_start_main runs the translated main.
@@ -106,6 +106,23 @@ static int callback_count;
 {nl.join(f'__attribute__((naked)) static void callback_stub_{k}(void) {{ __asm__ volatile("movabs ${k:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}' for k in range(CALLBACK_SLOTS))}
 static void *const callback_stub[{CALLBACK_SLOTS}] = {{{", ".join(f"(void *)callback_stub_{k}" for k in range(CALLBACK_SLOTS))}}};
 static const int callback_arg[{len(imports) or 1}] = {{{", ".join(str(CALLBACK_ARGS.get(n, -1)) for n in imports) or "-1"}}};
+/* The stub bound to a guest function in the image, or the value unchanged (SIG_DFL, SIG_IGN, a host function). */
+static uint64_t bind_callback(uint64_t fn) {{
+  if (fn < {min(v for v, *_ in segs):#x}ULL || fn >= {max(v + m for v, m, *_ in segs):#x}ULL) return fn;
+  int k = 0;
+  while (k < callback_count && callback_target[k] != fn) k++;
+  if (k == callback_count) {{
+    if (k == {CALLBACK_SLOTS}) {{ fprintf(stderr, "atlas: more than {CALLBACK_SLOTS} guest callbacks\\n"); abort(); }}
+    callback_target[callback_count++] = fn;
+  }}
+  return (uint64_t)(uintptr_t)callback_stub[k];
+}}
+/* The guest function a stub stands for, or the value unchanged. */
+static uint64_t unbind_callback(uint64_t value) {{
+  for (int k = 0; k < callback_count; k++)
+    if ((uint64_t)(uintptr_t)callback_stub[k] == value) return callback_target[k];
+  return value;
+}}
 static atlas_state *main_state;
 /* The library calling stub k: its System V arguments become x0-x5 and d0-d7, the guest state is saved and
  * restored around the call, and x0 or d0 is its result. */
@@ -154,25 +171,33 @@ void atlas_call(atlas_state *s, uint64_t target) {{
     exit((int)REG(uint64_t, X0));
   }}
   if (!strcmp(name, "sigaction")) {{
-    /* A handler is guest code the host cannot call from a signal: nothing is installed; an old action is "default". */
-    if (REG(uint64_t, X2)) memset((void *)(uintptr_t)REG(uint64_t, X2), 0, 152);
-    REG(uint64_t, X0) = 0;
+    /* struct sigaction is laid out the same by glibc on AArch64 and x86-64 (the handler first, 152 bytes): the
+     * host's sigaction gets a copy whose handler is the stub bound to the guest's, and an old action handed back
+     * names the guest's handler again. A handler that reads its ucontext (SA_SIGINFO) sees the host's. */
+    uint8_t act[152];
+    uint64_t given = REG(uint64_t, X1), old = REG(uint64_t, X2);
+    if (given) {{
+      memcpy(act, (void *)(uintptr_t)given, sizeof act);
+      uint64_t handler;
+      memcpy(&handler, act, 8);
+      handler = bind_callback(handler);
+      memcpy(act, &handler, 8);
+      REG(uint64_t, X1) = (uint64_t)(uintptr_t)act;
+    }}
+    call_host(s, import_host[i]);
+    if (old) {{
+      uint64_t handler;
+      memcpy(&handler, (void *)(uintptr_t)old, 8);
+      handler = unbind_callback(handler);
+      memcpy((void *)(uintptr_t)old, &handler, 8);
+    }}
     return;
   }}
   if (!import_host[i]) {{ fprintf(stderr, "atlas: import %s not found on this host\\n", name); abort(); }}
   if (callback_arg[i] >= 0) {{
     /* A guest function handed over (an address in the image; the host's own functions are left alone): the
      * library gets the stub bound to it. */
-    uint64_t fn = REG(uint64_t, X0 + 8 * callback_arg[i]);
-    if (fn >= {min(v for v, *_ in segs):#x}ULL && fn < {max(v + m for v, m, *_ in segs):#x}ULL) {{
-      int k = 0;
-      while (k < callback_count && callback_target[k] != fn) k++;
-      if (k == callback_count) {{
-        if (k == {CALLBACK_SLOTS}) {{ fprintf(stderr, "atlas: more than {CALLBACK_SLOTS} guest callbacks\\n"); abort(); }}
-        callback_target[callback_count++] = fn;
-      }}
-      REG(uint64_t, X0 + 8 * callback_arg[i]) = (uint64_t)(uintptr_t)callback_stub[k];
-    }}
+    REG(uint64_t, X0 + 8 * callback_arg[i]) = bind_callback(REG(uint64_t, X0 + 8 * callback_arg[i]));
   }}
   call_host(s, import_host[i]);
 }}

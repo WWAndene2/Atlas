@@ -338,3 +338,53 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     expect(run.status).toBe(0);
   }, 600_000);
 });
+
+// An AArch64 program installing its own signal handler with sigaction, then raising the signal: the host delivers
+// it to the translated handler. The old action handed back is the program's own handler again.
+const SIGNAL_PROGRAM = `
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+static volatile sig_atomic_t got;
+static void on_usr1(int sig) { got = sig; }
+int main(void) {
+  struct sigaction sa, old;
+  memset(&sa, 0, sizeof sa);
+  sa.sa_handler = on_usr1;
+  sigaction(SIGUSR1, &sa, 0);
+  raise(SIGUSR1);
+  sigaction(SIGUSR1, &sa, &old);
+  printf("got %d, old handler is ours: %d\\n", (int)got, old.sa_handler == on_usr1);
+  return 0;
+}
+`;
+
+describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkProgram signals", () => {
+  it("delivers a signal to an AArch64 program's own handler installed with sigaction", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-a64-signal-test-"));
+    writeFileSync(join(dir, "p.c"), SIGNAL_PROGRAM);
+    execFileSync("aarch64-linux-gnu-gcc", ["-O1", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "arm64", functions, join(dir, "p"), base);
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    const c = lifted.map((l) => ("c" in l ? l.c : "")).join("\n");
+    writeFileSync(join(dir, "lifted.c"), `#include "atlas_lift.h"\n${c}`);
+    const outcome = await a64linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stdout).toBe("got 10, old handler is ours: 1\n");
+    expect(run.status).toBe(0);
+  }, 600_000);
+});
