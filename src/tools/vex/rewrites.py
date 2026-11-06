@@ -57,12 +57,13 @@ def prepare(rewrites, functions, work):
             continue
         callees, missing = {}, []
         for sym in undefined:
+            # The library first: the binary's PLT stubs carry the imports' names, and those go to the library.
+            if sym in library or sym.startswith("_GLOBAL_OFFSET_TABLE_"):
+                continue
             if sym in functions:
                 callees[sym] = functions[sym]
             elif sym.startswith("FUN_") and all(c in "0123456789abcdefABCDEF" for c in sym[4:]):
                 callees[sym] = int(sym[4:], 16)
-            elif sym in library or sym.startswith("_GLOBAL_OFFSET_TABLE_"):
-                continue
             else:
                 missing.append(sym)
         if missing:
