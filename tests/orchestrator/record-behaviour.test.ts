@@ -93,6 +93,19 @@ describe("recordBehaviour and replayBehaviour", () => {
     store.close();
   }, 120_000);
 
+  it("runs the original three times by default, and refuses fewer than two runs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-behaviour-"));
+    const store = new GraphStore(join(dir, "g.sqlite"));
+    const program = build(dir, "p", ORIGINAL);
+    await loaded(store, program);
+    const { hypothesis } = await recordBehaviour(store, program, { argv: ["x"] });
+    expect(store.getEvidence(hypothesis.evidence[0] as string)?.summary).toMatch(/^3 runs of /);
+    await expect(recordBehaviour(store, program, { argv: ["y"] }, "recorder", new Date(), 1)).rejects.toBeInstanceOf(
+      InvalidScenarioError,
+    );
+    store.close();
+  }, 60_000);
+
   it("refuses a program that is not loaded", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-behaviour-"));
     const store = new GraphStore(join(dir, "g.sqlite"));

@@ -2,8 +2,10 @@
 // environment and input files) and keeps what it did (standard output and error, exit, the output files named) as a
 // behaviour hypothesis on the binary, observed, with a capture evidence. The program runs twice: a scenario whose
 // outcome differs between the two runs (a clock, a random number, an address) is refused, since no reconstruction
-// could be held to it, unless the parts that vary are named (the scenario's vary patterns, masked in every
-// comparison). Two runs only catch what differs between them: a clock read twice within a second agrees. These are the acceptance tests of the whole program: atlas verify behaviour replays them.
+// could be held to it (it runs RECORDING_RUNS times, each compared with the first), unless the parts that vary
+// are named (the scenario's vary patterns, masked in every comparison). The runs only catch what differs between
+// them: a clock read within one second agrees. These are the acceptance tests of the whole program: atlas verify
+// behaviour replays them.
 // Runs the target natively: the caller asked for it.
 import { createHash } from "node:crypto";
 import type { GraphStore, Hypothesis } from "../graph/index.js";
@@ -17,6 +19,12 @@ export interface BehaviourValue {
   expected: Outcome;
 }
 
+/**
+ * How many times the original runs before a scenario is recorded: each run after the first must agree with it.
+ * Two runs let a coin-flip through half the time (Lua's constructs.lua prints a random 0 or 1); three, a quarter.
+ */
+export const RECORDING_RUNS = 3;
+
 export class UnstableBehaviourError extends Error {}
 export class InvalidScenarioError extends Error {}
 
@@ -26,6 +34,7 @@ export async function recordBehaviour(
   scenario: Scenario,
   agent = "recorder",
   now = new Date(),
+  runs = RECORDING_RUNS,
 ): Promise<{ hypothesis: Hypothesis; created: boolean }> {
   const binary = binaryId(await fileSha256(program));
   if (store.getNode(binary) === undefined) throw new NotFoundError(`${program} is not loaded; atlas load it first`);
@@ -36,12 +45,15 @@ export async function recordBehaviour(
       throw new InvalidScenarioError(`--vary ${pattern}: ${(error as Error).message}`);
     }
   }
+  if (!Number.isInteger(runs) || runs < 2) throw new InvalidScenarioError(`runs ${runs}: at least 2`);
   const first = await runScenario(program, scenario);
-  const second = await runScenario(program, scenario);
-  const unstable = differences(first, second, scenario.vary);
+  let unstable: string[] = [];
+  for (let k = 1; k < runs && unstable.length === 0; k++) {
+    unstable = differences(first, await runScenario(program, scenario), scenario.vary);
+  }
   if (unstable.length > 0) {
     throw new UnstableBehaviourError(
-      `the program does not do the same twice on this scenario: ${unstable.join("; ")} ` +
+      `the program does not do the same each time on this scenario: ${unstable.join("; ")} ` +
         "(a part that legitimately varies, such as a time, can be masked with a regular expression: --vary)",
     );
   }
@@ -58,8 +70,8 @@ export async function recordBehaviour(
     id: evidence,
     source: "capture",
     summary:
-      `two runs of ${binary} with arguments ${JSON.stringify(scenario.argv)}` +
-      `${scenario.stdin !== undefined ? " and a standard input" : ""}: exit ${String(first.exit)}, the same both times`,
+      `${runs} runs of ${binary} with arguments ${JSON.stringify(scenario.argv)}` +
+      `${scenario.stdin !== undefined ? " and a standard input" : ""}: exit ${String(first.exit)}, the same each time`,
     limitations: [
       "one scenario: what the program does on other inputs is not covered",
       "run in a fresh directory with a fixed environment (argv[0] 'program', LC_ALL=C, TZ=UTC)",

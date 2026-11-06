@@ -108,8 +108,8 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   (standard output and error, exit code or signal, the output files named), bytes kept as text when valid UTF-8,
   else base64. Every run sees the same conditions: a fresh working directory with the input files, argv[0]
   `program`, the environment PATH, HOME at that directory, LC_ALL=C and TZ=UTC plus the scenario's variables, a
-  time limit, the program's process group stopped at it. The original runs twice, and a scenario it does not
-  repeat (a clock, an address) is refused. `atlas verify behaviour <original> <reconstruction>` replays every
+  time limit, the program's process group stopped at it. The original runs three times (`--runs`), each run compared with the first, and a
+  scenario it does not repeat (a clock, an address, a random number) is refused. `atlas verify behaviour <original> <reconstruction>` replays every
   scenario: the same outcome makes it `verified` (check `replay`, the reconstruction named by its SHA-256), a
   difference keeps it `observed` with where the two part. A reconstruction runs with the scenario's time limit
   widened 20 times (`RECONSTRUCTION_SLOWDOWN`): translated code is slower (Lua's `constructs.lua` test, 1.2 s

@@ -193,6 +193,7 @@ export function tools(store: GraphStore, graphPath: string) {
           .array(z.string())
           .optional()
           .describe("Regular expressions for parts that legitimately vary (a time): masked before comparing"),
+        runs: z.number().int().min(2).optional().describe("How many times the original runs before recording (3)"),
         agent: z.string().optional(),
       },
       handler: async (a: {
@@ -204,6 +205,7 @@ export function tools(store: GraphStore, graphPath: string) {
         outputs?: string[];
         timeout_s?: number;
         vary?: string[];
+        runs?: number;
         agent?: string;
       }) =>
         recordBehaviour(
@@ -221,6 +223,8 @@ export function tools(store: GraphStore, graphPath: string) {
             ...(a.vary !== undefined ? { vary: a.vary } : {}),
           },
           a.agent,
+          undefined,
+          a.runs,
         ),
     },
     verify_behaviour: {

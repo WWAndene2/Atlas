@@ -26,12 +26,13 @@ export interface RecordOptions {
   timeout?: string;
   vary?: string[];
   each?: string;
+  runs?: string;
   agent?: string;
 }
 
 const RECORD_USAGE =
   "usage: atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... " +
-  "[--env K=V]... [--timeout <seconds>] [--vary <regex>]... [--each <dir>] [-- <arguments>] (runs the program: only one you chose to run; with --each, one scenario per file, {} in the arguments its name)";
+  "[--env K=V]... [--timeout <seconds>] [--vary <regex>]... [--each <dir>] [--runs <n>] [-- <arguments>] (runs the program: only one you chose to run; with --each, one scenario per file, {} in the arguments its name)";
 
 export async function runRecordBehaviour(store: GraphStore, args: string[], options: RecordOptions): Promise<Output> {
   const [what, program, ...argv] = args;
@@ -58,9 +59,13 @@ export async function runRecordBehaviour(store: GraphStore, args: string[], opti
     ...(timeout !== undefined ? { timeout_s: timeout } : {}),
     ...(options.vary !== undefined && options.vary.length > 0 ? { vary: options.vary } : {}),
   };
-  if (options.each !== undefined) return recordEach(store, program, scenario, options.each, options.agent);
+  const runs = options.runs !== undefined ? Number(options.runs) : undefined;
+  if (runs !== undefined && !(Number.isInteger(runs) && runs >= 2)) {
+    throw new CliError("usage", `--runs ${options.runs}: a whole number, at least 2`);
+  }
+  if (options.each !== undefined) return recordEach(store, program, scenario, options.each, options.agent, runs);
   try {
-    const { hypothesis, created } = await recordBehaviour(store, program, scenario, options.agent);
+    const { hypothesis, created } = await recordBehaviour(store, program, scenario, options.agent, undefined, runs);
     const exit = (hypothesis.value as { expected: { exit: number | string } }).expected.exit;
     return {
       data: { hypothesis, created },
@@ -85,6 +90,7 @@ async function recordEach(
   base: Scenario,
   dir: string,
   agent: string | undefined,
+  runs: number | undefined,
 ): Promise<Output> {
   if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new CliError("not_found", `no directory ${dir}`);
   const files = readdirSync(dir)
@@ -102,7 +108,7 @@ async function recordEach(
       inputs: [...(base.inputs ?? []), { name: file, content: encode(readFileSync(join(dir, file))) }],
     };
     try {
-      recorded.push((await recordBehaviour(store, program, scenario, agent)).hypothesis.id);
+      recorded.push((await recordBehaviour(store, program, scenario, agent, undefined, runs)).hypothesis.id);
     } catch (error) {
       if (!(error instanceof UnstableBehaviourError)) throw error;
       unstable.push(file);

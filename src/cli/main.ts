@@ -104,11 +104,12 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
   infer types [--binary <bin_>]     struct types assembled from the inferred fields: arguments that access
                                     mostly the same fields share one struct (ty_ nodes, type hypotheses)
   record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]...
-                   [--vary <regex>]... [--each <dir>] [-- <args>]
-                                    RUN the original twice on a scenario (fresh directory, fixed environment):
-                                    its output, exit and the output files named, recorded as an observed
-                                    behaviour, the acceptance test of the whole program; refused if the two
-                                    runs differ, beyond the parts --vary masks (a time...)
+                   [--vary <regex>]... [--each <dir>] [--runs <n>] [-- <args>]
+                                    RUN the original 3 times (--runs) on a scenario (fresh directory,
+                                    fixed environment): its output, exit and the output files named,
+                                    recorded as an observed behaviour, the acceptance test of the whole
+                                    program; refused if the runs differ, beyond the parts --vary masks;
+                                    --each <dir>: one scenario per file, {} in the arguments its name
   copy behaviour <reference> <target>
                                     the behaviours of one build carried to another build of the same
                                     program (another platform), as inferred: their acceptance tests there
@@ -191,6 +192,7 @@ async function main(argv: string[]): Promise<number> {
         vary: { type: "string", multiple: true },
         rounds: { type: "string" },
         each: { type: "string" },
+        runs: { type: "string" },
         seed: { type: "string" },
         out: { type: "string" },
         link: { type: "boolean" },
@@ -360,6 +362,7 @@ async function main(argv: string[]): Promise<number> {
           ...(values.timeout !== undefined ? { timeout: values.timeout } : {}),
           ...(values.vary !== undefined ? { vary: values.vary } : {}),
           ...(values.each !== undefined ? { each: values.each } : {}),
+          ...(values.runs !== undefined ? { runs: values.runs } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
         break;
