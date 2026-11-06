@@ -37,21 +37,7 @@ export interface LinkOutcome {
 }
 
 export async function linkProgram(python: string, request: LinkRequest): Promise<LinkOutcome> {
-  const work = await mkdtemp(join(tmpdir(), "atlas-link-"));
-  try {
-    const path = join(work, "request.json");
-    await writeFile(
-      path,
-      JSON.stringify({ ...request, arch: "AMD64", runtime: repositoryPath("src", "tools", "vex") }),
-    );
-    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "link.py"), path], {
-      maxBuffer: 1 << 28,
-      timeout: 3_600_000,
-    });
-    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as LinkOutcome;
-  } finally {
-    await rm(work, { recursive: true, force: true });
-  }
+  return runLinker<LinkOutcome>(python, "link.py", { ...request, arch: "AMD64" });
 }
 
 export interface CrosslinkRequest {
@@ -73,18 +59,7 @@ export interface CrosslinkOutcome {
 }
 
 export async function crosslinkProgram(python: string, request: CrosslinkRequest): Promise<CrosslinkOutcome> {
-  const work = await mkdtemp(join(tmpdir(), "atlas-crosslink-"));
-  try {
-    const path = join(work, "request.json");
-    await writeFile(path, JSON.stringify({ ...request, runtime: repositoryPath("src", "tools", "vex") }));
-    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "crosslink.py"), path], {
-      maxBuffer: 1 << 28,
-      timeout: 3_600_000,
-    });
-    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as CrosslinkOutcome;
-  } finally {
-    await rm(work, { recursive: true, force: true });
-  }
+  return runLinker<CrosslinkOutcome>(python, "crosslink.py", request);
 }
 
 export interface WinlinkRequest {
@@ -103,18 +78,7 @@ export interface WinlinkOutcome {
 }
 
 export async function winlinkProgram(python: string, request: WinlinkRequest): Promise<WinlinkOutcome> {
-  const work = await mkdtemp(join(tmpdir(), "atlas-winlink-"));
-  try {
-    const path = join(work, "request.json");
-    await writeFile(path, JSON.stringify({ ...request, runtime: repositoryPath("src", "tools", "vex") }));
-    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "winlink.py"), path], {
-      maxBuffer: 1 << 28,
-      timeout: 3_600_000,
-    });
-    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as WinlinkOutcome;
-  } finally {
-    await rm(work, { recursive: true, force: true });
-  }
+  return runLinker<WinlinkOutcome>(python, "winlink.py", request);
 }
 
 export interface A64linkRequest {
@@ -134,15 +98,21 @@ export interface A64linkOutcome {
 }
 
 export async function a64linkProgram(python: string, request: A64linkRequest): Promise<A64linkOutcome> {
-  const work = await mkdtemp(join(tmpdir(), "atlas-a64link-"));
+  return runLinker<A64linkOutcome>(python, "a64link.py", request);
+}
+
+/** Runs a linker script on a request (written to a temporary file, with the runtime directory added) and returns the
+ * JSON on the last line of its output. */
+async function runLinker<T>(python: string, script: string, request: object): Promise<T> {
+  const work = await mkdtemp(join(tmpdir(), "atlas-link-"));
   try {
     const path = join(work, "request.json");
     await writeFile(path, JSON.stringify({ ...request, runtime: repositoryPath("src", "tools", "vex") }));
-    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", "a64link.py"), path], {
+    const { stdout } = await run(python, [repositoryPath("src", "tools", "vex", script), path], {
       maxBuffer: 1 << 28,
       timeout: 3_600_000,
     });
-    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as A64linkOutcome;
+    return JSON.parse(stdout.trim().split("\n").pop() ?? "{}") as T;
   } finally {
     await rm(work, { recursive: true, force: true });
   }
