@@ -185,6 +185,10 @@ spreads across platforms instead of finishing one. So, from now on:
   hardware registers. The first and only profile built is the 3DS (ARMv6K, Horizon); the others show the core is
   general enough, they are not planned. A service is written against the core; one proper to a machine (gsp::Gpu,
   dsp::DSP, y2r:u) lives in its profile, and those alike across machines (files, input, clock) share their logic.
+  Done: the core (`src/tools/vex/console/kernel.inc`: handles, the service registry, the unserved log) and the
+  3DS profile's first part (`console/ctr.inc`, crosslink's `profile: "ctr"`: Horizon's system calls by svc
+  immediate, the command buffer at TLS + 0x80, srv:, objects, heap and linear memory, the tick counter), tested
+  on a freestanding ARM title. Next: threads, then the services a real title's log names.
 - **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
   then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
   emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.

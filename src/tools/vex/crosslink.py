@@ -11,7 +11,9 @@ Only the register layout and system-call convention are architecture-specific (C
 
 Request, a JSON file named on the command line: {"arch", "endness", "binary": path of the original (built into the
 program), "lifted": [paths of the translations' C], "translated": [graph addresses], "base": where a
-position-independent image is mapped, "runtime": directory of atlas_lift.h, "out": path of the executable}
+position-independent image is mapped, "runtime": directory of atlas_lift.h, "out": path of the executable, "profile": the platform the guest runs on,
+"linux" (the default: Linux system calls, atlas_syscall.inc) or a console's (console/<profile>.inc on the console
+kernel's core, console/kernel.inc: "ctr" for the 3DS)}
 stdout: {"executable": path, "translated": int, "entry": hex}
 """
 
@@ -73,6 +75,21 @@ def main():
         else ""
     )
     nl = "\n"
+    profile = request.get("profile", "linux")
+    if profile == "linux":
+        platform = '#include "atlas_syscall.inc"'
+        setup = f"  atlas_guest_setup(s, argc, argv, envp);\n  REG(uint32_t, {off['sp']}) = atlas_guest_sp;"
+        serve = f"""  uint32_t number = REG(uint32_t, {off[conv["number"]]});
+{tls_case}  atlas_do_syscall(s, number, {args}, &REG(uint32_t, {off[conv["result"]]}));"""
+    elif profile == "ctr":
+        # A 3DS title: no argument vector or environment, its stack and thread storage at the console's addresses.
+        regs = ", ".join(str(arch.registers[f"r{k}"][0]) for k in range(5))
+        platform = (f"static const uint32_t ctr_reg[5] = {{{regs}}};\n#define CTR_TLS_REG {tls}\n"
+                    '#include "console/kernel.inc"\n#include "console/ctr.inc"')
+        setup = f"  (void)argc; (void)argv; (void)envp;\n  ctr_setup(s);\n  REG(uint32_t, {off['sp']}) = CTR_STACK_TOP;"
+        serve = "  ctr_syscall(s);"
+    else:
+        raise SystemExit(f"no platform profile {profile!r} (linux, ctr)")
     c = f"""#include "atlas_lift.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +105,7 @@ void atlas_call(atlas_state *s, uint64_t target) {{
 void atlas_trap(atlas_state *s, uint64_t at, int kind) {{
   fprintf(stderr, "atlas: guest trap %d at %#lx\\n", kind, (unsigned long)at); abort();
 }}
-#include "atlas_syscall.inc"
+{platform}
 {embed_original(request["binary"])}
 int main(int argc, char **argv, char **envp) {{
   static atlas_state st;
@@ -101,15 +118,13 @@ int main(int argc, char **argv, char **envp) {{
   for (unsigned k = 0; k < sizeof segs / sizeof segs[0]; k++) {{
     if (segs[k].filesize) memcpy(s->mem + segs[k].vaddr, atlas_original + segs[k].offset, segs[k].filesize);
   }}
-  atlas_guest_setup(s, argc, argv, envp);
 {nl.join(f"  memcpy(s->r + {o}, &(uint64_t){{{v:#x}ULL}}, {n});" for o, n, v in defaults)}
-  REG(uint32_t, {off["sp"]}) = atlas_guest_sp;
+{setup}
   atlas_call(s, {(obj.entry + base) & ~1:#x}ULL);
   return 0;
 }}
 void atlas_syscall(atlas_state *s) {{
-  uint32_t number = REG(uint32_t, {off[conv["number"]]});
-{tls_case}  atlas_do_syscall(s, number, {args}, &REG(uint32_t, {off[conv["result"]]}));
+{serve}
 }}
 """
     out = request["out"]

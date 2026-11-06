@@ -108,6 +108,78 @@ describe.runIf(python !== undefined && armClang())("crosslinkProgram", () => {
   }
 });
 
+// A freestanding ARM program that talks to the kernel as a 3DS title does (Horizon: the call's number in the svc
+// immediate, the command buffer at TLS + 0x80): a debug string, srv: by its port, a service handle for gsp::Gpu
+// (which nothing serves, so its request is logged), the tick counter, heap memory, a handle closed twice. It exits
+// through ExitProcess; its stdout is empty, its debug output on stderr.
+const CTR_PROGRAM = `
+typedef unsigned u32;
+#define SVC(n) __asm__ volatile("svc " #n : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3) : : "memory")
+static u32 *cmd(void) { u32 t; __asm__("mrc p15, 0, %0, c13, c0, 3" : "=r"(t)); return (u32 *)(t + 0x80); }
+static u32 request(u32 h) { register u32 r0 __asm__("r0") = h, r1 __asm__("r1") = 0, r2 __asm__("r2") = 0, r3 __asm__("r3") = 0; SVC(0x32); return r0; }
+void title(void) {
+  int ok = 1;
+  { register u32 r0 __asm__("r0") = (u32)"title up\\n", r1 __asm__("r1") = 9, r2 __asm__("r2") = 0, r3 __asm__("r3") = 0; SVC(0x3D); }
+  register u32 r0 __asm__("r0") = 0, r1 __asm__("r1") = (u32)"srv:", r2 __asm__("r2") = 0, r3 __asm__("r3") = 0;
+  SVC(0x2D);
+  u32 srv = r1; ok &= r0 == 0 && srv != 0;
+  u32 *c = cmd();
+  c[0] = 0x00010002; c[1] = 0x20;
+  ok &= request(srv) == 0 && c[1] == 0;
+  c[0] = 0x00050100; c[1] = 0x3A707367; c[2] = 0x7570473A; c[3] = 8; c[4] = 0; /* "gsp::Gpu" */
+  ok &= request(srv) == 0 && c[1] == 0;
+  u32 gsp = c[3];
+  c[0] = 0x00130042;
+  ok &= request(gsp) == 0 && c[1] == 0xF8C007F4u;
+  r0 = 0; r1 = 0; r2 = 0; r3 = 0; SVC(0x28);
+  ok &= (r0 | r1) != 0;
+  r0 = 0x10003; r1 = 0; r2 = 0; r3 = 0x2000; SVC(0x01);
+  ok &= r0 == 0 && r1 == 0x14000000; *(volatile u32 *)r1 = 1;
+  r0 = gsp; r1 = 0; r2 = 0; r3 = 0; SVC(0x23); ok &= r0 == 0;
+  r0 = gsp; r1 = 0; r2 = 0; r3 = 0; SVC(0x23); ok &= r0 != 0;
+  r0 = 0; r1 = 0; r2 = 0; r3 = 0; SVC(0x7F);
+  if (ok) { r0 = (u32)"all ok\\n"; r1 = 7; r2 = 0; r3 = 0; SVC(0x3D); }
+  r0 = 0; r1 = 0; r2 = 0; r3 = 0; SVC(0x03);
+}
+__attribute__((naked)) void _start(void) { __asm__("bl title\\n b ."); }
+`;
+
+describe.runIf(python !== undefined && armClang())("crosslinkProgram, 3DS profile", () => {
+  it("serves a title's Horizon system calls and srv:, and logs what is not served", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-crosslink-ctr-"));
+    writeFileSync(join(dir, "p.c"), CTR_PROGRAM);
+    execFileSync("clang", [...ARM_FLAGS, "-marm", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const lifted = await liftFunctions(python as string, "arm-v7", functions, join(dir, "p"));
+    expect(lifted.filter((l) => "unsupported" in l)).toEqual([]);
+    writeFileSync(
+      join(dir, "lifted.c"),
+      `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
+    );
+    const outcome = await crosslinkProgram(python as string, {
+      arch: "ARMEL",
+      endness: "Iend_LE",
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: functions.map((f) => f.address),
+      out: join(dir, "program"),
+      base: 0,
+      profile: "ctr",
+    });
+    const log = join(dir, "unserved.txt");
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8", env: { ...process.env, ATLAS_UNSERVED: log } });
+    expect(run.stderr).toBe("title up\nall ok\n");
+    expect(run.status).toBe(0);
+    expect(readFileSync(log, "utf8")).toBe("1 gsp::Gpu 0x13\n1 svc 0x7f\n");
+  }, 300_000);
+});
+
 function has(tool: string): boolean {
   return spawnSync("sh", ["-c", `command -v ${tool}`]).status === 0;
 }

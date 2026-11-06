@@ -274,6 +274,11 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   host (callbacks, `_initterm`) keeps the waiting call site's value; a longjmp's landing counts as expected. Tested
   by the hand-written assembly fixture and a function ending in a tail jump to the C library; Lua's recorded suite
   is reproduced (33 of 34, the 34th the clock); cost about 25% on Lua's constructs.lua.
+- Console kernel (`src/tools/vex/console/`): a guest built for a console runs on a generic core
+  (`kernel.inc`: kernel objects behind handles, services by name, a log of every system call or command not
+  served, written to `ATLAS_UNSERVED` at exit, most asked first) and its machine's profile, chosen by crosslink's
+  `profile` (`ctr.inc`, the 3DS: Horizon's calls by svc immediate, IPC through the command buffer at TLS + 0x80,
+  srv:). What is unserved returns Horizon's "not implemented" rather than a faked success. One thread for now.
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating
