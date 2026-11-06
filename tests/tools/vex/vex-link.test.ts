@@ -405,6 +405,9 @@ const A64_LIBRARY = `
 #include <stdio.h>
 #include <stdlib.h>
 int add(int a, int b) { return a + b; }
+int counter = 41;                                               /* exported data */
+const char version[] = "lib 1.0";
+int bump(void) { return ++counter; }
 int add3(int a, int b, int c) { return add(add(a, b), c); } /* one export calling another: through the PLT */
 int (*pick)(int, int) = add;                                  /* a pointer to an export: a symbol relocation */
 int through(int a, int b) { return pick(a, b); }
@@ -423,6 +426,12 @@ int main(int argc, char **argv) {
   char *(*greet)(const char *) = (char *(*)(const char *))dlsym(lib, "greet");
   int (*add3)(int, int, int) = (int (*)(int, int, int))dlsym(lib, "add3");
   int (*through)(int, int) = (int (*)(int, int))dlsym(lib, "through");
+  int (*bump)(void) = (int (*)(void))dlsym(lib, "bump");
+  int *counter = (int *)dlsym(lib, "counter");
+  const char *version = (const char *)dlsym(lib, "version");
+  if (!counter || !version) { puts("no exported data"); return 2; }
+  bump();
+  printf("data %d %s\\n", *counter, version);
   char *g = greet("host");
   printf("%d %.2f %s %d %d\\n", add(40, 2), scale(1.25, 4), g, add3(1, 2, 3), through(5, 6));
   free(g);
@@ -458,7 +467,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     execFileSync("gcc", ["-O1", "driver.c", "-o", "driver", "-ldl"], { cwd: dir });
     rmSync(join(dir, "lib.so")); // the output does not need the original any more
     const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
-    expect(run.stdout).toBe("42 5.00 hello host 6 11\n");
+    expect(run.stdout).toBe("data 42 lib 1.0\n42 5.00 hello host 6 11\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });

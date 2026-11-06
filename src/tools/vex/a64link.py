@@ -22,8 +22,8 @@ __libc_start_main runs the translated main.
 
 A shared library (no PT_INTERP, an Android app's .so) becomes a host shared library instead: each function it
 exports is a host function of the same name that enters the guest with the arguments converted, the image is set
-up when the host loads the library, and nothing else is visible. Its exported data is not reachable that way, and
-the guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
+up when the host loads the library, and nothing else is visible. Its exported data are absolute symbols at the
+guest addresses (reached through dlsym, not through copy relocations), and the guest image's fixed base (0x10000000 for a position-independent one) allows one such library per process.
 """
 
 import json
@@ -88,6 +88,11 @@ def main():
     # or dlsyms them as it would the original's). Data the library exports is not reachable this way.
     exports = sorted({(sym.name, sym.relative_addr + base) for sym in obj.symbols
                       if sym.is_export and sym.is_function and sym.name}) if library else []
+    # Its exported data: the image lies at a fixed base, so each is an absolute symbol of the host library at the
+    # guest address (dlsym then gives the guest's own variable). A host program linked against the library with
+    # copy relocations would copy it before the library has set its image up: reach it through dlsym or -fPIC code.
+    exported_data = sorted({(sym.name, sym.relative_addr + base) for sym in obj.symbols
+                            if sym.is_export and sym.name and str(sym.type).endswith("TYPE_OBJECT")}) if library else []
     plt = {a + base: index[n] for n, a in obj.plt.items() if n in index}
     # A call to the PLT entry of the object's own function goes to that function.
     own_plt = {a + base: own_symbols[n] for n, a in obj.plt.items() if n not in index}
@@ -308,11 +313,12 @@ static int atlas_setup(char **envp) {{
     with open(out + ".setjmp.h", "w") as f:
         f.write(SETJMP_HEADER)
     # A library is a host shared library whose only visible symbols are the original's exports.
-    shared = ["-shared", "-fPIC", "-fvisibility=hidden"] if library else []
+    shared = (["-shared", "-fPIC", "-fvisibility=hidden"]
+              + [f"-Wl,--defsym={name}={address:#x}" for name, address in exported_data]) if library else []
     subprocess.run(["gcc", "-O1", "-w", *shared, "-I", request["runtime"], "-include", out + ".setjmp.h",
                     *request["lifted"], out + ".main.c", "-o", out, "-ldl", "-lm"], check=True)
     print(json.dumps({"executable": out, "imports": len(imports), "own": sorted(n for n in OWN_DATA if n in index),
-                      "library": library, "exports": len(exports)}))
+                      "library": library, "exports": len(exports), "exported_data": len(exported_data)}))
 
 
 if __name__ == "__main__":

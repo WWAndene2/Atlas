@@ -201,7 +201,8 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   Android-style `liblua.so` (`tests/fixtures/lua-platforms`), all 686 functions translated, driven by a host
   program through Lua's C API (dlopen, luaL_newstate, luaL_openlibs, luaL_loadfilex, lua_pcallk), prints for the
   test script exactly what the same driver prints with Lua built natively for x86-64 from the same sources. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
-  data is not reachable, and one such library per process (the image at a fixed base);
+  data (absolute symbols at the guest addresses, the image lying at a fixed base) is reached through dlsym or
+  -fPIC code, not through a host program's copy relocations; one such library per process;
   verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
   ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,
