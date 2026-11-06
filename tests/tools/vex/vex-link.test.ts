@@ -187,6 +187,17 @@ describe.runIf(python !== undefined && has("x86_64-w64-mingw32-gcc") && has("x86
       });
       expect(run.stdout).toBe("hello|42|-5|1099511627776|1099511627776| 1.41|ff|z|%\nbc\n4 env\nbye\n");
       expect(run.status).toBe(3);
+      // ATLAS_COVERAGE: the translated functions that ran, each one of the program's.
+      const coverage = join(dir, "coverage.txt");
+      spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], {
+        env: { ...process.env, ATLAS_COVERAGE: coverage },
+      });
+      const ran = readFileSync(coverage, "utf8")
+        .trim()
+        .split("\n")
+        .map((a) => Number(a));
+      expect(ran.length).toBeGreaterThan(1);
+      expect(ran.every((a) => functions.some((f) => f.address === a))).toBe(true);
     }, 600_000);
   },
 );

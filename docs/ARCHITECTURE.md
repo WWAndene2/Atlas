@@ -133,7 +133,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   carries a reference build's behaviours to another build of the same program, as `inferred` (never seen on the
   target), the source's capture and the reference binary as evidence and the source named; a replay that fails
   leaves a copy inferred. Lua: the eight Linux behaviours copied to `lua-arm64`, seven reproduced by its rebuilt
-  program (the eighth prints `os.time()`), and 432 of its 698 translated functions reached (61.9%).
+  program (the eighth prints `os.time()`), and 432 of its 698 translated functions reached (61.9%); copied to
+  `lua.exe`, seven reproduced and 516 of its 830 translated functions reached (62.2%; `winlink.py` writes
+  `ATLAS_COVERAGE` too, MinGW's runtime adds functions).
 - Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
 <original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
   original differentially. The recorded behaviours with a standard input or input files are the seeds; each round

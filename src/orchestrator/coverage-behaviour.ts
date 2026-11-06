@@ -2,7 +2,7 @@
 // builds it, each behaviour is replayed with ATLAS_COVERAGE (link.py: the translated functions that ran, written at
 // exit), and the report says how many of the translated functions the acceptance tests reach, what each behaviour
 // adds, and the largest functions none reaches: where the next behaviour to record would exercise the most code
-// no test checks. x86-64 (link.py) and AArch64 (a64link.py) Linux programs for now. Runs the rebuilt program: the caller asked for it.
+// no test checks. x86-64 Linux (link.py), Windows (winlink.py) and AArch64 (a64link.py) programs for now. Runs the rebuilt program: the caller asked for it.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +28,7 @@ export async function coverageBehaviour(store: GraphStore, original: string, top
   if (store.getNode(binary) === undefined) throw new NotFoundError(`${original} is not loaded; atlas load it first`);
   const architecture = store.getNode(binary)?.architecture;
   if (architecture !== "x86_64" && architecture !== "arm64") {
-    throw new Error("coverage is measured on x86-64 and AArch64 Linux programs for now (ATLAS_COVERAGE)");
+    throw new Error("coverage is measured on x86-64 (Linux, Windows) and AArch64 programs for now (ATLAS_COVERAGE)");
   }
   const behaviours = store.hypothesesFor(binary, "behaviour").filter((h) => h.confidence !== "rejected");
   if (behaviours.length === 0) throw new NotFoundError(`no behaviour recorded for ${original}`);

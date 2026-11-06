@@ -155,6 +155,16 @@ static void guest_call(atlas_state *s, uint64_t target, uint64_t a, uint64_t b, 
   REG(uint64_t, RSP) = before;
 }}
 
+/* ATLAS_COVERAGE=<file>: the translated functions that ran, written at exit, as link.py does. */
+static uint8_t covered[{len(translated) or 1}];
+static const uint64_t covered_address[{len(translated) or 1}] = {{{", ".join(f"{a:#x}ULL" for a in translated) or "0"}}};
+static const char *coverage_file;
+static void write_coverage(void) {{
+  FILE *f = fopen(coverage_file, "w");
+  if (!f) return;
+  for (unsigned k = 0; k < sizeof covered; k++) if (covered[k]) fprintf(f, "%#lx\\n", (unsigned long)covered_address[k]);
+  fclose(f);
+}}
 static int host_argc;
 static char **host_argv, **host_envp;
 static uint64_t at_exit[64];
@@ -210,7 +220,7 @@ static void call_import(atlas_state *s, int i) {{
 
 void atlas_call(atlas_state *s, uint64_t target) {{
   switch (target) {{
-{nl.join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated)}
+{nl.join(f"    case {a:#x}ULL: covered[{k}] = 1; fn_{a:x}(s); return;" for k, a in enumerate(translated))}
   }}
   int i = import_index(target);
   if (i >= 0) {{ call_import(s, i); return; }}
@@ -235,6 +245,7 @@ void atlas_syscall(atlas_state *s) {{
 {embed_original(request["binary"])}
 int main(int argc, char **argv, char **envp) {{
   host_argc = argc; host_argv = argv; host_envp = envp;
+  if ((coverage_file = getenv("ATLAS_COVERAGE")) != NULL) atexit(write_coverage);
   win_initenv = envp;
   win_module_path = {c_string(os.path.abspath(request["binary"]))};
   uint8_t *image = mmap((void *)(uintptr_t){image_base:#x}ULL, {image_size:#x}, PROT_READ | PROT_WRITE | PROT_EXEC,
