@@ -170,15 +170,21 @@ spreads across platforms instead of finishing one. So, from now on:
 - **One target is carried to the end: a 3DS title, measured on the title itself**, not on Lua. Milestones, in order:
   (1) its code loads and translates entirely; (2) it starts and shows its first frame; (3) it reaches its title
   screen; (4) a timed input sequence gives the same frames as the original in an emulator used as the oracle.
-- **A console kernel, generic, with a profile per machine.** The core is shared by every console: the system call
-  table (each profile registers its numbers), kernel handles and objects (events, mutexes, semaphores, shared
-  memory), threads (on the per-thread guest state that exists), IPC messages routed to a registry of services,
-  and a log of every call and command not served (service, command ID, count), so what a title needs is read, not
-  guessed. A profile holds what differs: system call numbers, the IPC header format, port and service names, the
-  memory map, the CPU's calling convention. The first and only profile built is the 3DS (ARMv6K, Horizon); the
-  Switch's Horizon would reuse most of the core. A service is written against the core; one proper to a machine
-  (gsp::Gpu, dsp::DSP, y2r:u) lives in its profile, and those alike across consoles (files, input, clock) share
-  their logic.
+- **A console kernel, generic, with a profile per machine, compatible with Horizon and with the other kernels on
+  the market.** Consoles reach their platform in different ways, so the core assumes none of them and offers
+  four entry points a profile uses as its machine does: system calls (each profile registers its numbers and
+  convention), IPC messages routed to a registry of services, functions imported by ID (library calls resolved
+  by name, ordinal or NID), and memory accesses intercepted in given ranges (hardware registers, for machines
+  without an operating system). On these: kernel handles and objects (events, mutexes, semaphores, shared
+  memory), threads (on the per-thread guest state that exists), and a log of every call, command, import or
+  register access not served (with its count), so what a title needs is read, not guessed. A profile holds what
+  differs: which entry points, their numbers or IDs, message and header formats, port and service names, the
+  memory map, the CPU's calling convention. For example Horizon (3DS, Switch): system calls and IPC to services;
+  BSD-derived kernels (PS4, PS5): Unix-like system calls; NT-like kernels (Xbox): system calls and imported system
+  libraries; library-based kernels (PSP, Vita): imports by NID; no operating system (GBA, DS): BIOS calls and
+  hardware registers. The first and only profile built is the 3DS (ARMv6K, Horizon); the others show the core is
+  general enough, they are not planned. A service is written against the core; one proper to a machine (gsp::Gpu,
+  dsp::DSP, y2r:u) lives in its profile, and those alike across machines (files, input, clock) share their logic.
 - **Graphics in two stages:** the 2D output first (the display transfers to the framebuffers already give frames),
   then the GPU's commands (PICA200) rendered through OpenGL or Vulkan, a component of its own. Code from GPL
   emulators is not reused (Atlas is MIT); an emulator may run the original as an outside oracle.
