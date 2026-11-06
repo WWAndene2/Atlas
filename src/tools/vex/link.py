@@ -162,8 +162,12 @@ void atlas_enter_guest(uint64_t *frame, uint64_t target) {{
   static const int vx[8] = {{{", ".join(str(off(f"xmm{i}")) for i in range(8))}}};
   for (int i = 0; i < 6; i++) REG(uint64_t, gp[i]) = frame[i];
   for (int i = 0; i < 8; i++) memcpy(s->r + vx[i], (uint8_t *)frame + 48 + 16 * i, 16);
-  REG(uint64_t, RSP) -= 8; STORE64(REG(uint64_t, RSP), 0); /* the callee's ret pops this */
+  /* The callee sees the stack as after a call: 16-byte aligned, then the return address it pops. The guest stack
+   * pointer still holds where the rewrite's own caller left it, so it is realigned here and restored after. */
+  uint64_t before = REG(uint64_t, RSP);
+  REG(uint64_t, RSP) = (before & ~15ULL) - 8; STORE64(REG(uint64_t, RSP), 0);
   atlas_call(s, target);
+  REG(uint64_t, RSP) = before;
   frame[0] = REG(uint64_t, RAX);
   memcpy((uint8_t *)frame + 48, s->r + vx[0], 16);
 }}
