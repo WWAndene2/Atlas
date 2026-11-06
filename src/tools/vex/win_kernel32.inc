@@ -35,12 +35,14 @@ WIN static uint32_t w_GetModuleFileNameA(void *module, char *buf, uint32_t size)
   (void)module;
   size_t n = strlen(win_module_path);
   if (size == 0) return 0;
-  if (n >= size) n = size - 1;
+  /* Too long for the buffer: Windows copies what fits and returns the buffer's size, which callers test for. */
+  int truncated = n >= size;
+  if (truncated) n = size - 1;
   memcpy(buf, win_module_path, n);
   buf[n] = 0;
   char *last = strrchr(buf, '/');
   if (last) *last = '\\';
-  return (uint32_t)n;
+  return truncated ? size : (uint32_t)n;
 }
 
 /* MEMORY_BASIC_INFORMATION (48 bytes): the page holding the address, committed, PAGE_EXECUTE_READWRITE. */

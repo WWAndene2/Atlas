@@ -120,6 +120,7 @@ const WINDOWS_PROGRAM = `
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <windows.h>
 static jmp_buf env;
 static void deep(int n) { if (n == 0) longjmp(env, 42); deep(n - 1); }
 static void bye(void) { fputs("bye\\n", stdout); }
@@ -138,6 +139,8 @@ int main(int argc, char **argv) {
   fprintf(stdout, "%hhd|%hhu|%lc|%ls|%S\\n", 300, 300, (wint_t)L'w', L"wide", L"up");
   char name[L_tmpnam + 8]; memset(name, 'X', sizeof name); tmpnam(name); /* must stay within L_tmpnam */
   if (name[L_tmpnam] != 'X' || strlen(name) >= L_tmpnam) return 9;
+  char small[4]; /* GetModuleFileNameA on a buffer too small: truncated, and the buffer's size returned */
+  if (GetModuleFileNameA(NULL, small, sizeof small) != sizeof small || strlen(small) != 3) return 10;
   return strlen(argv[argc - 1]) == 5 ? 3 : 1;
 }
 `;
