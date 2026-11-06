@@ -2,7 +2,8 @@
 // <s>] [--vary <regex>]... [-- <arguments>]: runs the original on a scenario and records what it did. atlas verify behaviour <original>
 // <reconstruction>: replays every recorded scenario against the reconstruction. atlas blame behaviour <original>
 // <hyp>: the functions a behaviour the rebuilt program fails comes from. atlas fuzz behaviour <original>
-// <reconstruction>: mutants of the recorded inputs on which the two differ, recorded as behaviours.
+// <reconstruction>: mutants of the recorded inputs on which the two differ, recorded as behaviours. atlas coverage
+// behaviour <original>: the translated functions the recorded behaviours reach.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
@@ -11,6 +12,7 @@ import { InvalidScenarioError, recordBehaviour, UnstableBehaviourError } from ".
 import { replayBehaviour } from "../../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../../orchestrator/blame-behaviour.js";
 import { fuzzBehaviour } from "../../orchestrator/fuzz-behaviour.js";
+import { coverageBehaviour } from "../../orchestrator/coverage-behaviour.js";
 import { encode, type Scenario } from "../../verify/replay/run-scenario.js";
 import { CliError, type Output } from "../output.js";
 
@@ -159,6 +161,34 @@ export async function runFuzzBehaviour(
         `${fuzz.rounds} mutants tried (${fuzz.unstable} the original does not repeat): ` +
         `${fuzz.found.length} on which the reconstruction differs, recorded as behaviours` +
         fuzz.found.map((f) => `\n  ${f.hypothesis}: ${f.differences.join("; ")}`).join(""),
+    };
+  } catch (error) {
+    if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
+    throw error;
+  }
+}
+
+export async function runCoverageBehaviour(store: GraphStore, args: string[]): Promise<Output> {
+  const [what, original, ...extra] = args;
+  if (what !== "behaviour" || original === undefined || extra.length > 0) {
+    throw new CliError(
+      "usage",
+      "usage: atlas coverage behaviour <original> (rebuilds the program and runs every recorded behaviour: x86-64)",
+    );
+  }
+  if (!existsSync(original)) throw new CliError("not_found", `no file ${original}`);
+  try {
+    const c = await coverageBehaviour(store, original);
+    const percent = c.translated > 0 ? ((100 * c.covered) / c.translated).toFixed(1) : "0";
+    return {
+      data: c,
+      text:
+        `${c.covered} of ${c.translated} translated functions reached by ${c.behaviours.length} behaviours (${percent}%)` +
+        c.behaviours
+          .map((b) => `\n  ${b.hypothesis} ${JSON.stringify(b.argv)}: ${b.reached} reached, ${b.added} new`)
+          .join("") +
+        `\nlargest not reached:` +
+        c.uncovered.map((u) => `\n  ${u.id}${u.label !== undefined ? ` ${u.label}` : ""} (${u.size} bytes)`).join(""),
     };
   } catch (error) {
     if (error instanceof NotFoundError) throw new CliError("not_found", error.message);

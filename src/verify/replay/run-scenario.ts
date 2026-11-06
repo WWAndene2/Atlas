@@ -49,7 +49,15 @@ export function decode(bytes: Bytes): Buffer {
 
 const MAX_OUTPUT = 16 << 20;
 
-export async function runScenario(given: string, scenario: Scenario): Promise<Outcome> {
+/**
+ * `instrument`: environment variables for the tooling around the run (ATLAS_COVERAGE...), set on top of the
+ * scenario's but not part of it: the program's behaviour is not meant to depend on them.
+ */
+export async function runScenario(
+  given: string,
+  scenario: Scenario,
+  instrument: Record<string, string> = {},
+): Promise<Outcome> {
   const program = resolve(given); // it runs in another directory
   const work = await mkdtemp(join(tmpdir(), "atlas-replay-"));
   try {
@@ -63,6 +71,7 @@ export async function runScenario(given: string, scenario: Scenario): Promise<Ou
       LC_ALL: "C",
       TZ: "UTC",
       ...(scenario.env ?? {}),
+      ...instrument,
     };
     const run = await new Promise<{ stdout: Buffer; stderr: Buffer; exit: number | string }>((done, fail) => {
       // In its own process group, so that stopping it stops what it started too (a child holding the output open

@@ -11,7 +11,13 @@ import { runRepair } from "./commands/repair.js";
 import { runMatchGraph } from "./commands/match-graph.js";
 import { runCheckFormat } from "./commands/format.js";
 import { runTrace } from "./commands/trace.js";
-import { runBlameBehaviour, runFuzzBehaviour, runRecordBehaviour, runVerifyBehaviour } from "./commands/behaviour.js";
+import {
+  runBlameBehaviour,
+  runCoverageBehaviour,
+  runFuzzBehaviour,
+  runRecordBehaviour,
+  runVerifyBehaviour,
+} from "./commands/behaviour.js";
 import { runCheckFunctions } from "./commands/check.js";
 import { runExport } from "./commands/export.js";
 import { runGetFunction } from "./commands/get-function.js";
@@ -102,6 +108,8 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
                                     runs differ, beyond the parts --vary masks (a time...)
+  coverage behaviour <original>      RUN the rebuilt program on every recorded behaviour: how many translated
+                                    functions they reach, what each adds, the largest none reaches (x86-64)
   fuzz behaviour <original> <reconstruction> [--rounds <n>] [--seed <n>]
                                     RUN both on mutants of the recorded inputs (standard input, input
                                     files; seeded): each one the original repeats but the reconstruction
@@ -322,6 +330,9 @@ async function main(argv: string[]): Promise<number> {
           ...(values["last-name"] !== undefined ? { lastName: values["last-name"] } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
+        break;
+      case "coverage":
+        output = await runCoverageBehaviour(store, rest);
         break;
       case "fuzz":
         output = await runFuzzBehaviour(store, rest, {

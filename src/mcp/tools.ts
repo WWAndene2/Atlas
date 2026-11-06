@@ -34,6 +34,7 @@ import { recordBehaviour } from "../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../orchestrator/replay-behaviour.js";
 import { blameBehaviour } from "../orchestrator/blame-behaviour.js";
 import { fuzzBehaviour } from "../orchestrator/fuzz-behaviour.js";
+import { coverageBehaviour } from "../orchestrator/coverage-behaviour.js";
 import { encode } from "../verify/replay/run-scenario.js";
 import { crossCheckFile } from "../orchestrator/cross-check-functions.js";
 import { linkBase, linkBinary } from "../orchestrator/link-binary.js";
@@ -227,6 +228,12 @@ export function tools(store: GraphStore, graphPath: string) {
       input: { original: z.string(), reconstruction: z.string() },
       handler: async (a: { original: string; reconstruction: string }) =>
         replayBehaviour(store, a.original, a.reconstruction),
+    },
+    coverage_behaviour: {
+      description:
+        "RUN the rebuilt program on every recorded behaviour: how many translated functions they reach, what each behaviour adds, and the largest functions none reaches (where the next behaviour would check the most untested code). x86-64 Linux.",
+      input: { original: z.string() },
+      handler: async (a: { original: string }) => coverageBehaviour(store, a.original),
     },
     fuzz_behaviour: {
       description:

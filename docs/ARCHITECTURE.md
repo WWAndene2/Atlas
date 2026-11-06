@@ -122,6 +122,12 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   `--vary '[0-9]{10}'` is reproduced by the rebuilt program a second later; `math.random()` without one is refused
   at recording, the message pointing to `--vary`. Limit: two runs only catch what differs between them; a clock
   read twice within one second agrees, so it must be named by whoever records the scenario.
+- Coverage (`src/orchestrator/coverage-behaviour.ts`): `atlas coverage behaviour <original>` (MCP
+  `coverage_behaviour`) rebuilds the program and replays every behaviour with `ATLAS_COVERAGE` (`link.py`: one byte
+  per translated or rewritten function, the ones that ran written at exit; set as tooling, not part of the
+  scenario), and reports how many translated functions the acceptance tests reach, what each behaviour adds, and
+  the largest none reaches, where the next behaviour would check the most untested code. On Lua: 432 of 709
+  (60.9%) for the eight recorded behaviours, `many.lua` alone 422, in 96 s. x86-64 Linux programs for now.
 - Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
 <original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
   original differentially. The recorded behaviours with a standard input or input files are the seeds; each round

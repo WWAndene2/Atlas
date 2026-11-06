@@ -26,6 +26,7 @@ atlas match graph documented.sqlite             # names and verified rewrites fr
 atlas trace <program> -- <args>                 # RUNS the program (Frida): what ran, pointer or integer arguments
 atlas record behaviour <program> -- <args>      # RUNS it twice: its output and exit, the whole program's acceptance test
 atlas verify behaviour <original> <rebuilt>     # replays every recorded behaviour on a reconstruction
+atlas coverage behaviour <original>             # which functions the behaviours reach, and the largest they miss
 atlas fuzz behaviour <original> <rebuilt>       # mutated inputs on which the two differ, recorded as behaviours
 atlas blame behaviour <original> <hyp>          # the function a failing behaviour comes from (rebuilds, x86-64)
 atlas check format f.ksy <files...>             # a file format in Kaitai Struct, verified on real files
