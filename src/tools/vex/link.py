@@ -15,6 +15,7 @@ starts at the original's entry, whose call to __libc_start_main runs the transla
 """
 
 import json
+import os
 import subprocess
 import sys
 
@@ -22,6 +23,22 @@ import archinfo
 import cle
 
 from jumps import LONGJMP_NAMES, SETJMP_HEADER, SETJMP_NAMES, jumps_c
+from rewrites import prepare
+
+# From a rewrite (host code) back into the program: a stub per callee loads the callee's guest address in r11 and
+# jumps here; its argument registers go to the guest state, the callee runs, its results come back.
+ENTER_GUEST = r"""
+void atlas_enter_guest(uint64_t *frame, uint64_t target);
+__attribute__((naked)) void atlas_enter_guest_asm(void) {
+  __asm__ volatile(
+    "sub $184,%rsp\n"
+    "mov %rdi,0(%rsp)\n mov %rsi,8(%rsp)\n mov %rdx,16(%rsp)\n mov %rcx,24(%rsp)\n mov %r8,32(%rsp)\n"
+    "mov %r9,40(%rsp)\n movdqu %xmm0,48(%rsp)\n movdqu %xmm1,64(%rsp)\n movdqu %xmm2,80(%rsp)\n"
+    "movdqu %xmm3,96(%rsp)\n movdqu %xmm4,112(%rsp)\n movdqu %xmm5,128(%rsp)\n movdqu %xmm6,144(%rsp)\n"
+    "movdqu %xmm7,160(%rsp)\n mov %rsp,%rdi\n mov %r11,%rsi\n call atlas_enter_guest\n"
+    "mov 0(%rsp),%rax\n movdqu 48(%rsp),%xmm0\n add $184,%rsp\n ret\n");
+}
+"""
 
 TRAMPOLINE = r"""
 /* Calls a host function with the guest's argument registers: frame layout in atlas_native_frame. */
@@ -65,6 +82,12 @@ def main():
         elif kind.endswith("COPY") and r.symbol is not None:
             copies.append((r.relative_addr, index[r.symbol.name], r.symbol.size))
     translated = [int(a) for a in request["translated"]]
+    usable, skipped = prepare(request.get("rewrites", []), request.get("functions", {}),
+                              os.path.dirname(os.path.abspath(request["out"])))
+    rewritten = {r["address"]: r for r in usable}
+    callees = {}
+    for r in usable:
+        callees.update(r["callees"])
     # The guest state's values at reset (x86's direction flag d = 1, the x87 stack top...): zero would make VEX's
     # rep stos store every word at one address (seen as Lua's string table left uncleared).
     defaults = [(arch.registers[n][0], arch.registers[n][1], v) for n, v, *_ in arch.default_register_values
@@ -118,15 +141,31 @@ static int import_is(uint64_t t, const char *name) {{
 }}
 int atlas_is_setjmp(uint64_t t) {{ return {" || ".join(f'import_is(t, "{n}")' for n in SETJMP_NAMES)}; }}
 
-static atlas_state *main_state;
 static int guest_main_called;
 /* ATLAS_TRACE_CALLS=<file>: every call to a translated function, in order, one address per line (to set beside
  * the original's, traced with atlas trace, and find where the two runs part). */
 static FILE *trace_calls;
+{ENTER_GUEST if usable else ""}
+{chr(10).join(f"void {r['symbol']}(void);" for r in usable)}
+{chr(10).join(f'__attribute__((naked)) void {name}(void) {{{{ __asm__ volatile("movabs ${a:#x}, %r11\\n jmp atlas_enter_guest_asm"); }}}}' for name, a in sorted(callees.items()))}
+static atlas_state *main_state;
+static void call_host(atlas_state *s, void *fn);
+void atlas_enter_guest(uint64_t *frame, uint64_t target) {{
+  atlas_state *s = main_state;
+  static const int gp[6] = {{RDI, RSI, RDX, RCX, R8, R9}};
+  static const int vx[8] = {{{", ".join(str(off(f"xmm{i}")) for i in range(8))}}};
+  for (int i = 0; i < 6; i++) REG(uint64_t, gp[i]) = frame[i];
+  for (int i = 0; i < 8; i++) memcpy(s->r + vx[i], (uint8_t *)frame + 48 + 16 * i, 16);
+  REG(uint64_t, RSP) -= 8; STORE64(REG(uint64_t, RSP), 0); /* the callee's ret pops this */
+  atlas_call(s, target);
+  frame[0] = REG(uint64_t, RAX);
+  memcpy((uint8_t *)frame + 48, s->r + vx[0], 16);
+}}
 void atlas_call(atlas_state *s, uint64_t target) {{
   if (trace_calls) fprintf(trace_calls, "%#lx\\n", (unsigned long)target);
   switch (target) {{
-{chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated)}
+{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten))}
+{chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated if a not in rewritten)}
   }}
   int i = import_of(target);
   if (i < 0) {{ fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target); abort(); }}
@@ -208,9 +247,10 @@ int main(int argc, char **argv, char **envp) {{
     with open(out + ".setjmp.h", "w") as f:
         f.write(SETJMP_HEADER)
     subprocess.run(["gcc", "-O1", "-w", "-I", request["runtime"], "-include", out + ".setjmp.h", *request["lifted"],
-                    out + ".main.c", "-o", out, "-ldl", "-lm"], check=True)
+                    out + ".main.c", *[r["object"] for r in usable], "-o", out, "-ldl", "-lm"], check=True)
     unresolved = []
-    print(json.dumps({"executable": out, "imports": len(imports), "unresolved": unresolved}))
+    print(json.dumps({"executable": out, "imports": len(imports), "unresolved": unresolved,
+                      "rewrites": len(usable), "rewrites_skipped": skipped}))
 
 
 if __name__ == "__main__":
