@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -733,6 +733,16 @@ describe.runIf(python !== undefined)("linkProgram native", () => {
     expect(spawnSync(wrong.executable, [], { encoding: "utf8" }).stdout).toBe("0\n");
     const right = await link([square]);
     expect(spawnSync(right.executable, [], { encoding: "utf8" }).stdout).toBe("49\n");
+    // ATLAS_COVERAGE: the translated functions that ran (square is native in this link, main is translated).
+    const coverage = join(dir, "coverage.txt");
+    spawnSync(right.executable, [], { env: { ...process.env, ATLAS_COVERAGE: coverage } });
+    const ran = readFileSync(coverage, "utf8")
+      .trim()
+      .split("\n")
+      .map((a) => Number(a));
+    const main = Number.parseInt(/^([0-9a-f]+) T main$/m.exec(nm)?.[1] ?? "0", 16);
+    expect(ran).toContain(main);
+    expect(ran).not.toContain(square);
     // The two links share the translations, compiled once.
     expect(readdirSync(dir).filter((f) => /^lifted\.c\.[0-9a-f]{16}\.o$/.test(f))).toHaveLength(1);
   }, 600_000);

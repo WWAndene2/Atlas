@@ -112,6 +112,7 @@ def main():
     # failing behaviour down to one function this way.
     # The entry stays translated: run natively, it would read argc and argv from the host's stack, not the guest's.
     native = {int(a) + base for a in request.get("native", [])} - {obj.entry + base}
+    position = {a: k for k, a in enumerate(translated)}  # each translated function's coverage slot
     # Linked at fixed addresses when the original's image lies below where a fixed-address host program loads
     # (0x400000): rewrites then reach the original's globals by address (their DAT_<address> symbols).
     # A base far above it (0x10000000) leaves that room free too.
@@ -182,6 +183,17 @@ static int import_is(uint64_t t, const char *name) {{
 int atlas_is_setjmp(uint64_t t) {{ return {" || ".join(f'import_is(t, "{n}")' for n in SETJMP_NAMES)}; }}
 
 static int guest_main_called;
+/* ATLAS_COVERAGE=<file>: the translated functions that ran, one address per line (graph addresses), written at exit:
+ * which code a run exercises (atlas coverage behaviour), one byte per function, so it costs nothing measurable. */
+static uint8_t covered[{len(translated) or 1}];
+static const uint64_t covered_address[{len(translated) or 1}] = {{{", ".join(f"{a - base:#x}ULL" for a in translated) or "0"}}};
+static const char *coverage_file;
+static void write_coverage(void) {{
+  FILE *f = fopen(coverage_file, "w");
+  if (!f) return;
+  for (unsigned k = 0; k < sizeof covered; k++) if (covered[k]) fprintf(f, "%#lx\\n", (unsigned long)covered_address[k]);
+  fclose(f);
+}}
 /* ATLAS_TRACE_CALLS=<file>: every call to a translated function, in order, one address per line (to set beside
  * the original's, traced with atlas trace, and find where the two runs part). */
 static FILE *trace_calls;
@@ -209,8 +221,9 @@ void atlas_call(atlas_state *s, uint64_t target) {{
   if (trace_calls) fprintf(trace_calls, "%#lx\\n", (unsigned long)target);
   switch (target) {{
 {chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *)(uintptr_t){a:#x}ULL); return;  /* the original, natively */" for a in sorted(native))}
-{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten) if a not in native)}
-{chr(10).join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated if a not in rewritten and a not in native)}
+{chr(10).join(f"    case {a:#x}ULL: covered[{position[a]}] = 1; call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten) if a not in native and a in position)}
+{chr(10).join(f"    case {a:#x}ULL: call_host(s, (void *){rewritten[a]['symbol']}); return;" for a in sorted(rewritten) if a not in native and a not in position)}
+{chr(10).join(f"    case {a:#x}ULL: covered[{k}] = 1; fn_{a:x}(s); return;" for k, a in enumerate(translated) if a not in rewritten and a not in native)}
   }}
   /* A rewrite that takes its own address (a Lua C function registering itself) hands out its host address:
    * calls through it reach the rewrite. */
@@ -258,6 +271,7 @@ int main(int argc, char **argv, char **envp) {{
   }}
   for (int i = 0; i < NIMPORTS; i++) import_host[i] = dlsym(RTLD_DEFAULT, import_names[i]);
   if (getenv("ATLAS_TRACE_CALLS")) trace_calls = fopen(getenv("ATLAS_TRACE_CALLS"), "w");
+  if ((coverage_file = getenv("ATLAS_COVERAGE")) != NULL) atexit(write_coverage);
   for (unsigned k = 0; k < sizeof relative / sizeof relative[0]; k++)
     if (relative[k][0]) *(uint64_t *)(uintptr_t)relative[k][0] = relative[k][1];
   for (unsigned k = 0; k < sizeof slots / sizeof slots[0]; k++)
