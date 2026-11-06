@@ -5,7 +5,7 @@
 // with its C library and kernel32 served (winlink.py), an AArch64 Linux program (an Android app's native code) with
 // its imports served by the host's C library (a64link.py): translations only, in all three.
 import { closeSync, openSync, readSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { GraphStore } from "../graph/index.js";
 import { locateAngr } from "../tools/angr/index.js";
 import {
@@ -50,11 +50,13 @@ export async function linkBinary(
     return crosslink(store, binary, path, dir, translated, architecture);
   }
   if (architecture === "arm64" && !isPe(path)) {
+    // A shared library (an Android app's .so) becomes a host library named as the original, its exports kept.
+    const library = isElfLibrary(path);
     const outcome = await a64linkProgram(locateAngr(), {
       binary: resolve(path),
       lifted: [join(dir, "lifted.c")],
       translated,
-      out: join(dir, "program"),
+      out: join(dir, library ? basename(path) : "program"),
       base: linkBase(path),
     });
     const kept = verifiedRewrites(
@@ -62,7 +64,13 @@ export async function linkBinary(
       binary,
       "a rewrite verified for the guest's CPU is not linked into a program for another CPU",
     );
-    return { executable: outcome.executable, imports: outcome.imports, rewrites: 0, rewrites_skipped: kept };
+    return {
+      executable: outcome.executable,
+      imports: outcome.imports,
+      rewrites: 0,
+      rewrites_skipped: kept,
+      ...(library ? { library: true } : {}),
+    };
   }
   if (architecture === "x86_64" && isPe(path)) {
     const outcome = await winlinkProgram(locateAngr(), {
@@ -175,6 +183,24 @@ function isPe(path: string): boolean {
     if (readSync(fd, header, 0, 0x40, 0) < 0x40 || header.readUInt16LE(0) !== 0x5a4d) return false;
     const signature = Buffer.alloc(4);
     return readSync(fd, signature, 0, 4, header.readUInt32LE(0x3c)) === 4 && signature.readUInt32LE(0) === 0x4550;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Whether a 64-bit little-endian ELF is a shared library: no PT_INTERP program header (nothing loads it as a program). */
+function isElfLibrary(path: string): boolean {
+  const fd = openSync(path, "r");
+  try {
+    const header = Buffer.alloc(64);
+    if (readSync(fd, header, 0, 64, 0) < 64 || header.readUInt32BE(0) !== 0x7f454c46 || header[4] !== 2) return false;
+    const at = Number(header.readBigUInt64LE(0x20));
+    const size = header.readUInt16LE(0x36);
+    const count = header.readUInt16LE(0x38);
+    const table = Buffer.alloc(size * count);
+    readSync(fd, table, 0, table.length, at);
+    for (let k = 0; k < count; k++) if (table.readUInt32LE(k * size) === 3) return false; // PT_INTERP
+    return true;
   } finally {
     closeSync(fd);
   }

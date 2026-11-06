@@ -192,8 +192,12 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   and the handler signal returns name the guest's handler again. On x86-64 guests (`link.py`) nothing is needed, the original's code being mapped
   executable at its own addresses. An AArch64 shared library (no interpreter: an Android app's `.so`) becomes a
   host shared library: each exported function a host function of the same name entering the guest with the
-  arguments converted, the image set up when the host loads it, nothing else visible; a test calls three exports
-  of one through dlopen. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
+  arguments converted, the image set up when the host loads it, nothing else visible; the library's references
+  to its own exports (PLT calls and symbol relocations, which a shared library uses for any function it exports)
+  resolve to its own translations. `atlas lift --link` on such a `.so` writes it under the original's name. Lua's
+  Android-style `liblua.so` (`tests/fixtures/lua-platforms`), all 686 functions translated, driven by a host
+  program through Lua's C API (dlopen, luaL_newstate, luaL_openlibs, luaL_loadfilex, lua_pcallk), prints for the
+  test script exactly what the same driver prints with Lua built natively for x86-64 from the same sources. Limits: a handler reading its ucontext (SA_SIGINFO) sees the host's; a library's exported
   data is not reachable, and one such library per process (the image at a fixed base);
   verified rewrites stay translations (they are AArch64 code). `lift.py` translates AArch64's fused multiply-add,
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64

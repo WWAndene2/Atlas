@@ -184,8 +184,9 @@ its startup (TLS, allocator) is not yet served. Then Windows programs on Linux (
 served, x87 and lock cmpxchg translated): MinGW Lua prints what Linux Lua prints. Then Android programs: an AArch64
 executable against the C library (`a64link.py`, the host's C library called with the conventions converted): Lua for
 AArch64 prints on x86-64 what Linux Lua prints. Then calls from the C library back into guest code on AArch64 (qsort, bsearch, exit
-handlers, signal and sigaction; x86-64 guests need none, their code running as it is). Next: an app's `.so` loaded
-by a host driver, then the static-glibc startup. Then, in this order: the rest of
+handlers, signal and sigaction; x86-64 guests need none, their code running as it is). Then an app's `.so` as a
+host shared library a host program calls (`a64link.py`): Lua's `liblua.so`, driven through its C API, prints what
+native Lua prints. Next: the library's exported data, and Java/JNI entry points, then the static-glibc startup. Then, in this order: the rest of
 msvcrt and kernel32 beyond Lua's imports, and UCRT programs; verified rewrites in place on Windows, ARM and AArch64
 (compiled for the host with the guest's conventions converted); open and a reusing munmap for ARM guests; checking
 the originals themselves where an emulator or Wine is available. MinGW builds are not reproducible (the PE header's

@@ -69,8 +69,12 @@ def main():
     loader = cle.Loader(request["binary"], auto_load_libs=False, main_opts={"base_addr": 0})
     obj = loader.main_object
     base = int(request.get("base", 0))
+    # Symbols the object defines itself: in a shared library, calls and pointers to its own exported functions go
+    # through symbol relocations and the PLT too (they could be preempted); here they resolve to the object.
+    own_symbols = {sym.name: sym.relative_addr + base for sym in obj.symbols
+                   if sym.name and not sym.is_import and sym.relative_addr}
     imports = sorted({r.symbol.name for r in obj.relocs if r.symbol is not None and r.symbol.is_import}
-                     | set(obj.plt))
+                     | {n for n in obj.plt if n not in own_symbols})
     index = {n: i for i, n in enumerate(imports)}
     segs = [(s.vaddr + base, s.memsize, s.offset, s.filesize, s.is_executable) for s in obj.segments]
     relative, slots = [], []
@@ -80,13 +84,17 @@ def main():
             relative.append((r.relative_addr + base, r.addend + base))
         elif kind.endswith(("JUMP_SLOT", "GLOB_DAT", "ABS64")) and r.symbol is not None and r.symbol.is_import:
             slots.append((r.relative_addr + base, index[r.symbol.name], getattr(r, "addend", 0) or 0))
+        elif kind.endswith(("JUMP_SLOT", "GLOB_DAT", "ABS64")) and r.symbol is not None and r.symbol.name in own_symbols:
+            relative.append((r.relative_addr + base, own_symbols[r.symbol.name] + (getattr(r, "addend", 0) or 0)))
     translated = [int(a) + base for a in request["translated"]]
     library = is_library(request["binary"])
     # A library's exported functions, each a host function of the library linked (C names, so a host program links
     # or dlsyms them as it would the original's). Data the library exports is not reachable this way.
     exports = sorted({(sym.name, sym.relative_addr + base) for sym in obj.symbols
                       if sym.is_export and sym.is_function and sym.name}) if library else []
-    plt = {a + base: index[n] for n, a in obj.plt.items()}
+    plt = {a + base: index[n] for n, a in obj.plt.items() if n in index}
+    # A call to the PLT entry of the object's own function goes to that function.
+    own_plt = {a + base: own_symbols[n] for n, a in obj.plt.items() if n not in index}
     defaults = [(off(n), size(n), v) for n, v, *_ in arch.default_register_values
                 if n in arch.registers and n not in ("sp", "xsp")]
     nl = "\n"
@@ -205,6 +213,9 @@ static char **host_envp;
 void atlas_call(atlas_state *s, uint64_t target) {{
   switch (target) {{
 {nl.join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated)}
+  }}
+  switch (target) {{
+{nl.join(f"    case {a:#x}ULL: atlas_call(s, {t:#x}ULL); return;" for a, t in sorted(own_plt.items()))}
   }}
   int i = import_of(target);
   if (i < 0) {{ fprintf(stderr, "atlas: no translation for guest code at %#lx\\n", (unsigned long)target); abort(); }}

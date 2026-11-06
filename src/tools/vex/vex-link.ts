@@ -30,6 +30,8 @@ export interface LinkOutcome {
   rewrites_skipped: { address: number; reason: string }[];
   /** A Windows program's imports no service covers (winlink.py): the program stops if it calls one. */
   unserved?: string[];
+  /** The output is a host shared library (from an AArch64 .so), not a program. */
+  library?: boolean;
 }
 
 export async function linkProgram(python: string, request: LinkRequest): Promise<LinkOutcome> {

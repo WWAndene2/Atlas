@@ -51,7 +51,7 @@ export async function runLift(
         const linked =
           r.linked === undefined
             ? ""
-            : `\n  linked: ${r.linked.executable}, ${r.linked.rewrites} verified rewrites in place of their translations` +
+            : `\n  linked: ${r.linked.executable}${r.linked.library === true ? " (a host shared library: the original's exports)" : ""}, ${r.linked.rewrites} verified rewrites in place of their translations` +
               ` (${r.linked.rewrites_skipped.length} kept as translations)`;
         const extra = r.extra > 0 ? `, and ${r.extra} the graph does not have (from the image's .pdata)` : "";
         return `${r.label}: ${r.translated - r.extra} of ${r.functions} functions translated to C${extra} in ${r.files[0]?.replace(/\/[^/]+$/, "")}${reasons ? ` (not: ${reasons})` : ""}${linked}`;

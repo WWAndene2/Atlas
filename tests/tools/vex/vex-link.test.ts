@@ -399,6 +399,9 @@ const A64_LIBRARY = `
 #include <stdio.h>
 #include <stdlib.h>
 int add(int a, int b) { return a + b; }
+int add3(int a, int b, int c) { return add(add(a, b), c); } /* one export calling another: through the PLT */
+int (*pick)(int, int) = add;                                  /* a pointer to an export: a symbol relocation */
+int through(int a, int b) { return pick(a, b); }
 double scale(double x, int n) { return x * n; }
 char *greet(const char *who) { char *s = malloc(64); snprintf(s, 64, "hello %s", who); return s; }
 `;
@@ -412,8 +415,10 @@ int main(int argc, char **argv) {
   int (*add)(int, int) = (int (*)(int, int))dlsym(lib, "add");
   double (*scale)(double, int) = (double (*)(double, int))dlsym(lib, "scale");
   char *(*greet)(const char *) = (char *(*)(const char *))dlsym(lib, "greet");
+  int (*add3)(int, int, int) = (int (*)(int, int, int))dlsym(lib, "add3");
+  int (*through)(int, int) = (int (*)(int, int))dlsym(lib, "through");
   char *g = greet("host");
-  printf("%d %.2f %s\\n", add(40, 2), scale(1.25, 4), g);
+  printf("%d %.2f %s %d %d\\n", add(40, 2), scale(1.25, 4), g, add3(1, 2, 3), through(5, 6));
   free(g);
   return 0;
 }
@@ -446,7 +451,7 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     writeFileSync(join(dir, "driver.c"), HOST_DRIVER);
     execFileSync("gcc", ["-O1", "driver.c", "-o", "driver", "-ldl"], { cwd: dir });
     const run = spawnSync(join(dir, "driver"), [outcome.executable], { encoding: "utf8" });
-    expect(run.stdout).toBe("42 5.00 hello host\n");
+    expect(run.stdout).toBe("42 5.00 hello host 6 11\n");
     expect(run.status).toBe(0);
   }, 600_000);
 });
