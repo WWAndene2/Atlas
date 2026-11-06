@@ -173,8 +173,10 @@ untranslated functions). Then the link step (`src/tools/vex/link.py`, x86-64 Lin
 original's segments at their own addresses, relocations applied, the C library called through a trampoline, setjmp
 in the translated caller's frame. Lua recompiled from its binary alone (701 of 709 functions translated) prints
 what the original prints on 13 scripts, and on a larger one in 20 of 20 runs with malloc handing out garbage-filled
-memory. Next, in order: the C library calls the check does not cover yet (ctype tables, setjmp), the check on
-other architectures (an emulator side per CPU), verified rewrites replacing their translations in the linked
+memory. Then the C library's ctype tables and setjmp in the check (66 of 80 x86-64 functions same, 0 different),
+and the check on ARM, MIPS and PowerPC (angr runs the original; calling conventions by table; generated inputs,
+these binaries not running here): of 40 Lua functions each, 18, 9 and 9 same, none different, the rest stopped
+at untranslated callees or, on MIPS, traps. Next, in order: verified rewrites replacing their translations in the linked
 program, Lua's own test suite and a second program, then a link for guests on another CPU (platform services
 emulated, the console case).
 
