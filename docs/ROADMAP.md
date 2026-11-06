@@ -192,56 +192,12 @@ spreads across platforms instead of finishing one. So, from now on:
   frames as it writes its coverage (`ATLAS_FRAMES`), compared under a stated tolerance (PSNR or SSIM), the report
   naming the first frame and region that differ; `blame` and `fuzz` then work on frames unchanged.
 - **Hand-written assembly, measured** with a fixture of its patterns (`tests/fixtures/handwritten-asm/`, ARMv6K,
-  one program per pattern): a call made by hand (`adr lr` then `b`) works, VEX's ARM decoder taking it as a call;
-  a stack switch works, the guest stack being memory; a return that skips a level does not (a translation is a C
-  function that returns to its C caller), a known failure in the test. The fix: a shadow stack of return addresses,
-  a return that does not go where its call expected unwinding to the matching frame as longjmp does, with a
-  block-by-block mode for functions marked irregular.
-
-Order of work: this roadmap entry; the hand-written assembly fixture (done); returns that skip a level (the shadow
-stack); the console kernel's core with the 3DS
-profile and the log of what is not served, run on the title; then the services the log asks for most; frames.
-
-### Static recompilation — the "it runs" path (decided 5 November 2026)
-
-A field report on a 3DS title (one game among the targets Atlas is for) showed byte-exact rewriting is out of reach
-at first where the original compiler cannot be had, and that a mechanical translation checked by behaviour gets a
-game running sooner. Done: `atlas lift` (VEX to C, every architecture Atlas names; see ARCHITECTURE.md) and its
-behaviour check on x86-64. Then real inputs (atlas trace captures:
-registers at entry and the pages they point into, one level of pointers deep, code left out) and one
-deterministic allocator on both sides: of 80 Lua functions met while a script ran, 58 same and none different (13
-of 60 with generated inputs); the rest stop at callees the capture or the bridge does not cover (setjmp, ctype,
-untranslated functions). Then the link step (`src/tools/vex/link.py`, x86-64 Linux on an x86-64 host): the
-original's segments at their own addresses, relocations applied, the C library called through a trampoline, setjmp
-in the translated caller's frame. Lua recompiled from its binary alone (701 of 709 functions translated) prints
-what the original prints on 13 scripts, and on a larger one in 20 of 20 runs with malloc handing out garbage-filled
-memory. Then the C library's ctype tables and setjmp in the check (66 of 80 x86-64 functions same, 0 different),
-and the check on ARM, MIPS and PowerPC (angr runs the original; calling conventions by table; generated inputs,
-these binaries not running here): of 40 Lua functions each, 18, 9 and 9 same, none different, the rest stopped
-at untranslated callees or, on MIPS, traps. Then verified rewrites replacing their translations in the linked program (`src/tools/vex/rewrites.py`): of Lua's 111, 102 linked once names come from name hypotheses too and the program is linked at fixed addresses when the original's image allows (its globals then reached by DAT_<address>); 6 need other data, 3 call through function pointers, output still the original's on 13 scripts and in 10 of 10 garbage-filled runs. Then Lua's own test suite (5.4.7, basic mode; SHA-256 of the archive recorded at download, lua.org publishes none) through `atlas lift --link`, 101 verified rewrites in place: every file the original passes (27) the recompiled program passes, after four fixes it found (guest stack alignment from a rewrite's calls, reused setjmp entries, a rewrite's own host address, and the recompile check now comparing where references by address point: a rewrite carried from 5.4.6 had read 5.4.6's address of a constant). Then a second program, Atlas's bench (`tests/fixtures/bench`, built here): its image lies in the first 64 KiB Linux keeps, so a position-independent image is now translated and mapped at 0x10000000; with 5 verified rewrites in place, the recompiled bench prints what the original prints for every argument list tried, and Lua at that base still passes its 27 test files. Done in part: a link for guests on another CPU (`crosslink.py`), the console case — guest memory a block of host
-memory, Linux system calls emulated (`atlas_syscall.inc`), ARM Thumb/ARM, set_tls, reached by `atlas lift --link`
-on a 32-bit ARM binary. A freestanding ARM program, ARM or Thumb code, runs on x86-64 and prints what it should (a
-test); a statically linked glibc program translates (2,177 of 2,267 functions) but
-its startup (TLS, allocator) is not yet served. Then Windows programs on Linux (`winlink.py`, msvcrt and kernel32
-served, x87 and lock cmpxchg translated): MinGW Lua prints what Linux Lua prints. Then Android programs: an AArch64
-executable against the C library (`a64link.py`, the host's C library called with the conventions converted): Lua for
-AArch64 prints on x86-64 what Linux Lua prints. Then calls from the C library back into guest code on AArch64 (qsort, bsearch, exit
-handlers, signal and sigaction; x86-64 guests need none, their code running as it is). Then an app's `.so` as a
-host shared library a host program calls (`a64link.py`): Lua's `liblua.so`, driven through its C API, prints what
-native Lua prints. Then its exported data, and JNI: native methods running in a host Java VM, calling back through
-JNIEnv. Next: a whole app's `.apk` (its Java code and its native libraries together), then the static-glibc
-startup. Then, in this order: the rest of
-msvcrt and kernel32 beyond Lua's imports, and UCRT programs; verified rewrites in place on Windows, ARM and AArch64
-(compiled for the host with the guest's conventions converted); open and a reusing munmap for ARM guests; checking
-the originals themselves where an emulator or Wine is available. MinGW builds are not reproducible (the PE header's
-timestamp): a rebuilt `lua.exe` is a new binary to the graph.
-
-### Behaviour, assets and what a whole program must do (decided 5 November 2026)
-
-Ideas kept from an outside design for a "reconstruction engine" (its staged loop and evidence ledger are what the
-graph already does): Atlas checks functions and a program's text output, but a game is judged on what it shows,
-plays and saves. In order, after the static recompilation steps above:
-
+  one program per pattern): a call made by hand (`adr lr` then `b`) works, VEX's ARM decoder taking it as a call; a
+  stack switch works, the guest stack being memory; a return that skips a level works since returns are followed
+  (each return, translated or served by the host, writes its real target, and each call site checks it, going on
+  there when it lies in its own function and otherwise returning too, until the frame that expected it). Cost:
+  Lua's constructs.lua test 25 s rebuilt instead of 20 s. A block-by-block mode stays possible for code no
+  function boundary fits.
 - **Behaviour specification.** Observed scenarios (an input sequence, the output and state it leads to) recorded in
   the graph as hypotheses tied to traces and captures: the acceptance tests of a whole program, technology-neutral,
   shared by every agent, and the reference a recompiled program is replayed against. Done in part: `behaviour`

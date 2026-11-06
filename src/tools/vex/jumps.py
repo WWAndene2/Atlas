@@ -86,6 +86,7 @@ void atlas_jump_first(atlas_state *s) {{ REG(uint64_t, {rax}) = 0; REG(uint64_t,
 /* Back from a longjmp: the registers as setjmp saw them, the value longjmp passed. */
 void atlas_jump_back(atlas_state *s) {{
   jump_restore(s, landing->regs);
+  s->returned = ATLAS_RETURNED_ANY; /* setjmp's call site goes on as from a normal return */
   REG(uint64_t, {rax}) = landing->value;
   REG(uint64_t, {rsp}) += {pop};
 }}

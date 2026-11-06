@@ -139,7 +139,7 @@ __attribute__((constructor)) static void atlas_library_start(void) {
 static const char *import_names[] = {{{", ".join(f'"{n}"' for n in imports)}}};
 static void *import_host[{len(imports)}];
 static uint64_t own_data[{max(len(own), 1)}] = {{{", ".join(f"{v:#x}ULL" for _, v in own) or "0"}}};
-enum {{ X0 = {off('x0')}, X1 = {off('x1')}, X2 = {off('x2')}, SP = {off('sp')}, Q0 = {off('q0')}, Q1 = {off('q1')},
+enum {{ X30 = {off('x30')}, X0 = {off('x0')}, X1 = {off('x1')}, X2 = {off('x2')}, SP = {off('sp')}, Q0 = {off('q0')}, Q1 = {off('q1')},
         NIMPORTS = {len(imports)} }};
 
 static void call_host(atlas_state *s, void *fn) {{
@@ -151,6 +151,8 @@ static void call_host(atlas_state *s, void *fn) {{
   for (int i = 2; i < 16; i++) f.stack[i] = LOAD64(REG(uint64_t, SP) + 8 * (i - 2));
   atlas_native(fn, &f);
   REG(uint64_t, X0) = f.rax; REG(uint64_t, X1) = f.rdx;
+  /* The function returns to x30, where the call (or the tail jump's caller) left it: s->returned for the call site. */
+  s->returned = REG(uint64_t, X30);
   memcpy(s->r + Q0, f.xmm0, 16); memcpy(s->r + Q1, f.xmm1, 16);
 }}
 
@@ -216,7 +218,11 @@ void atlas_enter_guest(uint64_t *frame, uint64_t k) {{
   for (int i = 0; i < 8; i++) memcpy(s->r + Q0 + 16 * i, (uint8_t *)frame + 48 + 16 * i, 16);
   REG(uint64_t, SP) = (REG(uint64_t, SP) - 256) & ~15ULL;
   /* k: a callback slot, or (bit 62 set) the guest address of an exported function a host caller called. */
+  /* Guest code run for the host leaves s->returned as its own last return set it: the call site waiting on the
+   * host (an import's, a callback's) must still see what it expects. */
+  uint64_t returned = s->returned;
   atlas_call(s, (k >> 62) ? (k & ((1ULL << 62) - 1)) : callback_target[k]);
+  s->returned = returned;
   frame[0] = REG(uint64_t, X0);
   memcpy((uint8_t *)frame + 48, s->r + Q0, 16);
   memcpy(s->r, saved[--depth], sizeof s->r);

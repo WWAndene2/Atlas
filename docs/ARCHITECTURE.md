@@ -265,6 +265,15 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   prints on x86-64 what Linux Lua prints for the same script as the Windows build; a test program checks the
   conventions (`tests/tools/vex/vex-link.test.ts`). The original AArch64 program was not run here (no emulator):
   Linux Lua built from the same sources is the reference.
+- Returns followed (`lift.py`, the linkers): a translation is a C function, but guest code may return elsewhere than
+  to its caller (hand-written assembly popping its caller's saved return address, a return that skips a level). A
+  call site writes the address it expects in `s->returned`; every return writes its real target there (a
+  translated return its target, a call served by the host the address the guest's call left: the pushed one on
+  x86-64, the link register on AArch64); a call site that finds another address goes on there when it lies in its
+  own function and otherwise returns too, so the frames unwind to the one that expected it. Guest code run for the
+  host (callbacks, `_initterm`) keeps the waiting call site's value; a longjmp's landing counts as expected. Tested
+  by the hand-written assembly fixture and a function ending in a tail jump to the C library; Lua's recorded suite
+  is reproduced (33 of 34, the 34th the clock); cost about 25% on Lua's constructs.lua.
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating

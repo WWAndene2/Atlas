@@ -151,7 +151,11 @@ static void guest_call(atlas_state *s, uint64_t target, uint64_t a, uint64_t b, 
   STORE64(sp, 0);
   REG(uint64_t, RSP) = sp;
   REG(uint64_t, RCX) = a; REG(uint64_t, RDX) = b; REG(uint64_t, R8) = c;
+  /* Guest code run for the host leaves s->returned as its own last return set it: the call site waiting on the
+   * host (an import's, a callback's) must still see what it expects. */
+  uint64_t returned = s->returned;
   atlas_call(s, target);
+  s->returned = returned;
   REG(uint64_t, RSP) = before;
 }}
 
@@ -215,7 +219,10 @@ static void call_import(atlas_state *s, int i) {{
     REG(uint64_t, RAX) = f.rax;
     memcpy(s->r + xmm[0], f.xmm0, 16);
   }}
-  REG(uint64_t, RSP) += 8; /* the import returns: pop the guest's return address */
+  /* The import returns: to the address the guest's call pushed (s->returned, for the call site to check: a tail
+   * jump to an import returns to its caller's caller), which it pops. */
+  s->returned = LOAD64(REG(uint64_t, RSP));
+  REG(uint64_t, RSP) += 8;
 }}
 
 void atlas_call(atlas_state *s, uint64_t target) {{

@@ -12,7 +12,12 @@ typedef struct atlas_state {
   uint8_t r[4096] __attribute__((aligned(16)));
   /* Flat guest memory by default: guest address a lives at mem + a. */
   uint8_t *mem;
+  /* Where the last return went (lift.py): a call site sets it to the address it expects, a return writes its real
+   * target, and a call site that finds another address unwinds (a return that skips a level). ATLAS_RETURNED_ANY:
+   * a return whose target is not known (a host call, a longjmp's landing), taken as the expected one. */
+  uint64_t returned;
 } atlas_state;
+#define ATLAS_RETURNED_ANY (~0ULL)
 
 void atlas_call(atlas_state *s, uint64_t target);
 /* A trap the guest raised (division by zero, ud2, breakpoint): the program decides what it does. */

@@ -779,10 +779,9 @@ describe.runIf(python !== undefined)("linkProgram native", () => {
 });
 
 // Hand-written assembly patterns (tests/fixtures/handwritten-asm/handwritten.c), one program each, for the 3DS's CPU.
-// Measured: a call made by hand (1) works, VEX's ARM decoder taking "lr set to the next instruction, then b" as a
-// call; a stack switch (3) works, the guest stack being memory; a return that skips a level (2) is not followed yet,
-// a translation being a C function that returns to its C caller (the fix planned in docs/ROADMAP.md: a shadow stack
-// of return addresses).
+// A call made by hand (1): VEX's ARM decoder takes "lr set to the next instruction, then b" as a call. A return that
+// skips a level (2): each return writes its real target and each call site checks it, unwinding to the frame that
+// expected it (lift.py). A stack switch (3): the guest stack is memory.
 const HANDWRITTEN = fileURLToPath(new URL("../../fixtures/handwritten-asm/handwritten.c", import.meta.url));
 const ALL_FUNCTIONS = `
 import cle, json, sys
@@ -844,14 +843,53 @@ describe.runIf(python !== undefined && armClang())("hand-written assembly", () =
   it("follows a call made by hand (adr lr, then b)", async () => {
     expect(await runPattern(1)).toBe("ok\n");
   }, 300_000);
-  it.fails(
-    "follows a return that skips a level",
-    async () => {
-      expect(await runPattern(2)).toBe("ok\n");
-    },
-    300_000,
-  );
+  it("follows a return that skips a level", async () => {
+    expect(await runPattern(2)).toBe("ok\n");
+  }, 300_000);
   it("follows a stack switch", async () => {
     expect(await runPattern(3)).toBe("ok\n");
   }, 300_000);
+});
+
+// A function ending in a tail jump to the C library (gcc -O2 turns "fflush(stderr);" at the end into "jmp fflush"):
+// the host-served function returns to the caller's caller, and that caller must go on (it reported a wrong return
+// and unwound to the top until host returns said where they go; found on Lua's error reports).
+const TAIL_PROGRAM = `
+#include <stdio.h>
+__attribute__((noinline)) void report(const char *m) { fprintf(stderr, "%s\\n", m); fflush(stderr); }
+int main(void) { report("first"); report("second"); puts("after"); return 3; }
+`;
+
+describe.runIf(python !== undefined)("linkProgram returns", () => {
+  it("goes on after a function that ends in a tail jump to the C library", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-tail-test-"));
+    writeFileSync(join(dir, "p.c"), TAIL_PROGRAM);
+    execFileSync("gcc", ["-O2", "-fcf-protection=none", "p.c", "-o", "p"], { cwd: dir });
+    writeFileSync(join(dir, "functions.py"), ELF_FUNCTIONS);
+    const functions = JSON.parse(
+      execFileSync(python as string, ["-I", join(dir, "functions.py"), join(dir, "p")], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ) as { address: number; code: string }[];
+    const base = 0x10000000;
+    const lifted = await liftFunctions(python as string, "x86_64", functions, join(dir, "p"), base);
+    writeFileSync(
+      join(dir, "lifted.c"),
+      `#include "atlas_lift.h"\n${lifted.map((l) => ("c" in l ? l.c : "")).join("\n")}`,
+    );
+    const outcome = await linkProgram(python as string, {
+      binary: join(dir, "p"),
+      lifted: [join(dir, "lifted.c")],
+      translated: lifted.filter((l) => "c" in l).map((l) => Number(l.address)),
+      out: join(dir, "program"),
+      rewrites: [],
+      functions: {},
+      base,
+    });
+    const run = spawnSync(outcome.executable, [], { encoding: "utf8" });
+    expect(run.stderr).toBe("first\nsecond\n");
+    expect(run.stdout).toBe("after\n");
+    expect(run.status).toBe(3);
+  }, 600_000);
 });

@@ -166,7 +166,10 @@ static void call_host(atlas_state *s, void *fn) {{
   atlas_native(fn, &f);
   REG(uint64_t, RAX) = f.rax; REG(uint64_t, RDX) = f.rdx;
   memcpy(s->r + xmm[0], f.xmm0, 16); memcpy(s->r + xmm[1], f.xmm1, 16);
-  REG(uint64_t, RSP) += 8; /* the import returns: pop the guest's return address */
+  /* The import returns: to the address the guest's call pushed (s->returned, for the call site to check: a tail
+   * jump to an import returns to its caller's caller), which it pops. */
+  s->returned = LOAD64(REG(uint64_t, RSP));
+  REG(uint64_t, RSP) += 8;
 }}
 
 {jumps_c(off)}
@@ -217,7 +220,11 @@ void atlas_enter_guest(uint64_t *frame, uint64_t target) {{
    * pointer still holds where the rewrite's own caller left it, so it is realigned here and restored after. */
   uint64_t before = REG(uint64_t, RSP);
   REG(uint64_t, RSP) = (before & ~15ULL) - 8; STORE64(REG(uint64_t, RSP), 0);
+  /* Guest code run for the host leaves s->returned as its own last return set it: the call site waiting on the
+   * host (an import's, a callback's) must still see what it expects. */
+  uint64_t returned = s->returned;
   atlas_call(s, target);
+  s->returned = returned;
   REG(uint64_t, RSP) = before;
   frame[0] = REG(uint64_t, RAX);
   memcpy((uint8_t *)frame + 48, s->r + vx[0], 16);

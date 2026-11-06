@@ -253,6 +253,15 @@ class Function:
             raise Unsupported(f"undecodable at {addr:#x}")
         return irsb
 
+    def call(self, target, after):
+        """A call: the callee should come back to `after`. A return that went elsewhere (hand-written assembly popping
+        its caller's saved return address, a return that skips a level) is followed: to that address when it lies in
+        this function, else by returning too, so each caller checks in turn until the one that expected it."""
+        return (f"s->returned = {after:#x}ULL; ATLAS_CALL({target}); "
+                f"if (s->returned != {after:#x}ULL && s->returned != ATLAS_RETURNED_ANY) {{ "
+                f"if (s->returned >= {self.address:#x}ULL && s->returned < {self.end:#x}ULL) {{ pc = s->returned; continue; }} "
+                f"return; }} pc = {after:#x}ULL; continue;")
+
     def thumb_branch(self, at):
         """The target of a Thumb-2 unconditional B.W (encoding T4) at `at`, or None if it is not one (ARM ARM:
         I1 = not (J1 xor S), I2 = not (J2 xor S), offset = SignExtend(S:I1:I2:imm10:imm11:0))."""
@@ -426,15 +435,14 @@ class Function:
                             body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {at:#x}ULL, 3); return; }}")
                             continue
                         if st.jumpkind == "Ijk_Ret":
-                            # A conditional return (ARM's bxeq lr...).
-                            body.append(f"      if ({self.expr(st.guard, tmps)}) return;")
+                            # A conditional return whose target VEX does not give here: taken as the expected one.
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ s->returned = ATLAS_RETURNED_ANY; return; }}")
                             continue
                         if st.jumpkind == "Ijk_Call":
                             # A conditional call (ARM's bleq): back to the instruction after it.
                             after = (last_mark[0] + last_mark[1]) & self.mask
                             todo.append(after)
-                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ ATLAS_CALL({st.dst.value & self.mask:#x}ULL); "
-                                        f"pc = {after:#x}ULL; continue; }}")
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ {self.call(f'{st.dst.value & self.mask:#x}ULL', after)} }}")
                             continue
                         if st.jumpkind != "Ijk_Boring":
                             raise Unsupported(f"conditional exit {st.jumpkind}")
@@ -449,7 +457,9 @@ class Function:
                 constant = nxt.con.value & self.mask if isinstance(nxt, pyvex.expr.Const) else None
                 masked = "" if self.mask == ~0 else " & ~1ULL"
                 if irsb.jumpkind == "Ijk_Ret":
-                    body.append("      return;")
+                    # The return's real target, for the call site to check (a return may skip a level).
+                    target = f"{constant:#x}ULL" if constant is not None else f"(uint64_t)({self.expr(nxt, tmps)}){masked}"
+                    body.append(f"      s->returned = {target}; return;")
                 elif irsb.jumpkind == "Ijk_Call":
                     target = f"{constant:#x}ULL" if constant is not None else f"({self.expr(nxt, tmps)}){masked}"
                     after = a + irsb.size
@@ -457,7 +467,7 @@ class Function:
                     # link register it set is part of the state the translation already wrote).
                     # ATLAS_CALL (atlas_lift.h): atlas_call, or what a linked program puts there (setjmp has to run in
                     # this function's frame, so a link can expand it here).
-                    body.append(f"      ATLAS_CALL({target}); pc = {after:#x}ULL; continue;")
+                    body.append(f"      {self.call(target, after)}")
                     todo.append(after)
                 elif irsb.jumpkind == "Ijk_Boring":
                     if constant is not None and self.address <= constant < self.end:
