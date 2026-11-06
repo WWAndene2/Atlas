@@ -159,6 +159,8 @@ class Function:
         # middle of the function's last instruction (Ghidra's for Lua's 0x18190).
         self.memory = memory
         self.per_instruction = False
+        # ARM: a jump's target carries the Thumb state in its low bit; blocks and the dispatch use the even address.
+        self.mask = ~1 if arch.name.startswith("ARM") else ~0
         # Block starts known otherwise: the targets of the function's jump tables (resolved by angr's CFG).
         self.targets = [t for t in targets if address <= t < address + len(self.code)]
         self.end = address + len(self.code)
@@ -230,7 +232,10 @@ class Function:
                               max_inst=1 if self.per_instruction else None)
         except pyvex.PyVEXError as error:
             raise Unsupported(f"undecodable at {addr:#x}: {error}")
-        if irsb.size == 0 or irsb.jumpkind == "Ijk_NoDecode":
+        # A block whose first instruction does not decode is not code; one that decodes some instructions first and
+        # then meets bytes that are not (a literal pool after a jump, padding) keeps them, ending in a trap there.
+        if irsb.size == 0 or (irsb.jumpkind == "Ijk_NoDecode" and not any(
+                isinstance(st, pyvex.stmt.IMark) for st in irsb.statements)):
             raise Unsupported(f"undecodable at {addr:#x}")
         return irsb
 
@@ -245,7 +250,7 @@ class Function:
             irsb = self.lift_block(a)
             if irsb.jumpkind == "Ijk_Boring" and not isinstance(irsb.next, pyvex.expr.Const):
                 return True
-            todo.extend(irsb.constant_jump_targets)
+            todo.extend(t & self.mask for t in irsb.constant_jump_targets)
             todo.append(a + irsb.size)
         return False
 
@@ -300,7 +305,10 @@ class Function:
                 if tmps:
                     body.append("      " + " ".join(f"{CTYPE[ty]} t{i};" for i, ty in enumerate(tmps)))
                 for st in irsb.statements:
-                    if isinstance(st, (pyvex.stmt.IMark, pyvex.stmt.NoOp, pyvex.stmt.AbiHint)):
+                    if isinstance(st, pyvex.stmt.IMark):
+                        last_mark = (st.addr, st.len)
+                        continue
+                    if isinstance(st, (pyvex.stmt.NoOp, pyvex.stmt.AbiHint)):
                         continue
                     if isinstance(st, pyvex.stmt.WrTmp):
                         body.append(f"      t{st.tmp} = {self.expr(st.data, tmps)};")
@@ -341,9 +349,20 @@ class Function:
                             kind = TRAPS.get(st.jumpkind, 0)
                             body.append(f"      if ({self.expr(st.guard, tmps)}) {{ atlas_trap(s, {a:#x}ULL, {kind}); return; }}")
                             continue
+                        if st.jumpkind == "Ijk_Ret":
+                            # A conditional return (ARM's bxeq lr...).
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) return;")
+                            continue
+                        if st.jumpkind == "Ijk_Call":
+                            # A conditional call (ARM's bleq): back to the instruction after it.
+                            after = (last_mark[0] + last_mark[1]) & self.mask
+                            todo.append(after)
+                            body.append(f"      if ({self.expr(st.guard, tmps)}) {{ ATLAS_CALL({st.dst.value & self.mask:#x}ULL); "
+                                        f"pc = {after:#x}ULL; continue; }}")
+                            continue
                         if st.jumpkind != "Ijk_Boring":
                             raise Unsupported(f"conditional exit {st.jumpkind}")
-                        target = st.dst.value
+                        target = st.dst.value & self.mask
                         todo.append(target)
                         inside = self.address <= target < self.end
                         jump = f"pc = {target:#x}ULL; continue;" if inside else f"atlas_call(s, {target:#x}ULL); return;"
@@ -351,11 +370,12 @@ class Function:
                     else:
                         raise Unsupported(f"statement {type(st).__name__}")
                 nxt = irsb.next
-                constant = nxt.con.value if isinstance(nxt, pyvex.expr.Const) else None
+                constant = nxt.con.value & self.mask if isinstance(nxt, pyvex.expr.Const) else None
+                masked = "" if self.mask == ~0 else " & ~1ULL"
                 if irsb.jumpkind == "Ijk_Ret":
                     body.append("      return;")
                 elif irsb.jumpkind == "Ijk_Call":
-                    target = f"{constant:#x}ULL" if constant is not None else self.expr(nxt, tmps)
+                    target = f"{constant:#x}ULL" if constant is not None else f"({self.expr(nxt, tmps)}){masked}"
                     after = a + irsb.size
                     # The callee returns to the instruction after the call (the return address the call pushed or the
                     # link register it set is part of the state the translation already wrote).
@@ -371,7 +391,13 @@ class Function:
                         body.append(f"      atlas_call(s, {constant:#x}ULL); return;  /* tail jump */")
                     else:
                         # A jump through a register: a switch table inside the function, or a tail call elsewhere.
-                        body.append(f"      pc = {self.expr(nxt, tmps)}; continue;")
+                        body.append(f"      pc = ({self.expr(nxt, tmps)}){masked}; continue;")
+                elif irsb.jumpkind == "Ijk_Sys_syscall" and constant is not None:
+                    # A system call (svc, syscall): the program's atlas_syscall serves it from the guest registers.
+                    todo.append(constant)
+                    body.append(f"      atlas_syscall(s); pc = {constant:#x}ULL; continue;")
+                elif irsb.jumpkind == "Ijk_NoDecode":
+                    body.append(f"      atlas_trap(s, {a + irsb.size:#x}ULL, 3); return;")
                 elif irsb.jumpkind.startswith("Ijk_Sig"):
                     body.append(f"      atlas_trap(s, {a:#x}ULL, {TRAPS.get(irsb.jumpkind, 0)}); return;")
                 else:
@@ -414,7 +440,18 @@ def main():
     targets = sorted(targets)
     for f in request["functions"]:
         try:
-            c = Function(arch, f["address"] + base, f["code"], targets, bool(f.get("thumb")), memory).translate()
+            thumb = bool(f.get("thumb"))
+            try:
+                c = Function(arch, f["address"] + base, f["code"], targets, thumb, memory).translate()
+            except Unsupported as reason:
+                # ARM: the CFG's Thumb or ARM guess can be wrong (interworking stubs, bx pc): the other state is
+                # tried when the guessed one does not decode.
+                if not (arch.name.startswith("ARM") and str(reason).startswith("undecodable")):
+                    raise
+                try:
+                    c = Function(arch, f["address"] + base, f["code"], targets, not thumb, memory).translate()
+                except Unsupported:
+                    raise reason from None  # the guessed state's reason is the one to report
             print(json.dumps({"address": hex(f["address"]), "c": c}), flush=True)  # the graph's address
         except Unsupported as reason:
             print(json.dumps({"address": hex(f["address"]), "unsupported": str(reason)}), flush=True)

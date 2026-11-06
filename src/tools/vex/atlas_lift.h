@@ -17,6 +17,8 @@ typedef struct atlas_state {
 void atlas_call(atlas_state *s, uint64_t target);
 /* A trap the guest raised (division by zero, ud2, breakpoint): the program decides what it does. */
 void atlas_trap(atlas_state *s, uint64_t at, int kind);
+/* A system call the guest makes (svc, syscall), served by the program (the platform's services). */
+void atlas_syscall(atlas_state *s);
 
 #define REG(T, off) (*(T *)(s->r + (off)))
 /* A call from a translation: the program may expand it in the calling function itself (setjmp, see link.py). */
