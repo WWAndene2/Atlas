@@ -234,9 +234,19 @@ static int import_is(uint64_t t, const char *name) {{
 int atlas_is_setjmp(uint64_t t) {{ return {" || ".join(f'import_is(t, "{n}")' for n in SETJMP_NAMES)}; }}
 
 static char **host_envp;
+/* ATLAS_COVERAGE=<file>: the translated functions that ran (graph addresses), written at exit, as link.py does. */
+static uint8_t covered[{len(translated) or 1}];
+static const uint64_t covered_address[{len(translated) or 1}] = {{{", ".join(f"{a - base:#x}ULL" for a in translated) or "0"}}};
+static const char *coverage_file;
+static void write_coverage(void) {{
+  FILE *f = fopen(coverage_file, "w");
+  if (!f) return;
+  for (unsigned k = 0; k < sizeof covered; k++) if (covered[k]) fprintf(f, "%#lx\\n", (unsigned long)covered_address[k]);
+  fclose(f);
+}}
 void atlas_call(atlas_state *s, uint64_t target) {{
   switch (target) {{
-{nl.join(f"    case {a:#x}ULL: fn_{a:x}(s); return;" for a in translated)}
+{nl.join(f"    case {a:#x}ULL: covered[{k}] = 1; fn_{a:x}(s); return;" for k, a in enumerate(translated))}
   }}
   switch (target) {{
 {nl.join(f"    case {a:#x}ULL: atlas_call(s, {t:#x}ULL); return;" for a, t in sorted(own_plt.items()))}
@@ -317,6 +327,7 @@ void atlas_syscall(atlas_state *s) {{
 static uint8_t *guest_stack;
 static int atlas_setup(char **envp) {{
   host_envp = envp;
+  if ((coverage_file = getenv("ATLAS_COVERAGE")) != NULL) atexit(write_coverage);
   static const struct {{ uint64_t vaddr, memsize, offset, filesize; int exec; }} segs[] = {{
 {nl.join(f"    {{{v:#x}ULL, {m:#x}ULL, {o:#x}ULL, {fsz:#x}ULL, {int(x)}}}," for v, m, o, fsz, x in segs)}
   }};

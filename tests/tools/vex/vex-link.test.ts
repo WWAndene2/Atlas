@@ -258,6 +258,15 @@ describe.runIf(python !== undefined && has("aarch64-linux-gnu-gcc"))("a64linkPro
     });
     expect(run.stdout).toBe("hello|42|-5|1.414|1|2|3|4|5|6|12.0|0.5\nabc 4\nenv 1\n");
     expect(run.status).toBe(3);
+    // ATLAS_COVERAGE: the translated functions that ran, each one of the program's.
+    const coverage = join(dir, "coverage.txt");
+    spawnSync(outcome.executable, [join(dir, "x.tmp"), "hello"], { env: { ...process.env, ATLAS_COVERAGE: coverage } });
+    const ran = readFileSync(coverage, "utf8")
+      .trim()
+      .split("\n")
+      .map((a) => Number(a));
+    expect(ran.length).toBeGreaterThan(1);
+    expect(ran.every((a) => functions.some((f) => f.address === a))).toBe(true);
   }, 600_000);
 });
 

@@ -127,7 +127,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   per translated or rewritten function, the ones that ran written at exit; set as tooling, not part of the
   scenario), and reports how many translated functions the acceptance tests reach, what each behaviour adds, and
   the largest none reaches, where the next behaviour would check the most untested code. On Lua: 432 of 709
-  (60.9%) for the eight recorded behaviours, `many.lua` alone 422, in 96 s. x86-64 Linux programs for now.
+  (60.9%) for the eight recorded behaviours, `many.lua` alone 422, in 96 s. x86-64 and AArch64 Linux programs
+  (`a64link.py` writes `ATLAS_COVERAGE` too); an AArch64 program's behaviours have to be recorded where its
+  original runs (a device or an emulator).
 - Fuzzing (`src/orchestrator/fuzz-behaviour.ts`, `src/verify/replay/mutate-scenario.ts`): `atlas fuzz behaviour
 <original> <reconstruction> [--rounds n] [--seed n]` (MCP `fuzz_behaviour`) tests a reconstruction against its
   original differentially. The recorded behaviours with a standard input or input files are the seeds; each round
