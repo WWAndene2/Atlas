@@ -14,7 +14,7 @@ import { differences, forReconstruction, runScenario, type Scenario } from "../v
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
 import { binaryId } from "./load-binary.js";
-import { recordBehaviour, type BehaviourValue } from "./record-behaviour.js";
+import { recordBehaviour, UnstableBehaviourError, type BehaviourValue } from "./record-behaviour.js";
 
 export interface FuzzResult {
   rounds: number;
@@ -74,8 +74,15 @@ export async function fuzzBehaviour(
       }
       const found = differences(expected, got, mutant.vary);
       if (found.length === 0) continue;
-      const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
-      result.found.push({ hypothesis: hypothesis.id, differences: found });
+      // Recording runs the original more times than the oracle did: a mutant it then finds unstable (a random line
+      // the two oracle runs agreed on) is counted as unstable, and the run goes on.
+      try {
+        const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
+        result.found.push({ hypothesis: hypothesis.id, differences: found });
+      } catch (error) {
+        if (!(error instanceof UnstableBehaviourError)) throw error;
+        result.unstable++;
+      }
     }
   } finally {
     await rm(work, { recursive: true, force: true });
