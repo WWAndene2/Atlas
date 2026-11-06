@@ -150,7 +150,12 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   MinGW Lua 5.4.7 (`tests/fixtures/lua-platforms`), all 823 functions and 7 more from `.pdata` translated, prints
   on Linux what Linux Lua prints for a script of tables, formatting, maths, errors, coroutines, files and dates;
   a MinGW test program checks the services (`tests/tools/vex/vex-link.test.ts`). Translations only: a rewrite
-  verified for Windows' calling convention cannot stand in a Linux program.
+  verified for Windows' calling convention cannot stand in a Linux program. Limits: only the msvcrt and kernel32
+  functions Lua's build imports are served (about 113; another import stops the program, named, when called, and
+  `winlink.py` lists it as unserved); programs linked against the UCRT (recent MSVC, `api-ms-win-crt-*`) are not
+  covered; one thread; LoadLibrary always fails; a hand-written function without a `.pdata` entry
+  (`___chkstk_ms`) is translated only if the graph has it. The original Windows program was not run here (no
+  Wine): Linux Lua built from the same sources is the reference.
 - AArch64 programs on x86-64 (`src/tools/vex/a64link.py`): an Android app's native executable, or any AArch64
   Linux program built against the C library. Both are LP64 Linux with the same C library, so this follows
   `link.py`: identity memory (a position-independent image at 0x10000000), relocations applied as the dynamic
@@ -164,7 +169,8 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   `rev64` on vectors and the NZCV conditions (`atlas_lift.h`). `atlas lift --link` takes this path for an AArch64
   ELF: Lua 5.4.7 built for AArch64 (`tests/fixtures/lua-platforms/build/lua-arm64`), all 698 functions translated,
   prints on x86-64 what Linux Lua prints for the same script as the Windows build; a test program checks the
-  conventions (`tests/tools/vex/vex-link.test.ts`).
+  conventions (`tests/tools/vex/vex-link.test.ts`). The original AArch64 program was not run here (no emulator):
+  Linux Lua built from the same sources is the reference.
 - Cross-architecture linking (`src/tools/vex/crosslink.py`, `atlas_syscall.inc`): a guest whose CPU is not the
   host's (an ARM program on a PC) is self-contained, a statically linked ELF whose own C library is translated too;
   its memory is a block of host memory (a guest address a reached at mem + a), and what it asks of its operating
@@ -176,7 +182,8 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   and random AT_RANDOM bytes. A Thumb function's state is taken from angr's CFG (the graph keeps the even address).
   A freestanding ARM program, in ARM and in Thumb code (`tests/tools/vex/vex-link.test.ts`), translated and run on
   x86-64 prints what it should and returns its exit code. Full static-glibc startup (its TLS and allocator init) is
-  further work.
+  further work. Limits: open is not emulated, so a file mapping by mmap2 is untested, and munmap frees nothing (the
+  arena is not reused).
 - Later: IDA for operators with a licence. Atlas adds tools of its own only where scores on
   ground-truth targets show a gap, and only if they beat the tool they replace (`docs/ROADMAP.md`, End goal).
 
