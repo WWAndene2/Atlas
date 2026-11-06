@@ -239,6 +239,25 @@ class Function:
             raise Unsupported(f"undecodable at {addr:#x}")
         return irsb
 
+    def thumb_branch(self, at):
+        """The target of a Thumb-2 unconditional B.W (encoding T4) at `at`, or None if it is not one (ARM ARM:
+        I1 = not (J1 xor S), I2 = not (J2 xor S), offset = SignExtend(S:I1:I2:imm10:imm11:0))."""
+        try:
+            data = self.memory.load(at, 4) if self.memory is not None else self.code[at - self.address:][:4]
+        except KeyError:
+            return None
+        if len(data) < 4:
+            return None
+        hw1, hw2 = int.from_bytes(data[0:2], "little"), int.from_bytes(data[2:4], "little")
+        if (hw1 & 0xF800) != 0xF000 or (hw2 & 0xD000) != 0x9000:
+            return None
+        sign, j1, j2 = (hw1 >> 10) & 1, (hw2 >> 13) & 1, (hw2 >> 11) & 1
+        i1, i2 = 1 - (j1 ^ sign), 1 - (j2 ^ sign)
+        offset = (sign << 24) | (i1 << 23) | (i2 << 22) | ((hw1 & 0x3FF) << 12) | ((hw2 & 0x7FF) << 1)
+        if sign:
+            offset -= 1 << 25
+        return (at + 4 + offset) & self.mask
+
     def has_indirect_jump(self):
         """Whether a block reachable from the entry jumps through a register (a switch table)."""
         todo, seen = [self.address, *self.targets], set()
@@ -247,7 +266,10 @@ class Function:
             if a in seen or not (self.address <= a < self.end):
                 continue
             seen.add(a)
-            irsb = self.lift_block(a)
+            try:
+                irsb = self.lift_block(a)
+            except Unsupported:
+                continue  # the main pass decides what an undecodable block becomes
             if irsb.jumpkind == "Ijk_Boring" and not isinstance(irsb.next, pyvex.expr.Const):
                 return True
             todo.extend(t & self.mask for t in irsb.constant_jump_targets)
@@ -288,6 +310,15 @@ class Function:
                 irsb = self.lift_block(a)
             except Unsupported as reason:
                 if a in optional:
+                    continue
+                branch = self.thumb_branch(a) if self.thumb else None
+                if branch is not None:
+                    # A block that starts with a B.W VEX refuses (see thumb_branch): the jump alone.
+                    inside = self.address <= branch < self.end
+                    if inside:
+                        todo.append(branch)
+                    jump = f"pc = {branch:#x}ULL; continue;" if inside else f"atlas_call(s, {branch:#x}ULL); return;"
+                    out.append(f"    case {a:#x}ULL: {jump}")
                     continue
                 if str(reason).startswith("undecodable"):
                     # Reached only if the original would fault there too (ud2, padding after a noreturn call):
@@ -397,7 +428,17 @@ class Function:
                     todo.append(constant)
                     body.append(f"      atlas_syscall(s); pc = {constant:#x}ULL; continue;")
                 elif irsb.jumpkind == "Ijk_NoDecode":
-                    body.append(f"      atlas_trap(s, {a + irsb.size:#x}ULL, 3); return;")
+                    stop = a + irsb.size
+                    target = self.thumb_branch(stop) if self.thumb else None
+                    if target is not None:
+                        # VEX's Thumb decoder refuses some far backward B.W (encoding T4): decoded here.
+                        if self.address <= target < self.end:
+                            todo.append(target)
+                            body.append(f"      pc = {target:#x}ULL; continue;")
+                        else:
+                            body.append(f"      atlas_call(s, {target:#x}ULL); return;  /* tail jump */")
+                    else:
+                        body.append(f"      atlas_trap(s, {stop:#x}ULL, 3); return;")
                 elif irsb.jumpkind.startswith("Ijk_Sig"):
                     body.append(f"      atlas_trap(s, {a:#x}ULL, {TRAPS.get(irsb.jumpkind, 0)}); return;")
                 else:
