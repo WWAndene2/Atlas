@@ -3,10 +3,11 @@
 // exit), and the report says how many of the translated functions the acceptance tests reach, what each behaviour
 // adds, and the largest functions none reaches: where the next behaviour to record would exercise the most code
 // no test checks. x86-64 Linux (link.py), Windows (winlink.py) and AArch64 (a64link.py) programs for now. Runs the rebuilt program: the caller asked for it.
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
+import { readCoverage } from "../verify/replay/read-coverage.js";
 import { forReconstruction, runScenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
@@ -43,10 +44,7 @@ export async function coverageBehaviour(store: GraphStore, original: string, top
       await runScenario(linked.executable, forReconstruction((h.value as BehaviourValue).scenario), {
         ATLAS_COVERAGE: file,
       });
-      const reached = (await readFile(file, "utf8").catch(() => ""))
-        .split("\n")
-        .filter((l) => l !== "")
-        .map((l) => Number(l));
+      const reached = [...((await readCoverage(file)) ?? [])].map((a) => Number(a));
       const before = covered.size;
       for (const a of reached) covered.add(a);
       report.behaviours.push({

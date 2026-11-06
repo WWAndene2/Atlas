@@ -4,11 +4,12 @@
 // does the reconstruction reproduces, beside how many functions are verified. The program is built in a temporary
 // directory and removed after; the replay records the outcome on each behaviour, naming the program by its SHA-256.
 // Nothing is built when no behaviour is recorded: the step costs nothing then.
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
 import type { EngineInput } from "../tools/engine-analysis.js";
+import { readCoverage } from "../verify/replay/read-coverage.js";
 import { liftBinary } from "./lift-binary.js";
 import { linkBase, linkBinary } from "./link-binary.js";
 import { replayBehaviour } from "./replay-behaviour.js";
@@ -45,10 +46,10 @@ export async function checkReconstruction(
     const reached = new Set<string>();
     let reported = false;
     for (let k = 0; k < replay.results.length; k++) {
-      const text = await readFile(join(dir, `coverage-${k}.txt`), "utf8").catch(() => undefined);
-      if (text === undefined) continue;
+      const run = await readCoverage(join(dir, `coverage-${k}.txt`));
+      if (run === undefined) continue;
       reported = true;
-      for (const line of text.split("\n")) if (line !== "") reached.add(line);
+      for (const address of run) reached.add(address);
     }
     return {
       recorded,
