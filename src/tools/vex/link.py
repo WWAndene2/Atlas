@@ -77,8 +77,11 @@ def compiled(source, flags, header, runtime):
         key.update(hashlib.sha256(part).digest())
     obj = f"{source}.{key.hexdigest()[:16]}.o"
     if not os.path.exists(obj):
-        subprocess.run(["gcc", *flags, "-c", source, "-o", obj + ".tmp"], check=True)
-        os.replace(obj + ".tmp", obj)  # whole or absent, should two links run at once
+        # A temporary name of this process's own: two links compiling the same translations at once each write
+        # their own file, and the rename puts a whole object in place either way.
+        partial = f"{obj}.{os.getpid()}.tmp"
+        subprocess.run(["gcc", *flags, "-c", source, "-o", partial], check=True)
+        os.replace(partial, obj)
     return obj
 
 
