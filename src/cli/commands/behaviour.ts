@@ -1,11 +1,11 @@
 // atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]... [--timeout
-// <s>] [-- <arguments>]: runs the original on a scenario and records what it did. atlas verify behaviour <original>
+// <s>] [--vary <regex>]... [-- <arguments>]: runs the original on a scenario and records what it did. atlas verify behaviour <original>
 // <reconstruction>: replays every recorded scenario against the reconstruction.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GraphStore } from "../../graph/index.js";
 import { NotFoundError } from "../../orchestrator/function-context.js";
-import { recordBehaviour, UnstableBehaviourError } from "../../orchestrator/record-behaviour.js";
+import { InvalidScenarioError, recordBehaviour, UnstableBehaviourError } from "../../orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../../orchestrator/replay-behaviour.js";
 import { encode, type Scenario } from "../../verify/replay/run-scenario.js";
 import { CliError, type Output } from "../output.js";
@@ -16,12 +16,13 @@ export interface RecordOptions {
   output?: string[];
   env?: string[];
   timeout?: string;
+  vary?: string[];
   agent?: string;
 }
 
 const RECORD_USAGE =
   "usage: atlas record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... " +
-  "[--env K=V]... [--timeout <seconds>] [-- <arguments>] (runs the program: only one you chose to run)";
+  "[--env K=V]... [--timeout <seconds>] [--vary <regex>]... [-- <arguments>] (runs the program: only one you chose to run)";
 
 export async function runRecordBehaviour(store: GraphStore, args: string[], options: RecordOptions): Promise<Output> {
   const [what, program, ...argv] = args;
@@ -46,6 +47,7 @@ export async function runRecordBehaviour(store: GraphStore, args: string[], opti
     ...(inputs.length > 0 ? { inputs } : {}),
     ...(options.output !== undefined && options.output.length > 0 ? { outputs: options.output } : {}),
     ...(timeout !== undefined ? { timeout_s: timeout } : {}),
+    ...(options.vary !== undefined && options.vary.length > 0 ? { vary: options.vary } : {}),
   };
   try {
     const { hypothesis, created } = await recordBehaviour(store, program, scenario, options.agent);
@@ -57,6 +59,7 @@ export async function runRecordBehaviour(store: GraphStore, args: string[], opti
   } catch (error) {
     if (error instanceof NotFoundError) throw new CliError("not_found", error.message);
     if (error instanceof UnstableBehaviourError) throw new CliError("failed", error.message);
+    if (error instanceof InvalidScenarioError) throw new CliError("usage", error.message);
     throw error;
   }
 }

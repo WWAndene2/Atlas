@@ -6,7 +6,11 @@ import { describe, expect, it } from "vitest";
 import { GraphStore } from "../../src/graph/index.js";
 import { fileSha256 } from "../../src/orchestrator/file-hash.js";
 import { binaryId } from "../../src/orchestrator/load-binary.js";
-import { recordBehaviour, UnstableBehaviourError } from "../../src/orchestrator/record-behaviour.js";
+import {
+  InvalidScenarioError,
+  recordBehaviour,
+  UnstableBehaviourError,
+} from "../../src/orchestrator/record-behaviour.js";
 import { replayBehaviour } from "../../src/orchestrator/replay-behaviour.js";
 
 function build(dir: string, name: string, source: string): string {
@@ -71,6 +75,23 @@ describe("recordBehaviour and replayBehaviour", () => {
     await expect(recordBehaviour(store, clock, { argv: [] })).rejects.toBeInstanceOf(UnstableBehaviourError);
     store.close();
   }, 60_000);
+
+  it("records a scenario whose varying part is named, and replays it with that part masked", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atlas-behaviour-"));
+    const store = new GraphStore(join(dir, "g.sqlite"));
+    const source = (word: string) =>
+      `#include <stdio.h>\n#include <time.h>\nint main(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); printf("${word} %ld\\n", t.tv_nsec); return 0; }`;
+    const clock = build(dir, "clock", source("now"));
+    await loaded(store, clock);
+    const { hypothesis } = await recordBehaviour(store, clock, { argv: [], vary: ["\\d+"] });
+    expect(hypothesis.confidence).toBe("observed");
+    const same = await replayBehaviour(store, clock, build(dir, "clock2", source("now")));
+    expect(same.results.map((r) => r.result)).toEqual(["pass"]);
+    const other = await replayBehaviour(store, clock, build(dir, "clock3", source("then")));
+    expect(other.results.map((r) => r.result)).toEqual(["fail"]);
+    await expect(recordBehaviour(store, clock, { argv: [], vary: ["("] })).rejects.toBeInstanceOf(InvalidScenarioError);
+    store.close();
+  }, 120_000);
 
   it("refuses a program that is not loaded", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atlas-behaviour-"));

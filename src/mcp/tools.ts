@@ -185,6 +185,10 @@ export function tools(store: GraphStore, graphPath: string) {
         inputs: z.array(z.string()).optional().describe("Files copied into the working directory, by their name"),
         outputs: z.array(z.string()).optional().describe("Names of files the program writes there, kept"),
         timeout_s: z.number().positive().optional(),
+        vary: z
+          .array(z.string())
+          .optional()
+          .describe("Regular expressions for parts that legitimately vary (a time): masked before comparing"),
         agent: z.string().optional(),
       },
       handler: async (a: {
@@ -195,6 +199,7 @@ export function tools(store: GraphStore, graphPath: string) {
         inputs?: string[];
         outputs?: string[];
         timeout_s?: number;
+        vary?: string[];
         agent?: string;
       }) =>
         recordBehaviour(
@@ -209,6 +214,7 @@ export function tools(store: GraphStore, graphPath: string) {
               : {}),
             ...(a.outputs !== undefined ? { outputs: a.outputs } : {}),
             ...(a.timeout_s !== undefined ? { timeout_s: a.timeout_s } : {}),
+            ...(a.vary !== undefined ? { vary: a.vary } : {}),
           },
           a.agent,
         ),

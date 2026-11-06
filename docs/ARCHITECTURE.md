@@ -115,8 +115,13 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   Lua: seven scenarios recorded on Linux Lua (scripts with tables, formats, maths, errors, coroutines and files, an
   output file, standard input, a syntax error, an environment variable, `os.time()`); its recompiled program
   (`atlas lift --link`), and the Windows and AArch64 builds' recompiled programs, reproduce the six that do not
-  depend on the clock, and the seventh is reported as differing. Limit: two runs only catch what differs between
-  them; `os.time()` agreed within one second and was recorded.
+  depend on the clock, and the seventh is reported as differing. What legitimately varies (a time, a random
+  number, a process ID) is named with `--vary <regex>` (MCP `vary`), kept in the scenario: its matches in standard
+  output and error and in text output files are masked in both outcomes before every comparison, recording and
+  replay alike, and everything else must still be the same. On Lua, `print("now", os.time(), "end")` with
+  `--vary '[0-9]{10}'` is reproduced by the rebuilt program a second later; `math.random()` without one is refused
+  at recording, the message pointing to `--vary`. Limit: two runs only catch what differs between them; a clock
+  read twice within one second agrees, so it must be named by whoever records the scenario.
 - Knowledge carried over (`src/orchestrator/carry-knowledge.ts`): `atlas match graph <documented.sqlite>`
   fingerprints every function of both graphs (instructions with numbers blanked, three at a time; Jaccard
   similarity, `function-fingerprint.ts`) and, for each clear best match (similarity at least 0.2, ahead of the

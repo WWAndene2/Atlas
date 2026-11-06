@@ -33,7 +33,7 @@ export async function replayBehaviour(
   for (const h of behaviours) {
     const value = h.value as BehaviourValue;
     const got = await runScenario(reconstruction, value.scenario);
-    const found = differences(value.expected, got);
+    const found = differences(value.expected, got, value.scenario.vary);
     const pass = found.length === 0;
     const updated: Hypothesis = store.recordVerification(h.id, {
       confidence: pass ? "verified" : "observed",

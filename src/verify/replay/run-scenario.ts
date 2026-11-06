@@ -21,6 +21,12 @@ export interface Scenario {
   /** Files it writes there that the outcome includes. */
   outputs?: string[];
   timeout_s?: number;
+  /**
+   * What legitimately varies from run to run (a clock, a process ID): regular expressions (JavaScript syntax) whose
+   * matches in standard output and error and in text output files are masked in both outcomes before they are
+   * compared. Everything else must still be the same, byte for byte.
+   */
+  vary?: string[];
 }
 
 export interface Outcome {
@@ -117,13 +123,25 @@ export async function runScenario(given: string, scenario: Scenario): Promise<Ou
   }
 }
 
-/** Where two outcomes differ, each as a short description (empty when they are the same). */
-export function differences(expected: Outcome, got: Outcome): string[] {
+/**
+ * Where two outcomes differ, each as a short description (empty when they are the same), the parts matching `vary`
+ * masked first (byte positions are then counted in the masked text).
+ */
+export function differences(expected: Outcome, got: Outcome, vary: string[] = []): string[] {
   const out: string[] = [];
-  const same = (a: Bytes | null, b: Bytes | null) => (a === null || b === null ? a === b : decode(a).equals(decode(b)));
+  const patterns = vary.map((v) => new RegExp(v, "g"));
+  // Matches of a varying part read as one placeholder; bytes that are not text are compared as they are.
+  const masked = (b: Bytes): Buffer =>
+    "text" in b
+      ? Buffer.from(
+          patterns.reduce((t, p) => t.replace(p, "<varies>"), b.text),
+          "utf8",
+        )
+      : decode(b);
+  const same = (a: Bytes | null, b: Bytes | null) => (a === null || b === null ? a === b : masked(a).equals(masked(b)));
   const first = (a: Bytes, b: Bytes) => {
-    const x = decode(a);
-    const y = decode(b);
+    const x = masked(a);
+    const y = masked(b);
     let i = 0;
     while (i < x.length && i < y.length && x[i] === y[i]) i++;
     return `first difference at byte ${i} (${x.length} expected, ${y.length} got)`;

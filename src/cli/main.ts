@@ -96,11 +96,12 @@ const USAGE = `usage: atlas <command> [--graph <file>] [--json]
                                     (angr, symbolic; x86-64 ELF), checked against traces when there are some
   infer types [--binary <bin_>]     struct types assembled from the inferred fields: arguments that access
                                     mostly the same fields share one struct (ty_ nodes, type hypotheses)
-  record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]... [-- <args>]
+  record behaviour <program> [--stdin <text>] [--input <file>]... [--output <name>]... [--env K=V]...
+                   [--vary <regex>]... [-- <args>]
                                     RUN the original twice on a scenario (fresh directory, fixed environment):
                                     its output, exit and the output files named, recorded as an observed
                                     behaviour, the acceptance test of the whole program; refused if the two
-                                    runs differ
+                                    runs differ, beyond the parts --vary masks (a time...)
   verify behaviour <original> <reconstruction>
                                     RUN the reconstruction on every recorded scenario: reproduced exactly,
                                     verified; else where it differs
@@ -166,6 +167,7 @@ async function main(argv: string[]): Promise<number> {
         output: { type: "string", multiple: true },
         env: { type: "string", multiple: true },
         timeout: { type: "string" },
+        vary: { type: "string", multiple: true },
         out: { type: "string" },
         link: { type: "boolean" },
         truth: { type: "string" },
@@ -317,6 +319,7 @@ async function main(argv: string[]): Promise<number> {
           ...(values.output !== undefined ? { output: values.output } : {}),
           ...(values.env !== undefined ? { env: values.env } : {}),
           ...(values.timeout !== undefined ? { timeout: values.timeout } : {}),
+          ...(values.vary !== undefined ? { vary: values.vary } : {}),
           ...(values.agent !== undefined ? { agent: values.agent } : {}),
         });
         break;

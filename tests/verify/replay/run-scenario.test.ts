@@ -64,6 +64,16 @@ describe("runScenario", () => {
 });
 
 describe("differences", () => {
+  it("masks the parts that legitimately vary, and still sees every other difference", () => {
+    const at = (t: string) => ({ stdout: { text: t }, stderr: { text: "" }, exit: 0, files: {} });
+    const vary = ["\\d{10}"];
+    expect(differences(at("time 1793900000 ok\n"), at("time 1793900042 ok\n"), vary)).toEqual([]);
+    expect(differences(at("time 1793900000 ok\n"), at("time 1793900042 OK\n"), vary)).toEqual([
+      "stdout: first difference at byte 14 (17 expected, 17 got)",
+    ]);
+    expect(differences(at("time 1793900000 ok\n"), at("time 1793900042 ok\n"))).toHaveLength(1);
+  });
+
   it("names each part that differs, and nothing when the outcomes are the same", () => {
     const a = { stdout: encode(Buffer.from("abc")), stderr: { text: "" }, exit: 0, files: { f: { text: "x" } } };
     expect(differences(a, a)).toEqual([]);

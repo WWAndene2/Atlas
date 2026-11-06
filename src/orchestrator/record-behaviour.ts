@@ -2,7 +2,8 @@
 // environment and input files) and keeps what it did (standard output and error, exit, the output files named) as a
 // behaviour hypothesis on the binary, observed, with a capture evidence. The program runs twice: a scenario whose
 // outcome differs between the two runs (a clock, a random number, an address) is refused, since no reconstruction
-// could be held to it. These are the acceptance tests of the whole program: atlas verify behaviour replays them.
+// could be held to it, unless the parts that vary are named (the scenario's vary patterns, masked in every
+// comparison). Two runs only catch what differs between them: a clock read twice within a second agrees. These are the acceptance tests of the whole program: atlas verify behaviour replays them.
 // Runs the target natively: the caller asked for it.
 import { createHash } from "node:crypto";
 import type { GraphStore, Hypothesis } from "../graph/index.js";
@@ -17,6 +18,7 @@ export interface BehaviourValue {
 }
 
 export class UnstableBehaviourError extends Error {}
+export class InvalidScenarioError extends Error {}
 
 export async function recordBehaviour(
   store: GraphStore,
@@ -27,11 +29,21 @@ export async function recordBehaviour(
 ): Promise<{ hypothesis: Hypothesis; created: boolean }> {
   const binary = binaryId(await fileSha256(program));
   if (store.getNode(binary) === undefined) throw new NotFoundError(`${program} is not loaded; atlas load it first`);
+  for (const pattern of scenario.vary ?? []) {
+    try {
+      new RegExp(pattern, "g");
+    } catch (error) {
+      throw new InvalidScenarioError(`--vary ${pattern}: ${(error as Error).message}`);
+    }
+  }
   const first = await runScenario(program, scenario);
   const second = await runScenario(program, scenario);
-  const unstable = differences(first, second);
+  const unstable = differences(first, second, scenario.vary);
   if (unstable.length > 0) {
-    throw new UnstableBehaviourError(`the program does not do the same twice on this scenario: ${unstable.join("; ")}`);
+    throw new UnstableBehaviourError(
+      `the program does not do the same twice on this scenario: ${unstable.join("; ")} ` +
+        "(a part that legitimately varies, such as a time, can be masked with a regular expression: --vary)",
+    );
   }
   const value: BehaviourValue = { scenario, expected: first };
   const digest = createHash("sha256")
