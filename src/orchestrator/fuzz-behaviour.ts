@@ -6,7 +6,7 @@
 // Mutants the original does not repeat are counted and dropped. Runs both programs natively: the caller asked for it.
 import type { GraphStore } from "../graph/index.js";
 import { generator, mutateScenario } from "../verify/replay/mutate-scenario.js";
-import { differences, runScenario, type Scenario } from "../verify/replay/run-scenario.js";
+import { differences, forReconstruction, runScenario, type Scenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
 import { binaryId } from "./load-binary.js";
@@ -50,7 +50,7 @@ export async function fuzzBehaviour(
       result.unstable++;
       continue;
     }
-    const found = differences(expected, await runScenario(reconstruction, mutant), mutant.vary);
+    const found = differences(expected, await runScenario(reconstruction, forReconstruction(mutant)), mutant.vary);
     if (found.length === 0) continue;
     const { hypothesis } = await recordBehaviour(store, original, mutant, "fuzzer");
     result.found.push({ hypothesis: hypothesis.id, differences: found });

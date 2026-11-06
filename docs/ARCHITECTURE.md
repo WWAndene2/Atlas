@@ -111,7 +111,9 @@ cross-checked: a fact two engines agree on carries both pieces of evidence, a di
   time limit, the program's process group stopped at it. The original runs twice, and a scenario it does not
   repeat (a clock, an address) is refused. `atlas verify behaviour <original> <reconstruction>` replays every
   scenario: the same outcome makes it `verified` (check `replay`, the reconstruction named by its SHA-256), a
-  difference keeps it `observed` with where the two part. MCP: `record_behaviour`, `verify_behaviour`. Measured on
+  difference keeps it `observed` with where the two part. A reconstruction runs with the scenario's time limit
+  widened 20 times (`RECONSTRUCTION_SLOWDOWN`): translated code is slower (Lua's `constructs.lua` test, 1.2 s
+  natively, 61 s translated), and a slow but right program must not read as a hang. MCP: `record_behaviour`, `verify_behaviour`. Measured on
   Lua: seven scenarios recorded on Linux Lua (scripts with tables, formats, maths, errors, coroutines and files, an
   output file, standard input, a syntax error, an environment variable, `os.time()`); its recompiled program
   (`atlas lift --link`), and the Windows and AArch64 builds' recompiled programs, reproduce the six that do not

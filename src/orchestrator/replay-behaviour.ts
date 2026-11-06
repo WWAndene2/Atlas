@@ -5,7 +5,7 @@
 // Runs the reconstruction natively: the caller asked for it.
 import { join } from "node:path";
 import type { GraphStore, Hypothesis } from "../graph/index.js";
-import { differences, runScenario } from "../verify/replay/run-scenario.js";
+import { differences, forReconstruction, runScenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
 import { binaryId } from "./load-binary.js";
@@ -37,7 +37,7 @@ export async function replayBehaviour(
     const value = h.value as BehaviourValue;
     const instrument: Record<string, string> =
       coverageDir !== undefined ? { ATLAS_COVERAGE: join(coverageDir, `coverage-${results.length}.txt`) } : {};
-    const got = await runScenario(reconstruction, value.scenario, instrument);
+    const got = await runScenario(reconstruction, forReconstruction(value.scenario), instrument);
     const found = differences(value.expected, got, value.scenario.vary);
     const pass = found.length === 0;
     const updated: Hypothesis = store.recordVerification(h.id, {

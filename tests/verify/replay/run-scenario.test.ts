@@ -3,7 +3,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { decode, differences, encode, runScenario } from "../../../src/verify/replay/run-scenario.js";
+import {
+  decode,
+  differences,
+  encode,
+  forReconstruction,
+  RECONSTRUCTION_SLOWDOWN,
+  runScenario,
+} from "../../../src/verify/replay/run-scenario.js";
 
 // A program that shows each condition the runner sets: argv[0], an argument, an environment variable, its working
 // directory's input file, its standard input; it writes an output file, a line to stderr, and exits 5.
@@ -84,5 +91,15 @@ describe("differences", () => {
       "file f: written expected, not written got",
     ]);
     expect(decode({ base64: Buffer.from("é").toString("base64") }).toString()).toBe("é");
+  });
+});
+
+describe("forReconstruction", () => {
+  it("widens the time limit a reconstruction runs under, and changes nothing else", () => {
+    expect(forReconstruction({ argv: ["x"], timeout_s: 3 })).toEqual({
+      argv: ["x"],
+      timeout_s: 3 * RECONSTRUCTION_SLOWDOWN,
+    });
+    expect(forReconstruction({ argv: [] }).timeout_s).toBe(60 * RECONSTRUCTION_SLOWDOWN);
   });
 });

@@ -9,7 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
-import { differences, runScenario } from "../verify/replay/run-scenario.js";
+import { differences, forReconstruction, runScenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
 import { liftBinary } from "./lift-binary.js";
@@ -52,7 +52,11 @@ export async function blameBehaviour(store: GraphStore, original: string, behavi
       rebuilds++;
       const native = all.filter((a) => !translated.has(a));
       const linked = await linkBinary(store, binary, original, dir, all, native);
-      return differences(value.expected, await runScenario(linked.executable, value.scenario), value.scenario.vary);
+      return differences(
+        value.expected,
+        await runScenario(linked.executable, forReconstruction(value.scenario)),
+        value.scenario.vary,
+      );
     };
     const whole = await failsWith(new Set(all));
     if (whole.length === 0) return { behaviour, result: "reproduced", culprits: [], differences: [], rebuilds };

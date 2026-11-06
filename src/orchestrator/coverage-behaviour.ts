@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GraphStore } from "../graph/index.js";
-import { runScenario } from "../verify/replay/run-scenario.js";
+import { forReconstruction, runScenario } from "../verify/replay/run-scenario.js";
 import { fileSha256 } from "./file-hash.js";
 import { NotFoundError } from "./function-context.js";
 import { liftBinary } from "./lift-binary.js";
@@ -40,7 +40,9 @@ export async function coverageBehaviour(store: GraphStore, original: string, top
     const report: CoverageReport = { translated: lifted.addresses.length, covered: 0, behaviours: [], uncovered: [] };
     for (const h of behaviours) {
       const file = join(dir, `coverage-${report.behaviours.length}.txt`);
-      await runScenario(linked.executable, (h.value as BehaviourValue).scenario, { ATLAS_COVERAGE: file });
+      await runScenario(linked.executable, forReconstruction((h.value as BehaviourValue).scenario), {
+        ATLAS_COVERAGE: file,
+      });
       const reached = (await readFile(file, "utf8").catch(() => ""))
         .split("\n")
         .filter((l) => l !== "")

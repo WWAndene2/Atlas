@@ -170,3 +170,15 @@ export function differences(expected: Outcome, got: Outcome, vary: string[] = []
   }
   return out;
 }
+
+/**
+ * How much longer than the scenario's time limit a reconstruction may run: translated code is slower than the
+ * original's (Lua's constructs.lua test: 1.2 s natively, 61 s translated), and a reconstruction that is slow but
+ * right must not read as a hang.
+ */
+export const RECONSTRUCTION_SLOWDOWN = 20;
+
+/** The scenario as a reconstruction is run on it: the same, with the time limit widened. */
+export function forReconstruction(scenario: Scenario): Scenario {
+  return { ...scenario, timeout_s: (scenario.timeout_s ?? 60) * RECONSTRUCTION_SLOWDOWN };
+}
