@@ -134,6 +134,8 @@ int main(int argc, char **argv) {
   f = fopen(argv[1], "rb"); fseek(f, 1, SEEK_SET);
   fgets(buf, sizeof buf, f); long at = ftell(f); fclose(f); remove(argv[1]);
   fprintf(stdout, "%s%ld %s\\n", buf, at, getenv("ATLAS_WIN_TEST") ? getenv("ATLAS_WIN_TEST") : "-");
+  char name[L_tmpnam + 8]; memset(name, 'X', sizeof name); tmpnam(name); /* must stay within L_tmpnam */
+  if (name[L_tmpnam] != 'X' || strlen(name) >= L_tmpnam) return 9;
   return strlen(argv[argc - 1]) == 5 ? 3 : 1;
 }
 `;

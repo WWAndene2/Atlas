@@ -42,11 +42,14 @@ WIN static void *w_signal(int sig, void *handler) {
   return previous;
 }
 
+/* msvcrt's tmpnam writes into a buffer of L_tmpnam bytes, 14 for MinGW: the name must fit, NUL included
+ * ("/tmp/a" and 7 hex digits from the process and a counter: 13 characters). */
+#define WIN_L_TMPNAM 14
 WIN static char *w_tmpnam(char *out) {
-  static char name[32];
+  static char name[WIN_L_TMPNAM];
   static unsigned counter;
   char *to = out ? out : name;
-  snprintf(to, 32, "/tmp/atlas_tmp_%d_%u", (int)getpid(), counter++);
+  snprintf(to, WIN_L_TMPNAM, "/tmp/a%07x", ((unsigned)getpid() * 4099u + counter++) & 0xfffffffu);
   return to;
 }
 
